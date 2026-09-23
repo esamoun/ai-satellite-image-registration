@@ -8,9 +8,9 @@ images, on accuracy and on compute cost. Displacements are simulated on real
 imagery, so the ground truth is exact down to a fraction of a pixel.
 
 **Status: in progress, level N1** (simulator, classic methods, metrics). So far the
-pipeline runs end to end with phase correlation, on a synthetic texture or on a
-real Sentinel-2 chip, under increasingly degraded conditions, for translations and
-small affine motions. SIFT + RANSAC and AROSICS come next.
+pipeline runs end to end with phase correlation and SIFT + RANSAC, on a synthetic
+texture or on a real Sentinel-2 chip, under increasingly degraded conditions, for
+translations and small affine motions. AROSICS comes next.
 
 ## Run it
 
@@ -28,6 +28,17 @@ prints the results table and writes it to `outputs/benchmark/` as `summary.md` a
 `summary.csv`, with one row per pair and method in `pairs.csv`. `satreg benchmark
 --help` lists the options (number of pairs, image size, motion ranges, seed, failure
 threshold).
+
+### Methods
+
+- `phase_correlation`: scikit-image's sub-pixel phase correlation, refined to
+  1/100 px. It estimates a single translation.
+- `sift_ransac`: OpenCV SIFT keypoints, matched with Lowe's ratio test, and an
+  affine transform fitted by RANSAC. With too few inliers it declines the pair,
+  which counts as a failure. Its match and inlier counts are in `pairs.csv`.
+
+`--methods` picks some. Method parameters (SIFT's ratio, RANSAC threshold and
+minimum inlier count) are set in [`configs/methods.toml`](configs/methods.toml).
 
 ### Translation and affine motion
 

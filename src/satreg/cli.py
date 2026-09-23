@@ -10,7 +10,7 @@ import numpy as np
 from .benchmark import SCENARIOS, BenchmarkConfig, run_benchmark
 from .degrade import Preset, load_presets
 from .ingest import fetch_chip, read_chip
-from .methods import METHODS
+from .methods import METHODS, Method, load_methods
 from .metrics import FAILURE_EPE_PX
 from .report import summarize, to_markdown, write_csv
 from .sites import SitesConfig, load_sites
@@ -24,6 +24,7 @@ SYNTHETIC_SITE_PX = 1024
 
 DEFAULT_SITES_CONFIG = Path("configs/sites.toml")
 DEFAULT_DEGRADATIONS_CONFIG = Path("configs/degradations.toml")
+DEFAULT_METHODS_CONFIG = Path("configs/methods.toml")
 DEFAULT_DATA_DIR = Path("data")
 
 
@@ -129,6 +130,12 @@ def _parser() -> argparse.ArgumentParser:
         choices=sorted(METHODS),
         default=sorted(METHODS),
     )
+    bench.add_argument(
+        "--methods-config",
+        type=Path,
+        default=DEFAULT_METHODS_CONFIG,
+        help="TOML file setting the methods' parameters",
+    )
     bench.add_argument("--out", type=Path, default=Path("outputs/benchmark"))
     return parser
 
@@ -211,6 +218,25 @@ def degradation_presets(args: argparse.Namespace) -> dict[str, Preset]:
     return {name: presets[name] for name in names}
 
 
+def configured_methods(args: argparse.Namespace) -> dict[str, Method]:
+    """Build the methods the benchmark runs, with their configured parameters.
+
+    Args:
+        args: Parsed ``benchmark`` arguments.
+
+    Returns:
+        Method name to method, in the order requested.
+    """
+    try:
+        methods = load_methods(args.methods_config)
+    except FileNotFoundError:
+        raise SystemExit(
+            f"satreg: no method parameters at {args.methods_config} "
+            "(run from the repository root or pass --methods-config)"
+        ) from None
+    return {name: methods[name] for name in args.methods}
+
+
 def benchmark(args: argparse.Namespace) -> str:
     """Run the benchmark on the requested sites and write its tables.
 
@@ -233,7 +259,7 @@ def benchmark(args: argparse.Namespace) -> str:
     )
     degradations = degradation_presets(args)
     sites = site_images(args)
-    methods = {name: METHODS[name] for name in args.methods}
+    methods = configured_methods(args)
 
     results = run_benchmark(sites, methods, config, degradations)
     summary = summarize(results)

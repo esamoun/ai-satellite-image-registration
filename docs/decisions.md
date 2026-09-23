@@ -437,3 +437,80 @@ affine part.
 
 This changes the numbers of earlier runs. The margin grew from 20 to 24 px, so
 the same seed now cuts different windows.
+
+---
+
+## 2026-09-23: SIFT + RANSAC as OpenCV ships it, always fitting an affine
+
+**Decision.** The second classic method (`sift_ransac`) detects SIFT keypoints in
+both images with OpenCV's defaults, matches their descriptors by brute force with
+Lowe's ratio test (0.75), and fits an affine transform to the matches with
+`cv2.estimateAffine2D`: RANSAC with a 1 px reprojection threshold, then
+Levenberg-Marquardt refinement on the inliers. It fits an affine on every pair,
+translation pairs included. With fewer than 10 matches or 10 inliers it declines
+the pair (entry below). Ratio, threshold and minimum inlier count are set in
+`configs/methods.toml`. OpenCV comes from the `opencv-python-headless` wheel, a
+core dependency.
+
+SIFT in OpenCV reads 8-bit images, so each image is stretched linearly between
+its own 1st and 99th percentiles to 0-255, then clipped and rounded. The mapping
+uses nothing but the image it converts: it does not know which preset the pair
+went through, and a gain or offset between the two images leaves it unchanged
+(tested). Clouds do move the 99th percentile, which is intended: a method sees
+the cloudy image as it is.
+
+**Why.** It is the textbook feature-based pipeline, called as a practitioner
+would call it, which is what a baseline should be. It models the affine part that
+phase correlation cannot. On 20 clean affine pairs it scores 0.005 px on the
+synthetic site and 0.023 px on Beauce, against 0.23 and 0.22 px for phase
+correlation, which is stuck at the floor of a translation model. On translation
+pairs it matches phase correlation on Beauce (0.023 px both) and costs nothing
+measurable for its four extra parameters. Fitting one model everywhere keeps the
+method blind to the scenario, as a real user would be. `hard` is where it breaks:
+on Beauce, 15 dB of noise and a 1 px blur on flat agricultural parcels leave
+about 6 inliers per pair, and it fails 75 % (translation) and 80 % (affine) of
+the pairs, where phase correlation fails 0 and 5 %. On the pairs SIFT keeps it is
+the more accurate of the two (0.38 against 0.44 px on translations, 0.32 against
+0.50 px on affine pairs), but it keeps few. On the synthetic texture, which has
+structure at every scale, it never fails on `hard`.
+
+The 8-bit stretch was probed on the same pairs: full range (0-100 %), 0.1-99.9 %,
+1-99 % and 2-98 % give the same clean and mild results to within about 0.01 px. On
+`hard` the full range fails less (12/20 against 15/20) but with a mean error of
+0.62 px on the pairs it keeps, against 0.38 px. The RANSAC threshold was probed
+at 0.5, 1 and 3 px: 0.5 px lowers the clean error (0.015 against 0.023 px) and
+fails as often on `hard` (16/20), 3 px raises it (0.035 px). The threshold is a
+trade that ticket 09's full run can settle; 1 px is the common choice. None of these
+changes the picture, so the values stay at the textbook ones.
+
+**Rejected.** A FLANN matcher: approximate and not deterministic across runs,
+for no speed need on 256 px pairs. Fitting a translation on translation pairs:
+it would tell the method the answer's model. SIFT on 16-bit or float input:
+OpenCV's SIFT refuses anything but 8 bits. A fixed stretch in reflectance units:
+it would not apply to the synthetic texture, and a radiometric preset would push
+the moving image out of range.
+
+---
+
+## 2026-09-23: Methods can decline a pair and report diagnostics; their parameters live in a file
+
+**Decision.** A method may return a bare displacement or an `Estimate` carrying
+diagnostics (for SIFT: keypoints, matches, inliers). It may also raise
+`RegistrationFailure`, with a reason and the diagnostics it had. The benchmark
+records that as a failed pair, with the reason in the `error` column, as it
+already did for crashes. Diagnostics go to a `diagnostics` column of `pairs.csv`,
+as a JSON object. Method parameters are read from `configs/methods.toml`
+(`--methods-config`), one `[methods.<name>]` table per configurable method; a
+method with no table keeps its defaults.
+
+**Why.** A method that knows it has too little evidence should say so rather than
+return a guess, because in real use there is no ground truth to catch the guess.
+On `hard` Beauce, 30 of SIFT's 31 failed pairs were declined this way (fewer than
+10 inliers). Only one produced an estimate off by more than 1 px. In a probe
+over 120 hard Beauce pairs, 66 of the 99 fits with at least 5 inliers were more
+than 1 px off, against 8 of the 35 with at least 10. The table cannot tell the two kinds of
+failure apart, but `pairs.csv` can, through the `error` column. Declining is
+logged at debug level, since on `hard` it is the common case, while a crash
+still logs a warning. Diagnostics stay a free-form JSON cell because each method
+has its own (AROSICS reports a reliability, RAFT nothing), and one column per
+diagnostic would fill the table with blanks.

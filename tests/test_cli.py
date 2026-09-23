@@ -10,9 +10,12 @@ from satreg.cli import main
 from satreg.ingest import cache_path
 from satreg.sites import load_sites
 
+CONFIGS = Path(__file__).parents[1] / "configs"
 PRESETS = [
     "--degradations-config",
-    str(Path(__file__).parents[1] / "configs" / "degradations.toml"),
+    str(CONFIGS / "degradations.toml"),
+    "--methods-config",
+    str(CONFIGS / "methods.toml"),
 ]
 
 
@@ -122,3 +125,23 @@ def test_unknown_preset_is_reported_with_the_configured_ones(tmp_path):
 def test_missing_presets_file_is_reported(tmp_path):
     with pytest.raises(SystemExit, match="no degradation presets"):
         main(["benchmark", "--degradations-config", str(tmp_path / "none.toml")])
+
+
+def test_benchmark_runs_sift_ransac_and_writes_its_diagnostics(tmp_path, capsys):
+    main(
+        ["benchmark", "--pairs", "2", "--size", "64", "--out", str(tmp_path)]
+        + ["--degradations", "clean", "--methods", "sift_ransac"]
+        + PRESETS
+    )
+
+    printed = capsys.readouterr().out
+    assert "| synthetic | affine | clean | sift_ransac | 2 |" in printed
+    assert "phase_correlation" not in printed
+    assert '""inliers"": ' in (tmp_path / "pairs.csv").read_text()
+
+
+def test_missing_method_parameters_file_is_reported(tmp_path):
+    with pytest.raises(SystemExit, match="no method parameters"):
+        main(
+            ["benchmark", "--methods-config", str(tmp_path / "none.toml")] + PRESETS[:2]
+        )

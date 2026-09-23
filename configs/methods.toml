@@ -1,0 +1,11 @@
+# Parameters of the registration methods, one [methods.<name>] table per method
+# that has any. The reasoning behind the values is in docs/decisions.md.
+
+# SIFT keypoints, Lowe's ratio test, affine transform fitted by RANSAC.
+#   ratio             keep a match if its distance is below ratio x the second best
+#   ransac_threshold  largest reprojection error of an inlier, in px
+#   min_inliers       fewer inliers than this is reported as a failure
+[methods.sift_ransac]
+ratio = 0.75
+ransac_threshold = 1.0
+min_inliers = 10

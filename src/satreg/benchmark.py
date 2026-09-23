@@ -1,5 +1,6 @@
 """Run methods on simulated pairs and score them against the ground truth."""
 
+import json
 import logging
 import math
 import zlib
@@ -10,7 +11,7 @@ import numpy as np
 
 from .degrade import Degradation, Preset
 from .displacement import Affine
-from .methods import Method
+from .methods import Estimate, Method, RegistrationFailure
 from .metrics import FAILURE_EPE_PX, is_failure, score
 from .simulate import (
     SimulatedPair,
@@ -88,7 +89,9 @@ class PairResult:
         share_below_0_1: Share of pixels with an error under 0.1 px.
         share_below_0_5: Share of pixels with an error under 0.5 px.
         failed: Whether the pair counts as a failure.
-        error: Exception raised by the method, empty otherwise.
+        error: Why the method gave up or crashed, empty otherwise.
+        diagnostics: The method's own diagnostics as a JSON object, e.g.
+            ``{"inliers": 153}``, empty if it reports none.
     """
 
     site: str
@@ -104,6 +107,7 @@ class PairResult:
     share_below_0_5: float
     failed: bool
     error: str
+    diagnostics: str
 
 
 def _rng(seed: int, *keys: str | int) -> np.random.Generator:
@@ -196,6 +200,11 @@ def draw_pair(
     return simulate_affine(source, truth, margin)
 
 
+def _as_json(diagnostics: dict[str, float]) -> str:
+    """Render diagnostics for a CSV cell: a JSON object, or empty if none."""
+    return json.dumps(diagnostics, sort_keys=True) if diagnostics else ""
+
+
 def _run_method(
     method: Method,
     pair: SimulatedPair,
@@ -203,6 +212,9 @@ def _run_method(
     labels: dict[str, str | int],
 ) -> PairResult:
     """Run and score one method on one pair, turning any exception into a failure.
+
+    A ``RegistrationFailure`` is the method declining the pair, an expected
+    outcome; any other exception is a crash. Both are failed rows.
 
     Args:
         method: Method to run.
@@ -214,12 +226,22 @@ def _run_method(
     Returns:
         The pair's result row.
     """
+    diagnostics = {}
     try:
         estimate = method(pair.reference, pair.moving)
+        if isinstance(estimate, Estimate):
+            diagnostics = dict(estimate.diagnostics)
+            estimate = estimate.displacement
         pair_score = score(pair.truth, estimate, pair.reference.shape, pair.valid)
     # A method that crashes is a result, not a reason to stop the run.
     except Exception as exc:
-        logger.warning("%s failed: %s: %s", labels["method"], type(exc).__name__, exc)
+        if isinstance(exc, RegistrationFailure):
+            diagnostics = exc.diagnostics
+            logger.debug("%s gave up: %s", labels["method"], exc)
+        else:
+            logger.warning(
+                "%s failed: %s: %s", labels["method"], type(exc).__name__, exc
+            )
         return PairResult(
             **labels,
             cloud_fraction=pair.cloud_fraction,
@@ -230,6 +252,7 @@ def _run_method(
             share_below_0_5=0.0,
             failed=True,
             error=f"{type(exc).__name__}: {exc}",
+            diagnostics=_as_json(diagnostics),
         )
     return PairResult(
         **labels,
@@ -241,6 +264,7 @@ def _run_method(
         share_below_0_5=pair_score.share_below_0_5,
         failed=is_failure(pair_score, failure_threshold),
         error="",
+        diagnostics=_as_json(diagnostics),
     )
 
 

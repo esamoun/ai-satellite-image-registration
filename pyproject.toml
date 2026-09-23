@@ -13,6 +13,7 @@ authors = [{ name = "Eithan Samoun" }]
 
 dependencies = [
     "numpy",
+    "opencv-python-headless>=4.5",
     "pystac-client",
     "rasterio",
     "scipy",

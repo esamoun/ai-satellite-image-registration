@@ -23,7 +23,9 @@ def test_benchmark_writes_its_tables_and_prints_the_summary(tmp_path, capsys):
 
     printed = capsys.readouterr().out
     # Every configured preset, in file order.
-    assert "| synthetic | clean | phase_correlation | 3 | 0.0 % |" in printed
+    assert (
+        "| synthetic | translation | clean | phase_correlation | 3 | 0.0 % |" in printed
+    )
     assert printed.index("| mild |") < printed.index("| hard |")
     assert (tmp_path / "summary.md").read_text() == printed
     assert (tmp_path / "pairs.csv").exists()
@@ -70,7 +72,7 @@ def test_benchmark_runs_on_a_configured_site_from_the_cache(
     )
 
     printed = capsys.readouterr().out
-    assert "| beauce | clean | phase_correlation | 2 |" in printed
+    assert "| beauce | translation | clean | phase_correlation | 2 |" in printed
     assert "synthetic" not in printed
     assert "mild" not in printed
     assert (out / "summary.md").read_text() == printed
@@ -98,6 +100,18 @@ def test_benchmark_sweeps_the_named_presets_in_the_order_given(tmp_path, capsys)
     assert printed.index("| hard |") < printed.index("| clean |")
     assert "| mild |" not in printed
     assert "cloud_fraction" in (tmp_path / "pairs.csv").read_text().splitlines()[0]
+
+
+def test_benchmark_runs_only_the_requested_scenarios(tmp_path, capsys):
+    main(
+        ["benchmark", "--pairs", "2", "--size", "64", "--out", str(tmp_path)]
+        + ["--degradations", "clean", "--scenarios", "affine", "--max-rotation", "0.5"]
+        + PRESETS
+    )
+
+    printed = capsys.readouterr().out
+    assert "| synthetic | affine | clean | phase_correlation | 2 |" in printed
+    assert "translation" not in printed
 
 
 def test_unknown_preset_is_reported_with_the_configured_ones(tmp_path):

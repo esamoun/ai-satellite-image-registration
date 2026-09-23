@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .benchmark import BenchmarkConfig, run_benchmark
+from .benchmark import SCENARIOS, BenchmarkConfig, run_benchmark
 from .degrade import Preset, load_presets
 from .ingest import fetch_chip, read_chip
 from .methods import METHODS
@@ -85,7 +85,37 @@ def _parser() -> argparse.ArgumentParser:
     )
     bench.add_argument("--pairs", type=int, default=defaults.n_pairs)
     bench.add_argument("--size", type=int, default=defaults.size)
-    bench.add_argument("--max-shift", type=float, default=defaults.max_shift)
+    bench.add_argument(
+        "--scenarios",
+        nargs="+",
+        choices=SCENARIOS,
+        default=list(defaults.scenarios),
+        help="geometric models to simulate (default: all)",
+    )
+    bench.add_argument(
+        "--max-shift",
+        type=float,
+        default=defaults.max_shift,
+        help="largest shift of the pair centre, per component, in px",
+    )
+    bench.add_argument(
+        "--max-rotation",
+        type=float,
+        default=defaults.max_rotation_deg,
+        help="largest affine rotation, in degrees",
+    )
+    bench.add_argument(
+        "--max-scale-change",
+        type=float,
+        default=defaults.max_scale_change,
+        help="largest affine scale change, as a fraction (0.002 is 0.2 %%)",
+    )
+    bench.add_argument(
+        "--max-shear",
+        type=float,
+        default=defaults.max_shear,
+        help="largest affine shear, in px per px",
+    )
     bench.add_argument("--seed", type=int, default=defaults.seed)
     bench.add_argument(
         "--failure-threshold",
@@ -194,6 +224,10 @@ def benchmark(args: argparse.Namespace) -> str:
         n_pairs=args.pairs,
         size=args.size,
         max_shift=args.max_shift,
+        max_rotation_deg=args.max_rotation,
+        max_scale_change=args.max_scale_change,
+        max_shear=args.max_shear,
+        scenarios=tuple(dict.fromkeys(args.scenarios)),
         seed=args.seed,
         failure_threshold=args.failure_threshold,
     )

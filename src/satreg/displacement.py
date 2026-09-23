@@ -50,3 +50,89 @@ class Translation(Displacement):
         out[0] = self.dy
         out[1] = self.dx
         return out
+
+
+@dataclass(frozen=True)
+class Affine(Displacement):
+    """A displacement that varies linearly across the grid.
+
+    Reference pixel ``p = (row, col)`` is found at ``matrix @ p + offset`` in the
+    moving image, so the displacement is ``(matrix - I) @ p + offset``. Pixel
+    coordinates are array indices: the centre of the top-left pixel is ``(0, 0)``.
+
+    Attributes:
+        matrix: Linear part, in ``(row, col)`` order: ``((yy, yx), (xy, xx))``.
+        offset: ``(ty, tx)``, in pixels.
+    """
+
+    matrix: tuple[tuple[float, float], tuple[float, float]]
+    offset: tuple[float, float]
+
+    @classmethod
+    def about(
+        cls,
+        centre: tuple[float, float],
+        rotation_deg: float = 0.0,
+        scale: float = 1.0,
+        shear: float = 0.0,
+        dx: float = 0.0,
+        dy: float = 0.0,
+    ) -> "Affine":
+        """Build an affine displacement from physical parameters.
+
+        The shear is applied first, then the scale, then the rotation, all about
+        ``centre``, and the centre itself moves by ``(dx, dy)``.
+
+        Args:
+            centre: ``(row, col)`` the linear part is applied about.
+            rotation_deg: Rotation in degrees, counter-clockwise as displayed
+                (rows pointing down).
+            scale: Isotropic scale factor, positive.
+            shear: Horizontal shear: a row ``h`` px below the centre moves right by
+                ``shear * h`` px.
+            dx: Displacement of the centre along columns, in pixels.
+            dy: Displacement of the centre along rows, in pixels.
+
+        Returns:
+            The affine displacement.
+
+        Raises:
+            ValueError: If ``scale`` is not positive.
+        """
+        if scale <= 0:
+            raise ValueError(f"scale must be positive, got {scale}")
+        theta = np.radians(rotation_deg)
+        cos, sin = np.cos(theta), np.sin(theta)
+        # In (x, y) = (col, row) with y down, [[cos, sin], [-sin, cos]] turns
+        # counter-clockwise on screen.
+        rotation = np.array([[cos, sin], [-sin, cos]])
+        linear_xy = rotation @ (scale * np.array([[1.0, shear], [0.0, 1.0]]))
+        matrix = linear_xy[::-1, ::-1]  # to (row, col) order
+        c = np.asarray(centre, dtype=float)
+        offset = c + (dy, dx) - matrix @ c
+        return cls(
+            matrix=(
+                (float(matrix[0, 0]), float(matrix[0, 1])),
+                (float(matrix[1, 0]), float(matrix[1, 1])),
+            ),
+            offset=(float(offset[0]), float(offset[1])),
+        )
+
+    def apply(self, points: np.ndarray) -> np.ndarray:
+        """Map reference positions to their positions in the moving image.
+
+        Args:
+            points: Array of shape ``(2, ...)``: rows then columns.
+
+        Returns:
+            Array of the same shape: ``matrix @ p + offset`` for each point.
+        """
+        m = np.asarray(self.matrix)
+        return np.tensordot(m, points, axes=1) + np.reshape(
+            self.offset, (2,) + (1,) * (points.ndim - 1)
+        )
+
+    def field(self, shape: tuple[int, int]) -> np.ndarray:
+        """Evaluate ``(matrix - I) @ p + offset`` on a ``shape`` grid."""
+        grid = np.indices(shape, dtype=float)
+        return self.apply(grid) - grid

@@ -322,3 +322,118 @@ nothing the method did); giving methods the true cloud mask (unrealistically
 perfect); clouds on both images (a later option, but a cloud in the reference
 only is symmetric to one in the moving image for a global shift, and one side
 keeps the table readable).
+
+---
+
+## 2026-09-23: Affine motion in physical units, with ranges sized around the 0.3 px co-registration spec
+
+**Decision.** An affine displacement is given as a rotation (degrees), a scale
+factor, a shear and a translation (px), applied about the pair's centre: shear,
+then scale, then rotation, then the centre moves by `(dx, dy)`. Rotation is
+counter-clockwise on screen (rows point down), and the shear is `x' = x + shear·y`.
+The truth is stored as the resulting matrix and offset (`q = M p + o` in row and
+column indices), so metrics still see only a field (entry "One displacement
+convention"). Benchmark defaults draw each parameter uniformly within:
+
+| parameter | range | largest effect at the corner of a 256 px pair |
+|---|---|---:|
+| rotation | ±0.2° | 0.63 px |
+| scale | 1 ± 0.002 | 0.36 px |
+| shear | ±0.002 | 0.26 px |
+| translation | ±4 px | (same as the translation scenario) |
+
+On the default run the part of the truth that is not a translation averages
+0.45 px at the worst corner of a pair, up to 0.89 px.
+
+**Why.** Physical units make the ranges checkable against the sensor. The
+Sentinel-2 multi-temporal co-registration requirement is 0.3 px at 95 % for the
+10 m bands, and orthorectified L2A pairs of one tile are close to pure
+translations. The lower half of each range is what a pair within spec can show.
+The upper half stands for pairs outside it: before orthorectification, across
+sensors, or with residual terrain effects. The ranges cross the project's 0.1 px
+target on purpose, so the table separates methods that model the motion from
+methods that do not. They are judgement calls, not measured on real pairs.
+Checking them against real Sentinel-2 residuals is N2's job. Applying the
+transform about the pair's centre keeps `(dx, dy)` the displacement at the
+centre, so an affine pair and its translation twin share it (entry below).
+
+**Rejected.** A raw 2 × 3 matrix as the input: its entries have no range anyone
+can check against a spec. Degree-level rotations and percent-level scale changes:
+they describe airborne or uncorrected imagery, not orthorectified Sentinel-2.
+
+---
+
+## 2026-09-23: One band-limited warp for every scenario, and a validity mask from the truth
+
+**Decision.** Affine warps use the same interpolation as translations: band-limited
+(Fourier) resampling. The warp is split into two 1-D shear-and-scale passes (the
+Catmull–Smith decomposition): rows, then columns. Each line is mirrored like the
+translation window, then resampled at evenly spaced positions by evaluating its
+Fourier series there. With no linear part, the warp reduces to `fourier_shift`, to
+5.5e-5 of the image range and exactly for integer shifts, so both scenarios share
+one interpolation. Transforms that two passes cannot handle (rotations beyond
+about 45°, reflections) are refused. They are far outside the ranges above.
+
+The margin cropped around a pair covers the largest displacement any scenario of
+the run can produce. It is bounded analytically from the configured ranges
+(7.1 px by default, hence a 24 px margin, up from 20 px for translations alone).
+`simulate_affine` refuses a margin below what its transform needs.
+
+A reference pixel is valid when its displaced position falls inside the moving
+image, between the first and last pixel centres. The mask is computed from the
+truth, so it cannot go stale and degradations keep it. The benchmark averages
+errors over valid pixels only. That is 97 to 98 % of the pixels on the default run.
+
+**Why.** The previous entry on Fourier shifts holds for warps too: a spline or a
+windowed-sinc kernel low-passes the moving image, so methods would face a blur
+on top of the motion. That blur would also land in the affine scenario only,
+since the translation scenario uses a Fourier shift. Measured on sub-pixel shifts
+of (0.5, 0.5) px, the maximum error against an exact shift was:
+
+| interpolation | MTF texture | Beauce |
+|---|---:|---:|
+| Fourier | 0.036 | 0.026 |
+| cubic spline | 0.235 | 0.164 |
+| quintic spline | 0.160 | 0.100 |
+| Lanczos-4 | 0.168 | not measured |
+| Lanczos-6 | 0.123 | not measured |
+
+Against an analytic rendering of Gaussian spots under a 2° rotation, 2 % zoom and
+0.01 shear, the two-pass warp is off by 8.5e-6 (the cubic spline by 3.4e-3). It
+moves spot centroids to within 1.4e-5 px of the truth. It takes about 5 ms on a
+200 px image. The mask matters because at the edge of an affine pair the
+reference shows content that the moving image does not. Scoring those pixels
+would score the simulator, not the method. For a translation the mask removes
+the band that a shift uncovers. The clouds entry still holds: pixels under cloud
+stay in the metric, because the truth is defined there.
+
+**Rejected.** `scipy.ndimage.affine_transform` at spline order 3 or 5, and Lanczos
+kernels: numbers above. A 2-D Fourier warp by chirp-z or a non-uniform FFT: more
+code and a dependency, for the same band-limited result as two exact 1-D passes.
+Excluding border pixels by a fixed band: too wide for a translation, and still
+wrong at the corners of a rotation.
+
+---
+
+## 2026-09-23: Affine pairs are twins of translation pairs
+
+**Decision.** Scenarios are a column of the results table (`translation`,
+`affine`, set with `--scenarios`). For a given seed, site and pair index, both
+scenarios draw the window, the shift and the affine parameters in the same
+order. The margin is the same whichever scenarios run. So the affine pair has the
+same reference image and the same displacement at its centre as its translation
+twin. It differs only by the linear part of the motion. Degradations are seeded
+the same way in both scenarios.
+
+**Why.** The difference between the two rows of a method is then the cost of the
+motion model alone. That is the question the affine scenario exists to answer.
+First finding: phase correlation on affine pairs sits at the floor of any
+translation model, meaning the best single translation, the componentwise median
+of the true field over valid pixels. On 20 clean pairs of 256 px it scores
+0.2315 px against a floor of 0.2311 px on the synthetic site, and 0.2179 px
+against 0.2126 px on Beauce. It finds the right translation, and its whole error
+is the model's. A method that reaches 0.1 px on these pairs has to model the
+affine part.
+
+This changes the numbers of earlier runs. The margin grew from 20 to 24 px, so
+the same seed now cuts different windows.

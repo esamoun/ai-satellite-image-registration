@@ -9,8 +9,8 @@ imagery, so the ground truth is exact down to a fraction of a pixel.
 
 **Status: in progress, level N1** (simulator, classic methods, metrics). So far the
 pipeline runs end to end with phase correlation, on a synthetic texture or on a
-real Sentinel-2 chip, under increasingly degraded conditions. Affine motion,
-SIFT + RANSAC and AROSICS come next.
+real Sentinel-2 chip, under increasingly degraded conditions, for translations and
+small affine motions. SIFT + RANSAC and AROSICS come next.
 
 ## Run it
 
@@ -23,11 +23,24 @@ make test
 satreg benchmark
 ```
 
-`satreg benchmark` simulates pairs with known sub-pixel shifts, runs every method,
+`satreg benchmark` simulates pairs with known sub-pixel motion, runs every method,
 prints the results table and writes it to `outputs/benchmark/` as `summary.md` and
 `summary.csv`, with one row per pair and method in `pairs.csv`. `satreg benchmark
---help` lists the options (number of pairs, image size, maximum shift, seed, failure
+--help` lists the options (number of pairs, image size, motion ranges, seed, failure
 threshold).
+
+### Translation and affine motion
+
+Each pair is simulated twice: shifted, and under a small affine motion (rotation,
+scale change and shear about the pair's centre, on top of the same shift). Both
+versions share the reference image and the displacement at the centre, so the
+difference between the two rows of a method is the cost of its motion model.
+The default ranges (±0.2°, ±0.2 % scale, ±0.002 shear) are sized around the
+Sentinel-2 co-registration requirement of 0.3 px. `--scenarios affine` runs one
+scenario, and `--max-rotation`, `--max-scale-change` and `--max-shear` change the
+ranges. Both scenarios are warped with the same band-limited interpolation, and
+pixels whose displaced position leaves the moving image are left out of the
+metrics.
 
 ### On Sentinel-2 imagery
 
@@ -54,7 +67,7 @@ procedural clouds, at increasing strength. Every preset keeps the pair's
 geometry, so the ground truth stays exact. `satreg benchmark` runs every preset;
 `--degradations mild hard` picks some.
 
-The table reports, per site, preset and method: the share of the moving image
+The table reports, per site, scenario, preset and method: the share of the moving image
 under cloud, the mean end-point error (EPE, in pixels), the share of pixels whose
 error is under 0.1 px and under 0.5 px, and the failure rate.
 

@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from satreg.displacement import Displacement, Translation
+from satreg.displacement import Affine, Displacement, Translation
 from satreg.metrics import (
     FAILURE_EPE_PX,
     PairScore,
@@ -29,6 +29,24 @@ def test_epe_is_the_euclidean_distance_between_shifts():
 
     assert epe.shape == (20,)
     np.testing.assert_allclose(epe, 0.5)
+
+
+def test_translation_scored_on_an_affine_truth_by_hand():
+    # A 10 % zoom about the centre of a 5 x 5 grid, estimated as no motion: each
+    # pixel's error is 0.1 times its distance to the centre.
+    truth = Affine.about((2.0, 2.0), scale=1.1)
+
+    epe = endpoint_error(truth, Translation(0.0, 0.0), (5, 5)).reshape(5, 5)
+
+    assert epe[2, 2] == pytest.approx(0.0, abs=1e-12)
+    assert epe[0, 2] == pytest.approx(0.2)  # 2 px above the centre
+    assert epe[1, 3] == pytest.approx(0.1 * math.sqrt(2))
+    assert epe[0, 0] == pytest.approx(0.1 * math.sqrt(8))
+    assert epe[4, 3] == pytest.approx(0.1 * math.sqrt(5))
+    # Distances over the grid: 1 at 0, 4 at 1, 4 at sqrt 2, 4 at 2, 8 at sqrt 5
+    # and 4 at sqrt 8, which sum to 12 + 12 sqrt 2 + 8 sqrt 5.
+    mean = 0.1 * (12 + 12 * math.sqrt(2) + 8 * math.sqrt(5)) / 25
+    assert score(truth, Translation(0.0, 0.0), (5, 5)).mean_epe == pytest.approx(mean)
 
 
 def test_shares_count_pixels_strictly_under_each_threshold():

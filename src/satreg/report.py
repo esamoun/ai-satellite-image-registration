@@ -13,13 +13,14 @@ from .benchmark import PairResult
 
 @dataclass(frozen=True)
 class SummaryRow:
-    """One row of the results table: a method on a site under a degradation.
+    """One row of the results table: a method on a site, scenario and degradation.
 
     Accuracy columns average the pairs that did not fail; failures are reported
     by ``failure_rate`` alone, so one wild estimate cannot swamp the mean.
 
     Attributes:
         site: Site name.
+        scenario: Geometric model of the pairs.
         degradation: Degradation name.
         method: Method name.
         n_pairs: Pairs attempted.
@@ -31,6 +32,7 @@ class SummaryRow:
     """
 
     site: str
+    scenario: str
     degradation: str
     method: str
     n_pairs: int
@@ -42,7 +44,7 @@ class SummaryRow:
 
 
 def summarize(results: Sequence[PairResult]) -> list[SummaryRow]:
-    """Group per-pair results by site, degradation and method.
+    """Group per-pair results by site, scenario, degradation and method.
 
     Args:
         results: Per-pair results, in any order.
@@ -50,13 +52,13 @@ def summarize(results: Sequence[PairResult]) -> list[SummaryRow]:
     Returns:
         One row per group, in order of first appearance.
     """
-    groups: dict[tuple[str, str, str], list[PairResult]] = {}
+    groups: dict[tuple[str, str, str, str], list[PairResult]] = {}
     for result in results:
-        key = (result.site, result.degradation, result.method)
+        key = (result.site, result.scenario, result.degradation, result.method)
         groups.setdefault(key, []).append(result)
 
     rows = []
-    for (site, degradation, method), group in groups.items():
+    for (site, scenario, degradation, method), group in groups.items():
         kept = [r for r in group if not r.failed]
 
         def mean(values: list[float]) -> float:
@@ -65,6 +67,7 @@ def summarize(results: Sequence[PairResult]) -> list[SummaryRow]:
         rows.append(
             SummaryRow(
                 site=site,
+                scenario=scenario,
                 degradation=degradation,
                 method=method,
                 n_pairs=len(group),
@@ -114,12 +117,12 @@ def to_markdown(rows: Sequence[SummaryRow]) -> str:
         return "n/a" if math.isnan(x) else f"{x:.4f}"
 
     header = (
-        "| site | degradation | method | pairs | clouds | EPE (px) | < 0.1 px "
-        "| < 0.5 px | failures |\n"
-        "|---|---|---|---:|---:|---:|---:|---:|---:|\n"
+        "| site | scenario | degradation | method | pairs | clouds | EPE (px) "
+        "| < 0.1 px | < 0.5 px | failures |\n"
+        "|---|---|---|---|---:|---:|---:|---:|---:|---:|\n"
     )
     body = "".join(
-        f"| {r.site} | {r.degradation} | {r.method} | {r.n_pairs} "
+        f"| {r.site} | {r.scenario} | {r.degradation} | {r.method} | {r.n_pairs} "
         f"| {percent(r.cloud_fraction)} | {pixels(r.mean_epe)} "
         f"| {percent(r.share_below_0_1)} | {percent(r.share_below_0_5)} "
         f"| {percent(r.failure_rate)} |\n"

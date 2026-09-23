@@ -721,3 +721,114 @@ somewhat; by how much was not measured.
 allocations, but with calls of 3 to 17 ms it would have to sample well under a
 millisecond not to miss their peaks, and it adds a dependency. Measuring time and memory in
 the same call: tracing would slow down the time it measures.
+
+---
+
+## 2026-09-23: One run config for the N1 table, its options recorded with the results
+
+**Decision.** `configs/n1.toml` describes the whole N1 run in a `[benchmark]`
+table: sites, scenarios, presets, methods, pairs per site, image size,
+displacement ranges, seed, failure threshold, timing settings, the other config
+files and the output folder. `satreg benchmark --config configs/n1.toml` runs it.
+Its keys are the options of `satreg benchmark` with underscores, an option given
+on the command line overrides its key, and an unknown key stops the run. Each run
+writes every option it used, wherever it came from, to `context.json` under
+`run`.
+
+**Why.** The ticket asks for one command that reproduces the table. A config file
+that mirrors the command-line options adds no second vocabulary: whatever the
+file says can be tried on the command line first, and `--pairs 5` still gives a
+quick run of the same design. Rejecting unknown keys catches a misspelt option,
+which would otherwise fall back to its default without a word. Recording the
+resolved options makes a results folder self-describing, even when it was produced
+by a mix of file and flags.
+
+**Rejected.** A separate schema for run files (a `[run]` table with nested
+`[run.ranges]`): tidier to read, but a second set of names to keep in step with
+the CLI.
+
+---
+
+## 2026-09-23: Method variants are declared in the methods config
+
+**Decision.** A `[methods.<name>]` table with a `method` key declares a variant: a
+new method `<name>`, built like the configurable method it names, with the
+table's other keys as parameters. It cannot take a built-in method's name. It runs
+only when named in `--methods` or a run config, and inherits its method's optional
+dependencies. Phase correlation became configurable for this, with one parameter,
+an apodisation window (`window = "hann"`): each image is centred on its own mean,
+then multiplied by the window.
+
+**Why.** Two choices were left to the N1 run: whether phase correlation should be
+windowed (see `failures.md`), and whether AROSICS' reliability floor should drop
+from 60 to 40 %. Both need the two settings side by side on the same pairs, in
+the same table, from the same command. A variant is the smallest thing that does
+that, and later levels will need it again (a network at two iteration counts, for
+instance). Centring before windowing matters on Sentinel-2 digital numbers, whose
+mean is far above their spread: the window would otherwise add the same large bump
+to both images, a component that does not move and peaks at zero shift.
+
+---
+
+## 2026-09-23: The N1 run: two sites, 100 pairs per site, every scenario and preset
+
+**Decision.** The N1 table crosses Beauce and Toulouse, translation and affine,
+`clean`, `mild` and `hard`, on 100 pairs per site at 256 px, seed 0, with the
+default displacement ranges. Each pair is run under every scenario and preset, so
+every cell of the table has the same 100 windows and displacements. That is 1,200
+simulated pairs and 6,000 method calls, in under six minutes on the M1.
+
+**Why.** Toulouse was optional in N1, and its chip was cached, so it is in: an urban
+texture and an open-field one behave very differently, and one site alone would
+have made the `hard` numbers look like a property of the methods rather than of
+the scene. 100 pairs puts the standard error of a failure rate at 5 points at
+most, enough to tell 4 % from 13 % or 22 % from 41 %, which are the differences
+the table turns on. Doubling it would halve nothing that changes a conclusion,
+and would double the time of every rerun.
+
+---
+
+## 2026-09-23: Phase correlation stays unwindowed; the Hann variant is reported next to it
+
+**Decision.** `phase_correlation` stays as scikit-image ships it, with no window.
+The Hann variant, `phase_correlation_hann`, is in the N1 table as its own row.
+
+**Why.** On the 1,200 pairs of the N1 run, neither dominates. The Hann window
+removes the border bias: on clean Beauce translations it brings the mean error
+from 0.026 to 0.004 px and is better on 93 of 100 pairs, and it stays ahead on
+`mild`. On `hard` it loses everywhere. On Beauce it fails 13 % of translation
+pairs against 4 %, some of them by 10 to 53 px, and on Toulouse its mean error goes
+from 0.100 to 0.183 px. The window concentrates the correlation on the centre of
+the pair, and when a cloud bank sits there, the cloud is most of what it sees (see
+`failures.md`). A baseline that is excellent on clean pairs and falls off a cliff
+under clouds is not a better baseline, it is a different trade-off, and the table
+is where that trade-off belongs. The unwindowed version stays the reference row
+because it is what the spec names and what a practitioner calls first.
+
+---
+
+## 2026-09-23: AROSICS' reliability floor drops to 40 %
+
+**Decision.** AROSICS keeps a shift it rates at 40 % reliability or more, instead
+of 60 %. The 60 % setting stays in the N1 table as `arosics_floor60`. This
+supersedes the floor in "AROSICS parameters, and a reliability floor of 60 %".
+
+**Why.** The earlier probe, 60 `hard` Beauce pairs, suggested that reliability
+tracked accuracy above 40 % (median error 0.40 px between 40 and 60 %, 0.28 px
+above). The N1 run, with 200 `hard` pairs per site, does not bear that out:
+
+| site | kept at 60 % | kept at 40 % | mean EPE, 60 % and above | mean EPE, 40 to 60 % | kept pairs off by > 1 px |
+|---|---:|---:|---:|---:|---:|
+| Beauce | 46 | 103 | 0.449 px | 0.448 px | 0 |
+| Toulouse | 119 | 157 | 0.345 px | 0.356 px | 0 |
+
+Between 40 and 60 %, the added shifts are as accurate as the ones AROSICS trusted
+already, and none is a gross error. The 60 % floor was declining good estimates:
+on `hard` Beauce, AROSICS failed 78 % of pairs with it and 50 % without. The
+floor stays at 40 % rather than lower because the probe's gross errors, all six of
+them, were rated below 40 %. On `clean` and `mild`, every shift rates 80 % or more,
+so the floor changes nothing there.
+
+**Rejected.** Keeping 60 % because AROSICS uses it in its local co-registration:
+that default is tuned for a grid of many windows, where a declined window costs
+little, not for a single global shift.

@@ -1,4 +1,4 @@
-.PHONY: install install-arosics lint format test fetch benchmark clean
+.PHONY: install install-arosics lint format test fetch benchmark n1 clean
 
 install:
 	pip install -e ".[dev]"
@@ -25,6 +25,10 @@ fetch:
 
 benchmark:
 	satreg benchmark
+
+# The N1 results table, published in docs/evaluation.md.
+n1:
+	satreg benchmark --config configs/n1.toml
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

@@ -3,6 +3,7 @@
 import argparse
 import json
 import logging
+import tomllib
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -46,7 +47,17 @@ def _add_data_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _parser() -> argparse.ArgumentParser:
+def _parser(run_config: dict[str, object] | None = None) -> argparse.ArgumentParser:
+    """Build the argument parser.
+
+    Args:
+        run_config: Defaults for ``benchmark`` options, by destination name, as
+            read by ``load_run_config``. Options given on the command line still
+            win.
+
+    Returns:
+        The parser.
+    """
     parser = argparse.ArgumentParser(prog="satreg", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -66,6 +77,12 @@ def _parser() -> argparse.ArgumentParser:
         "benchmark", help="score methods on simulated pairs and write the table"
     )
     defaults = BenchmarkConfig()
+    bench.add_argument(
+        "--config",
+        type=Path,
+        help="TOML file whose [benchmark] table sets any of the options below, "
+        "by their name with underscores; options given here override it",
+    )
     bench.add_argument(
         "--site",
         action="append",
@@ -142,9 +159,13 @@ def _parser() -> argparse.ArgumentParser:
     bench.add_argument(
         "--methods",
         nargs="+",
-        choices=sorted(METHODS),
-        default=[name for name in sorted(METHODS) if not missing_dependencies(name)],
-        help="methods to run (default: every method whose dependencies are installed)",
+        metavar="METHOD",
+        default=[
+            name for name in sorted(METHODS) if not missing_dependencies(METHODS[name])
+        ],
+        help=f"methods to run, among {', '.join(sorted(METHODS))} and the variants "
+        "declared in the methods config (default: every built-in method whose "
+        "dependencies are installed)",
     )
     bench.add_argument(
         "--methods-config",
@@ -153,7 +174,57 @@ def _parser() -> argparse.ArgumentParser:
         help="TOML file setting the methods' parameters",
     )
     bench.add_argument("--out", type=Path, default=Path("outputs/benchmark"))
+    if run_config:
+        bench.set_defaults(**run_config)
     return parser
+
+
+def load_run_config(path: Path) -> dict[str, object]:
+    """Read the ``[benchmark]`` table of a run configuration file.
+
+    Args:
+        path: TOML file with a ``[benchmark]`` table. Its keys are ``benchmark``
+            options by destination name (``max_shift`` for ``--max-shift``).
+            Paths are read relative to the working directory, like the
+            command-line options.
+
+    Returns:
+        Option destination to value.
+
+    Raises:
+        SystemExit: If the file is missing, has no ``[benchmark]`` table, or sets
+            an option that does not exist.
+    """
+    try:
+        with path.open("rb") as f:
+            raw = tomllib.load(f)
+    except FileNotFoundError:
+        raise SystemExit(f"satreg: no run configuration at {path}") from None
+    if "benchmark" not in raw:
+        raise SystemExit(f"satreg: {path} needs a [benchmark] table")
+    options = set(vars(_parser().parse_args(["benchmark"]))) - {"command", "config"}
+    unknown = sorted(set(raw["benchmark"]) - options)
+    if unknown:
+        raise SystemExit(
+            f"satreg: {path}: unknown benchmark option {unknown[0]!r} "
+            f"(options: {', '.join(sorted(options))})"
+        )
+    return raw["benchmark"]
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse the command line, with defaults from ``--config`` if it is given.
+
+    Args:
+        argv: Arguments, without the program name; ``sys.argv`` if ``None``.
+
+    Returns:
+        The parsed arguments.
+    """
+    args = _parser().parse_args(argv)
+    if getattr(args, "config", None) is None:
+        return args
+    return _parser(load_run_config(args.config)).parse_args(argv)
 
 
 def _configured_site(config: SitesConfig, name: str) -> None:
@@ -248,12 +319,6 @@ def configured_methods(args: argparse.Namespace) -> dict[str, Method]:
     Returns:
         Method name to method, in the order requested.
     """
-    for name in args.methods:
-        if missing := missing_dependencies(name):
-            raise SystemExit(
-                f"satreg: method {name} needs {', '.join(missing)}, not installed "
-                "(see the README)"
-            )
     try:
         methods = load_methods(args.methods_config)
     except FileNotFoundError:
@@ -261,6 +326,16 @@ def configured_methods(args: argparse.Namespace) -> dict[str, Method]:
             f"satreg: no method parameters at {args.methods_config} "
             "(run from the repository root or pass --methods-config)"
         ) from None
+    for name in args.methods:
+        if name not in methods:
+            raise SystemExit(
+                f"satreg: unknown method {name!r} (known: {', '.join(methods)})"
+            )
+        if missing := missing_dependencies(methods[name]):
+            raise SystemExit(
+                f"satreg: method {name} needs {', '.join(missing)}, not installed "
+                "(see the README)"
+            )
     return {name: methods[name] for name in args.methods}
 
 
@@ -298,6 +373,9 @@ def benchmark(args: argparse.Namespace) -> str:
         "repeats": config.repeats,
         "process_peak_rss_mib": process_peak_rss_mib(),
     }
+    # Every option the run used, whether from the command line, a run config or
+    # a default, so the tables can be reproduced from this file alone.
+    context["run"] = {k: v for k, v in sorted(vars(args).items()) if k != "command"}
     table = to_markdown(summary) + (
         f"\nMeasured on {describe(context)}. Time is the median of {config.repeats} "
         f"calls per pair, after {config.warmup} warm-up call(s) per method; memory "
@@ -308,7 +386,9 @@ def benchmark(args: argparse.Namespace) -> str:
     write_csv(results, args.out / "pairs.csv")
     write_csv(summary, args.out / "summary.csv")
     (args.out / "summary.md").write_text(table)
-    (args.out / "context.json").write_text(json.dumps(context, indent=2) + "\n")
+    # Paths in the run options are written as text.
+    context_json = json.dumps(context, indent=2, default=str)
+    (args.out / "context.json").write_text(context_json + "\n")
     return table
 
 
@@ -317,7 +397,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     # rasterio logs its session setup at INFO, which is noise here.
     logging.getLogger("rasterio").setLevel(logging.WARNING)
-    args = _parser().parse_args(argv)
+    args = parse_args(argv)
     if args.command == "fetch":
         for path in fetch(args):
             print(path)

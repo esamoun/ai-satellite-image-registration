@@ -78,3 +78,72 @@ correlated.
 **What was done instead.** The diagnostic applies AROSICS' own shrinking function to
 that shape, so it reports the window correlated. The benchmark and tests use 256 px
 pairs, where both agree.
+
+---
+
+## 2026-09-23: A Hann window that looked at the clouds
+
+**What was attempted.** The N1 run reported phase correlation with and without a
+Hann window, since the window had removed the blur bias on clean and mild pairs.
+
+**What happened.** On `hard` Beauce, the windowed version failed 13 of 100
+translation pairs, against 4 for the plain one, and not by a little: 12 of the 13
+were off by 10 to 53 px, far beyond the 4 px shifts simulated. All but one failed
+in the affine scenario too, by the same amounts. Only one pair failed both
+versions.
+
+**Why.** The window weights the centre of the pair and mutes its borders. With a
+30 % cloud cover, whether a cloud bank lands in the centre decides what the
+correlation sees. Weighting each pair's cloud opacity by the same Hann window: on
+the 13 pairs the windowed version failed, 53 % of the window's weight was under
+cloud on average (29 % at least); on the 87 it registered, 25 %. Clouds are only
+in the moving image, so a window full of cloud correlates a cloud edge with ground
+texture, and the peak lands anywhere. The plain version spreads its attention over
+the whole pair, including the clear borders.
+
+**What was done instead.** Nothing was fixed, because nothing is broken: both
+versions are in the table, and the plain one stays the reference row (see
+`decisions.md`). A cloud mask would help either version, and is what an
+operational chain would do; the benchmark leaves clouds to the methods on purpose.
+
+---
+
+## 2026-09-23: A probe that made reliability look informative
+
+**What was attempted.** AROSICS' reliability floor was set at 60 % after a probe on
+60 `hard` Beauce pairs, where the shifts rated between 40 and 60 % had a median
+error of 0.40 px against 0.28 px above 60 %.
+
+**What happened.** On the 400 `hard` pairs of the N1 run, the two bands have the
+same accuracy: 0.448 against 0.449 px on Beauce, 0.356 against 0.345 px on
+Toulouse. The floor was declining estimates as good as the ones it kept, and
+AROSICS' failure rate on `hard` Beauce owed about 28 points to it.
+
+**Why.** 19 and 11 pairs per band: a difference of 0.12 px between two medians that
+small is within what the draw of the pairs gives. The probe was read as a trend
+when it was noise.
+
+**What was done instead.** The floor is now 40 %, the band below which every gross
+error of the probe sat, and the 60 % setting is kept in the table as a variant so
+the comparison stays visible. Thresholds are set on the full run, not on probes.
+
+---
+
+## 2026-09-23: AROSICS found no match on one clean pair
+
+**What happened.** In the N1 run, AROSICS declined one `clean` pair, Beauce affine
+pair 31, with "No match found in the given window". It is the only clean or mild
+pair it declined out of 800. The translation version of the same pair, same window
+and same shift, it registered to 0.060 px, rated 96 % reliable. Plain phase
+correlation got 0.35 px on the affine version and SIFT 0.02 px, so the pair itself
+is not hard.
+
+**Why.** Not found. The motion does not explain it: pair 31's rotation, about
+0.17°, is only the 19th largest of the 100 affine pairs, and AROSICS registered the
+18 above it. Its correlation-peak checks rejected this one peak, and without a
+closer look inside AROSICS the reason stays unknown.
+
+**What was done instead.** Nothing: it is one pair in 800, and the table counts it
+as a failure like any other. It is logged because a classic method declining a
+clean, textured pair is not what one expects, and a later level that runs AROSICS
+on more pairs should check whether it recurs.

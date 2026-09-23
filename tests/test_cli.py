@@ -1,3 +1,4 @@
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -7,9 +8,10 @@ import pytest
 from test_ingest import CENTRE, site_at, write_cog
 
 from satreg import cli
-from satreg.cli import main, site_images
+from satreg.cli import load_run_config, main, parse_args, site_images
 from satreg.georef import NOMINAL
 from satreg.ingest import cache_path
+from satreg.methods.arosics import Arosics
 from satreg.sites import load_sites
 
 CONFIGS = Path(__file__).parents[1] / "configs"
@@ -149,8 +151,8 @@ def test_missing_method_parameters_file_is_reported(tmp_path):
         )
 
 
-def without_arosics(name):
-    return ["osgeo"] if name == "arosics" else []
+def without_arosics(method):
+    return ["osgeo"] if isinstance(method, Arosics) else []
 
 
 def test_default_methods_leave_out_those_not_installed(tmp_path, capsys, monkeypatch):
@@ -181,3 +183,107 @@ def test_synthetic_site_gets_the_nominal_grid():
 
     assert georefs == {"synthetic": NOMINAL}
     assert images["synthetic"].ndim == 2
+
+
+def test_benchmark_runs_a_variant_declared_in_the_methods_config(tmp_path, capsys):
+    main(
+        ["benchmark", "--pairs", "2", "--size", "64", "--out", str(tmp_path)]
+        + ["--degradations", "clean", "--methods", "phase_correlation_hann"]
+        + PRESETS
+    )
+
+    assert "| synthetic | translation | clean | phase_correlation_hann | 2 |" in (
+        capsys.readouterr().out
+    )
+
+
+def test_requesting_an_unknown_method_names_the_known_ones(tmp_path):
+    with pytest.raises(
+        SystemExit, match="unknown method 'orb'.*phase_correlation_hann"
+    ):
+        main(["benchmark", "--methods", "orb"] + PRESETS)
+
+
+def write_run_config(path, **options):
+    lines = ["[benchmark]"] + [f"{k} = {json.dumps(v)}" for k, v in options.items()]
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def test_run_config_sets_the_options(tmp_path, capsys):
+    config = write_run_config(
+        tmp_path / "run.toml",
+        pairs=2,
+        size=64,
+        scenarios=["affine"],
+        degradations=["clean"],
+        methods=["phase_correlation"],
+        out=str(tmp_path / "out"),
+        degradations_config=PRESETS[1],
+        methods_config=PRESETS[3],
+    )
+
+    main(["benchmark", "--config", str(config)])
+
+    printed = capsys.readouterr().out
+    assert "| synthetic | affine | clean | phase_correlation | 2 |" in printed
+    assert "translation" not in printed
+    assert (tmp_path / "out" / "summary.md").read_text() == printed
+
+
+def test_command_line_overrides_the_run_config(tmp_path):
+    config = write_run_config(tmp_path / "run.toml", pairs=50, seed=3)
+
+    args = parse_args(["benchmark", "--config", str(config), "--pairs", "7"])
+
+    assert args.pairs == 7
+    assert args.seed == 3
+
+
+def test_run_config_paths_are_read_as_paths(tmp_path):
+    config = write_run_config(tmp_path / "run.toml", out="outputs/n1")
+
+    args = parse_args(["benchmark", "--config", str(config)])
+
+    assert args.out == Path("outputs/n1")
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("[benchmark]\nn_pairs = 5\n", "unknown benchmark option 'n_pairs'.*pairs"),
+        ("[run]\npairs = 5\n", "needs a \\[benchmark\\] table"),
+    ],
+)
+def test_bad_run_config_is_rejected(tmp_path, text, message):
+    config = tmp_path / "run.toml"
+    config.write_text(text)
+
+    with pytest.raises(SystemExit, match=message):
+        parse_args(["benchmark", "--config", str(config)])
+
+
+def test_missing_run_config_is_reported(tmp_path):
+    with pytest.raises(SystemExit, match="no run configuration"):
+        parse_args(["benchmark", "--config", str(tmp_path / "none.toml")])
+
+
+def test_repository_n1_config_is_valid():
+    options = load_run_config(CONFIGS / "n1.toml")
+
+    assert options["sites"] == ["beauce", "toulouse"]
+    assert {"phase_correlation", "sift_ransac", "arosics"} <= set(options["methods"])
+
+
+def test_context_records_every_option_of_the_run(tmp_path):
+    main(
+        ["benchmark", "--pairs", "2", "--size", "64", "--out", str(tmp_path)]
+        + ["--degradations", "clean", "--seed", "11"]
+        + PRESETS
+    )
+
+    run = json.loads((tmp_path / "context.json").read_text())["run"]
+    assert run["seed"] == 11
+    assert run["pairs"] == 2
+    assert run["out"] == str(tmp_path)
+    assert run["config"] is None

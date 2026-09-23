@@ -141,7 +141,6 @@ def test_repository_configuration_loads():
     ("text", "message"),
     [
         ("[methods.orb]\n", "no configurable method orb"),
-        ("[methods.phase_correlation]\n", "no configurable method phase_correlation"),
         ("[methods.sift_ransac]\nratio = 1.5\n", "ratio must be in"),
         ("[methods.sift_ransac]\nmin_inliers = 2\n", "min_inliers must be at least"),
         ("[methods.sift_ransac]\nsigma = 1.6\n", "unexpected keyword"),

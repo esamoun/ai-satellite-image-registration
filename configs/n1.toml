@@ -1,0 +1,45 @@
+# The N1 results table: every site, scenario, degradation preset and classic
+# method, on the same seeded pairs. Reproduce it with
+#
+#   satreg benchmark --config configs/n1.toml
+#
+# Keys are the options of `satreg benchmark`, with underscores (`max_shift` for
+# `--max-shift`); an option given on the command line overrides its key here.
+# Paths are relative to the repository root. The reasoning behind the values is
+# in docs/decisions.md, and the table and its reading in docs/evaluation.md.
+
+[benchmark]
+sites = ["beauce", "toulouse"]
+scenarios = ["translation", "affine"]
+degradations = ["clean", "mild", "hard"]
+# The three classic methods, and one variant each of phase correlation and
+# AROSICS, which settle two choices left open until this run.
+methods = [
+    "phase_correlation",
+    "phase_correlation_hann",
+    "sift_ransac",
+    "arosics",
+    "arosics_floor60",
+]
+
+# Pairs per site; each is run under every scenario and preset.
+pairs = 100
+size = 256
+seed = 0
+
+# Displacement ranges: shift per component (px), rotation (degrees), scale change
+# (fraction) and shear (px per px).
+max_shift = 4.0
+max_rotation = 0.2
+max_scale_change = 0.002
+max_shear = 0.002
+
+failure_threshold = 1.0
+warmup = 1
+repeats = 3
+
+sites_config = "configs/sites.toml"
+degradations_config = "configs/degradations.toml"
+methods_config = "configs/methods.toml"
+data_dir = "data"
+out = "outputs/n1"

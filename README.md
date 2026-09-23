@@ -12,6 +12,11 @@ pipeline runs end to end with the three classic methods (phase correlation, SIFT
 RANSAC and AROSICS), on a synthetic texture or on a real Sentinel-2 chip, under
 increasingly degraded conditions, for translations and small affine motions.
 
+**First results:** [the N1 table](docs/evaluation.md), 1,200 simulated pairs on two
+Sentinel-2 sites. Phase correlation is the most robust under clouds and blur, SIFT
++ RANSAC the only classic method that follows an affine motion, and none registers
+more than 38 % of the hard pairs on the low-texture site to 0.3 px.
+
 ## Run it
 
 Python 3.11 or later.
@@ -40,13 +45,17 @@ pairs, image size, motion ranges, seed, failure threshold, timing repeats).
   co-registration (`COREG`), the standard open-source tool for Sentinel-2. It
   phase-correlates a matching window in map coordinates, on the grid of the chip
   each pair was cut from, and estimates a single translation. It declines a pair
-  when it finds no valid match or rates its own result below 60 % reliability.
+  when it finds no valid match or rates its own result below 40 % reliability.
   The reliability and the window it used are in `pairs.csv`. It is an optional
   extra (below); without it, the benchmark runs the other two.
 
 `--methods` picks some. Method parameters (SIFT's ratio, RANSAC threshold and
 minimum inlier count; AROSICS' window, maximum shift and reliability threshold)
-are set in [`configs/methods.toml`](configs/methods.toml).
+are set in [`configs/methods.toml`](configs/methods.toml). A variant of a method,
+with other parameters, is declared there too, as a table with a `method` key, and
+runs under its own name: `phase_correlation_hann` (phase correlation with a Hann
+window) and `arosics_floor60` (AROSICS with a 60 % reliability floor) are declared
+this way.
 
 ### AROSICS
 
@@ -117,8 +126,23 @@ what it really uses; the limits are measured in
 thread settings and library versions, so that runs on different machines are not
 mixed up.
 
+### The N1 run
+
+```bash
+satreg benchmark --config configs/n1.toml   # or: make n1
+```
+
+[`configs/n1.toml`](configs/n1.toml) holds every option of the run that produced
+the published table: sites, scenarios, presets, methods, number of pairs, motion
+ranges and seed. Its keys are the options of `satreg benchmark`, and an option
+given on the command line overrides its key (`--pairs 10` for a quick check).
+Every option a run used is recorded in its `context.json`. The table and its
+reading are in [`docs/evaluation.md`](docs/evaluation.md).
+
 ## Where the reasoning is
 
+- [`docs/evaluation.md`](docs/evaluation.md): the N1 results table, how to
+  reproduce it, and what it shows.
 - [`docs/decisions.md`](docs/decisions.md): each choice and why it was made.
 - [`docs/failures.md`](docs/failures.md): what did not work, and what it taught.
 

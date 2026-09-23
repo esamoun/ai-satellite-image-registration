@@ -19,4 +19,19 @@ min_inliers = 10
 window = 256
 max_shift = 5.0
 max_iter = 5
+min_reliability = 40.0
+
+# Variants: a table with a `method` key is a new method, built like the method it
+# names with the table's other keys as parameters. `satreg benchmark` runs them
+# only when they are named in --methods or in a run config.
+
+# Phase correlation on images centred and tapered by a Hann window.
+#   window  apodisation window, "hann"
+[methods.phase_correlation_hann]
+method = "phase_correlation"
+window = "hann"
+
+# AROSICS at the 60 % floor it used before the N1 run (see docs/decisions.md).
+[methods.arosics_floor60]
+method = "arosics"
 min_reliability = 60.0

@@ -514,3 +514,150 @@ logged at debug level, since on `hard` it is the common case, while a crash
 still logs a warning. Diagnostics stay a free-form JSON cell because each method
 has its own (AROSICS reports a reliability, RAFT nothing), and one column per
 diagnostic would fill the table with blanks.
+
+---
+
+## 2026-09-23: AROSICS is a compared method, not a reference
+
+**Decision.** AROSICS runs in the benchmark as the third classic method, scored
+against the simulated ground truth like the other two. Its estimates are never
+used as the truth for anything, and nothing is tuned to agree with it.
+
+**Why.** AROSICS is the tool a Sentinel-2 practitioner would reach for, which
+makes it the baseline an AI method has to beat, not the yardstick it is measured
+with. It is also a phase correlation with its own sub-pixel step, so treating it
+as a reference would hide exactly the errors this project measures. On clean
+Beauce translations it scores 0.059 px, against 0.023 px for scikit-image's phase
+correlation (see the next entries).
+
+**Rejected.** Validating the simulator against AROSICS: the simulator's truth is
+exact by construction, and AROSICS' is not.
+
+---
+
+## 2026-09-23: AROSICS and GDAL are an optional extra: brew GDAL, pinned pip bindings
+
+**Decision.** AROSICS is the `arosics` extra of `pyproject.toml`. GDAL, which it
+needs, comes from Homebrew (`brew install gdal`), and its Python bindings are
+installed by pip pinned to that version (`make install-arosics` runs
+`pip install "gdal==$(gdal-config --version)"` before the extra). The package
+imports AROSICS only when the method runs. `satreg benchmark` leaves it out of the
+default methods when it is not installed, and says what is missing when it is
+asked for. Its tests skip, saying why.
+
+**Why.** There is no pip wheel of GDAL's bindings: pip builds them against a system
+GDAL, and only the same version builds. conda would ship both, but conda is broken
+on this machine and the project is pip and venv (see the tooling entry). Keeping it
+optional keeps `make install` and the test suite light and portable: AROSICS pulls
+in geopandas, cartopy, plotly and folium, and importing it takes 1.7 s. The suite
+was run with AROSICS and GDAL blocked: 173 tests pass and the 8 that need AROSICS
+skip. rasterio ships its own GDAL (3.12) next to Homebrew's (3.13), and both load in
+the same process without trouble.
+
+**Rejected.** AROSICS as a core dependency (every install would need a system
+GDAL). conda for GDAL alone (a second environment manager for one method). Docker
+(heavy for one optional method on a laptop).
+
+---
+
+## 2026-09-23: Simulated pairs keep the grid of the chip they were cut from
+
+**Decision.** A simulated pair carries a `Georef` (CRS and pixel-to-map transform):
+the site's grid, with its origin moved to the window the pair covers. Both images
+share it. The synthetic site gets a nominal grid, 10 m pixels in UTM 31N. Methods
+that work in map coordinates subclass `GeoreferencedMethod` and are called with the
+grid. The others never see it.
+
+**Why.** AROSICS matches in map coordinates, so it needs the grid, and the chip's
+real one is on hand. Two orthorectified acquisitions share their grid, and the
+displacement is content moving on it, so giving both images the same grid is the
+situation AROSICS is built for. The grid is the one it would get in real use: a
+pixel window of the tile, with no resampling. Passing it as an array in memory
+avoids temporary files.
+
+**Rejected.** Giving the moving image a grid offset by the true shift: that would
+tell AROSICS the answer. Writing each pair to a GeoTIFF: slower, and AROSICS takes
+in-memory arrays.
+
+---
+
+## 2026-09-23: AROSICS' shift is read in map units and turned back into pixels
+
+**Decision.** AROSICS reports the correction to apply to the moving image's
+origin, in map units. The displacement is minus that correction, brought back to
+pixels by the inverse of the grid's linear part. A test pins the sign on a whole
+shift of (3, -2) px on the real-chip fixture, and the conversion is tested on a
+rotated, south-up grid with unequal pixel sizes.
+
+**Why.** The sign convention is the classic trap of wrapping a registration tool,
+and a whole shift makes it unambiguous: AROSICS finds whole shifts exactly. Going
+through map units, rather than AROSICS' own pixel shift, stays right on any grid
+orientation.
+
+---
+
+## 2026-09-23: AROSICS parameters, and a reliability floor of 60 %
+
+**Decision.** `COREG` runs with a 256 px matching window, a 5 px maximum shift and 5
+attempts at a valid peak, all set in `configs/methods.toml`. A result is kept when
+AROSICS rates its reliability at 60 % or more, the default AROSICS itself uses in
+its local co-registration. A pair with no valid match, a shift beyond the maximum,
+or a lower reliability is declined, with AROSICS' reason in the `error` column. The
+reliability and the side of the window AROSICS actually correlated go to
+`pairs.csv`.
+
+**Why.** AROSICS already sorts its own results, and a method that declines is what
+the benchmark rewards over one that guesses. A probe over 60 `hard` Beauce pairs,
+with no floor:
+
+| reliability | pairs | median EPE | pairs off by > 1 px |
+|---|---:|---:|---:|
+| no match | 18 | | |
+| 0-20 % | 8 | 0.92 px | 4 |
+| 20-40 % | 4 | 0.85 px | 2 |
+| 40-60 % | 19 | 0.40 px | 0 |
+| 60 % and above | 11 | 0.28 px | 0 |
+
+Every pair off by more than 1 px is below 40 %. A floor of 40 % would keep 30 pairs
+instead of 11, at a median error of 0.40 px on the added ones. That trade is left
+to ticket 09's full run. On `mild`, all 60 pairs rate 80 % or more.
+
+**Rejected.** No floor (AROSICS' own global default), which keeps the guesses below
+20 %.
+
+---
+
+## 2026-09-23: What AROSICS does on the benchmark
+
+**Finding.** 20 pairs per row, default presets:
+
+| site | scenario | preset | AROSICS | phase correlation | SIFT + RANSAC |
+|---|---|---|---:|---:|---:|
+| Beauce | translation | clean | 0.059 px | 0.023 px | 0.023 px |
+| Beauce | translation | mild | 0.100 px | 0.039 px | 0.048 px |
+| Beauce | translation | hard | 0.205 px, 90 % failed | 0.441 px | 0.382 px, 75 % failed |
+| Beauce | affine | clean | 0.227 px | 0.218 px | 0.023 px |
+| synthetic | translation | clean | 0.021 px | 0.011 px | 0.005 px |
+| synthetic | translation | hard | 0.188 px, 20 % failed | 0.146 px | 0.115 px |
+
+**Why.** AROSICS' clean error is its sub-pixel step: it takes the ratio of the
+correlation peak to its larger neighbour, which is exact on whole shifts and off by
+up to 0.1 px near half pixels (at most 0.096 px over 16 shifts on the fixture).
+scikit-image upsamples the correlation around the peak instead, which is why it is
+more accurate here. On affine pairs AROSICS sits at the same floor as phase
+correlation, since both fit a translation. On `hard` Beauce it declines 18 of the 20
+pairs (no match, or reliability below 60 %), and keeps the 2 it trusts, at 0.21 px.
+It is the most cautious of the three.
+
+---
+
+## 2026-09-23: A 320 px piece of the Beauce chip is committed as a test fixture
+
+**Decision.** `tests/data/beauce_b04_320.tif` (140 KB) is rows and columns 352 to 671
+of the Beauce chip, uint16, on its real UTM 31N grid, with the source scene id in
+its tags. It contains modified Copernicus Sentinel data 2025.
+
+**Why.** The ticket asks for a known sub-pixel shift recovered on a real chip, and
+the test suite refuses the network. 320 px holds a pair the size of AROSICS'
+default 256 px window, with a 32 px margin, and no more.
+Copernicus Sentinel data is free to redistribute with that attribution.

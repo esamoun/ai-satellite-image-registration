@@ -9,8 +9,9 @@ import numpy as np
 
 from .benchmark import SCENARIOS, BenchmarkConfig, run_benchmark
 from .degrade import Preset, load_presets
-from .ingest import fetch_chip, read_chip
-from .methods import METHODS, Method, load_methods
+from .georef import NOMINAL, Georef
+from .ingest import fetch_chip, read_chip, read_georef
+from .methods import METHODS, Method, load_methods, missing_dependencies
 from .metrics import FAILURE_EPE_PX
 from .report import summarize, to_markdown, write_csv
 from .sites import SitesConfig, load_sites
@@ -128,7 +129,8 @@ def _parser() -> argparse.ArgumentParser:
         "--methods",
         nargs="+",
         choices=sorted(METHODS),
-        default=sorted(METHODS),
+        default=[name for name in sorted(METHODS) if not missing_dependencies(name)],
+        help="methods to run (default: every method whose dependencies are installed)",
     )
     bench.add_argument(
         "--methods-config",
@@ -165,10 +167,13 @@ def fetch(args: argparse.Namespace) -> list[Path]:
     ]
 
 
-def site_images(args: argparse.Namespace) -> dict[str, np.ndarray]:
-    """Load the image of every site the benchmark runs on.
+def site_images(
+    args: argparse.Namespace,
+) -> tuple[dict[str, np.ndarray], dict[str, Georef]]:
+    """Load the image and map grid of every site the benchmark runs on.
 
-    Configured sites come from the chip cache, fetched first if not cached. The
+    Configured sites come from the chip cache, fetched first if not cached, on
+    the chip's own grid. The synthetic site gets a nominal grid. The
     configuration file is only read when a configured site is requested, so the
     synthetic site runs anywhere.
 
@@ -176,19 +181,21 @@ def site_images(args: argparse.Namespace) -> dict[str, np.ndarray]:
         args: Parsed ``benchmark`` arguments.
 
     Returns:
-        Site name to 2-D image.
+        Site name to 2-D image, and site name to its map grid.
     """
-    images = {}
+    images, georefs = {}, {}
     config = None
     for name in args.sites or [SYNTHETIC_SITE]:
         if name == SYNTHETIC_SITE:
             images[name] = fractal_texture(SYNTHETIC_SITE_PX, seed=args.seed)
+            georefs[name] = NOMINAL
             continue
         config = config or load_sites(args.sites_config)
         _configured_site(config, name)
         chip = fetch_chip(config.sites[name], config.catalogue, args.data_dir)
         images[name] = read_chip(chip)
-    return images
+        georefs[name] = read_georef(chip)
+    return images, georefs
 
 
 def degradation_presets(args: argparse.Namespace) -> dict[str, Preset]:
@@ -227,6 +234,12 @@ def configured_methods(args: argparse.Namespace) -> dict[str, Method]:
     Returns:
         Method name to method, in the order requested.
     """
+    for name in args.methods:
+        if missing := missing_dependencies(name):
+            raise SystemExit(
+                f"satreg: method {name} needs {', '.join(missing)}, not installed "
+                "(see the README)"
+            )
     try:
         methods = load_methods(args.methods_config)
     except FileNotFoundError:
@@ -258,10 +271,10 @@ def benchmark(args: argparse.Namespace) -> str:
         failure_threshold=args.failure_threshold,
     )
     degradations = degradation_presets(args)
-    sites = site_images(args)
+    sites, georefs = site_images(args)
     methods = configured_methods(args)
 
-    results = run_benchmark(sites, methods, config, degradations)
+    results = run_benchmark(sites, methods, config, degradations, georefs)
     summary = summarize(results)
     table = to_markdown(summary)
 

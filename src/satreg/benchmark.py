@@ -1,5 +1,6 @@
 """Run methods on simulated pairs and score them against the ground truth."""
 
+import dataclasses
 import json
 import logging
 import math
@@ -11,7 +12,8 @@ import numpy as np
 
 from .degrade import Degradation, Preset
 from .displacement import Affine
-from .methods import Estimate, Method, RegistrationFailure
+from .georef import Georef
+from .methods import Estimate, GeoreferencedMethod, Method, RegistrationFailure
 from .metrics import FAILURE_EPE_PX, is_failure, score
 from .simulate import (
     SimulatedPair,
@@ -147,6 +149,7 @@ def draw_pair(
     config: BenchmarkConfig,
     rng: np.random.Generator,
     scenario: str = "translation",
+    georef: Georef | None = None,
 ) -> SimulatedPair:
     """Cut a random window from a site image and simulate a random displacement.
 
@@ -161,9 +164,11 @@ def draw_pair(
         config: Run parameters.
         rng: Generator for the window position and the displacement.
         scenario: One of ``SCENARIOS``.
+        georef: Map grid of the site image, if it has one.
 
     Returns:
-        A clean simulated pair of ``config.size`` px.
+        A clean simulated pair of ``config.size`` px, on the grid of the window
+        it covers when the site image has one.
 
     Raises:
         ValueError: If the image is too small for the window and its margin, or
@@ -187,17 +192,22 @@ def draw_pair(
     shear = rng.uniform(-config.max_shear, config.max_shear)
     source = image[top : top + window, left : left + window]
     if scenario == "translation":
-        return simulate_translation(source, dx=float(dx), dy=float(dy), margin=margin)
-    centre = (config.size - 1) / 2
-    truth = Affine.about(
-        (centre, centre),
-        rotation_deg=float(rotation),
-        scale=float(scale),
-        shear=float(shear),
-        dx=float(dx),
-        dy=float(dy),
-    )
-    return simulate_affine(source, truth, margin)
+        pair = simulate_translation(source, dx=float(dx), dy=float(dy), margin=margin)
+    else:
+        centre = (config.size - 1) / 2
+        truth = Affine.about(
+            (centre, centre),
+            rotation_deg=float(rotation),
+            scale=float(scale),
+            shear=float(shear),
+            dx=float(dx),
+            dy=float(dy),
+        )
+        pair = simulate_affine(source, truth, margin)
+    if georef is None:
+        return pair
+    # The pair is the window cropped by the margin on each side.
+    return dataclasses.replace(pair, georef=georef.window(top + margin, left + margin))
 
 
 def _as_json(diagnostics: dict[str, float]) -> str:
@@ -228,7 +238,10 @@ def _run_method(
     """
     diagnostics = {}
     try:
-        estimate = method(pair.reference, pair.moving)
+        if isinstance(method, GeoreferencedMethod):
+            estimate = method(pair.reference, pair.moving, pair.georef)
+        else:
+            estimate = method(pair.reference, pair.moving)
         if isinstance(estimate, Estimate):
             diagnostics = dict(estimate.diagnostics)
             estimate = estimate.displacement
@@ -273,6 +286,7 @@ def run_benchmark(
     methods: Mapping[str, Method],
     config: BenchmarkConfig,
     degradations: Mapping[str, Degradation] = DEGRADATIONS,
+    georefs: Mapping[str, Georef] | None = None,
 ) -> list[PairResult]:
     """Score every method on every simulated pair.
 
@@ -285,6 +299,8 @@ def run_benchmark(
         methods: Method name to method.
         config: Run parameters.
         degradations: Degradation name to degradation.
+        georefs: Site name to the map grid of its image, for the sites that
+            have one. Georeferenced methods get the grid of each pair.
 
     Returns:
         One result per site, scenario, degradation, method and pair.
@@ -295,12 +311,13 @@ def run_benchmark(
     if config.n_pairs < 1:
         raise ValueError(f"n_pairs must be positive, got {config.n_pairs}")
 
+    georefs = georefs or {}
     results = []
     for site, image in sites.items():
         for index in range(config.n_pairs):
             for scenario in config.scenarios:
                 geometry = _rng(config.seed, site, index)
-                clean = draw_pair(image, config, geometry, scenario)
+                clean = draw_pair(image, config, geometry, scenario, georefs.get(site))
                 for degradation_name, degrade in degradations.items():
                     rng = _rng(config.seed, site, index, degradation_name)
                     pair = degrade(clean, rng)

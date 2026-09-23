@@ -12,6 +12,7 @@ import numpy as np
 from scipy import ndimage
 
 from .displacement import Affine, Displacement, Translation
+from .georef import Georef
 
 # Border discarded after a Fourier shift. The shift treats the window as periodic,
 # which rings at its edges; the ringing decays inwards and is negligible past this.
@@ -28,12 +29,14 @@ class SimulatedPair:
         truth: Ground-truth displacement, in the convention of ``displacement``.
         cloud: Opacity of the clouds laid over the moving image, in [0, 1], same
             shape as ``moving``. ``None`` if the pair has no clouds.
+        georef: Map grid of both images, ``None`` if the pair has none.
     """
 
     reference: np.ndarray
     moving: np.ndarray
     truth: Displacement
     cloud: np.ndarray | None = None
+    georef: Georef | None = None
 
     @property
     def cloud_fraction(self) -> float:

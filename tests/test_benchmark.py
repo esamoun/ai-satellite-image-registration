@@ -13,6 +13,8 @@ from satreg.benchmark import (
 )
 from satreg.degrade import Clouds, Noise, Preset
 from satreg.displacement import Affine, Displacement, Translation
+from satreg.georef import NOMINAL
+from satreg.methods.base import GeoreferencedMethod
 from satreg.methods.phase_correlation import phase_correlation
 from satreg.report import summarize, to_markdown, write_csv
 from satreg.simulate import affine_reach
@@ -236,3 +238,35 @@ def test_errors_are_averaged_over_valid_pixels_only():
 def test_invalid_scenario_settings_are_rejected(bad):
     with pytest.raises(ValueError):
         BenchmarkConfig(**bad)
+
+
+class GridSpy(GeoreferencedMethod):
+    """Records the grid of each pair it is given, and estimates nothing."""
+
+    def __init__(self):
+        self.seen = []
+
+    def __call__(self, reference, moving, georef):
+        self.seen.append((reference, georef))
+        return Translation(dx=0.0, dy=0.0)
+
+
+def test_georeferenced_methods_get_the_grid_of_the_window_each_pair_covers():
+    # Every pixel holds its own index, so a reference tells where it was cut.
+    site = np.arange(256 * 256, dtype=float).reshape(256, 256)
+    spy = GridSpy()
+
+    run_benchmark({"site": site}, {"spy": spy}, CONFIG, georefs={"site": NOMINAL})
+
+    assert len(spy.seen) == CONFIG.n_pairs
+    for reference, georef in spy.seen:
+        row, col = divmod(int(reference[0, 0]), 256)
+        assert georef == NOMINAL.window(row, col)
+
+
+def test_pairs_of_a_site_without_a_grid_have_none():
+    spy = GridSpy()
+
+    run_benchmark(SITES, {"spy": spy}, CONFIG)
+
+    assert all(georef is None for _, georef in spy.seen)

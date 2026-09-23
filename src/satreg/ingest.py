@@ -22,6 +22,7 @@ from pystac_client import Client
 from rasterio.warp import transform as transform_coords
 from rasterio.windows import Window
 
+from .georef import Georef
 from .sites import Catalogue, Site
 
 logger = logging.getLogger(__name__)
@@ -267,3 +268,17 @@ def read_chip(path: Path) -> np.ndarray:
     """
     with rasterio.open(path) as src:
         return src.read(1)
+
+
+def read_georef(path: Path) -> Georef:
+    """Read the map grid of a cached chip.
+
+    Args:
+        path: Chip GeoTIFF written by ``fetch_chip``.
+
+    Returns:
+        The chip's CRS and geotransform, those of its source COG offset by whole
+        pixels.
+    """
+    with rasterio.open(path) as src:
+        return Georef(src.crs, src.transform)

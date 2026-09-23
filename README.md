@@ -8,9 +8,9 @@ images, on accuracy and on compute cost. Displacements are simulated on real
 imagery, so the ground truth is exact down to a fraction of a pixel.
 
 **Status: in progress, level N1** (simulator, classic methods, metrics). So far the
-pipeline runs end to end with phase correlation and SIFT + RANSAC, on a synthetic
-texture or on a real Sentinel-2 chip, under increasingly degraded conditions, for
-translations and small affine motions. AROSICS comes next.
+pipeline runs end to end with the three classic methods (phase correlation, SIFT +
+RANSAC and AROSICS), on a synthetic texture or on a real Sentinel-2 chip, under
+increasingly degraded conditions, for translations and small affine motions.
 
 ## Run it
 
@@ -36,9 +36,32 @@ threshold).
 - `sift_ransac`: OpenCV SIFT keypoints, matched with Lowe's ratio test, and an
   affine transform fitted by RANSAC. With too few inliers it declines the pair,
   which counts as a failure. Its match and inlier counts are in `pairs.csv`.
+- `arosics`: [AROSICS](https://git.gfz-potsdam.de/danschef/arosics) global
+  co-registration (`COREG`), the standard open-source tool for Sentinel-2. It
+  phase-correlates a matching window in map coordinates, on the grid of the chip
+  each pair was cut from, and estimates a single translation. It declines a pair
+  when it finds no valid match or rates its own result below 60 % reliability.
+  The reliability and the window it used are in `pairs.csv`. It is an optional
+  extra (below); without it, the benchmark runs the other two.
 
 `--methods` picks some. Method parameters (SIFT's ratio, RANSAC threshold and
-minimum inlier count) are set in [`configs/methods.toml`](configs/methods.toml).
+minimum inlier count; AROSICS' window, maximum shift and reliability threshold)
+are set in [`configs/methods.toml`](configs/methods.toml).
+
+### AROSICS
+
+AROSICS needs GDAL, whose Python bindings pip builds against a system GDAL of the
+same version. On macOS:
+
+```bash
+brew install gdal
+make install-arosics
+```
+
+`make install-arosics` pins the bindings to `gdal-config --version`, then installs
+the `arosics` extra (`pip install -e ".[dev,arosics]"`). On Linux, install
+`libgdal-dev` first. The test suite runs without it and skips the AROSICS tests,
+saying why.
 
 ### Translation and affine motion
 

@@ -6,7 +6,9 @@ import numpy as np
 import pytest
 from test_ingest import CENTRE, site_at, write_cog
 
-from satreg.cli import main
+from satreg import cli
+from satreg.cli import main, site_images
+from satreg.georef import NOMINAL
 from satreg.ingest import cache_path
 from satreg.sites import load_sites
 
@@ -145,3 +147,37 @@ def test_missing_method_parameters_file_is_reported(tmp_path):
         main(
             ["benchmark", "--methods-config", str(tmp_path / "none.toml")] + PRESETS[:2]
         )
+
+
+def without_arosics(name):
+    return ["osgeo"] if name == "arosics" else []
+
+
+def test_default_methods_leave_out_those_not_installed(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(cli, "missing_dependencies", without_arosics)
+
+    main(
+        ["benchmark", "--pairs", "2", "--size", "64", "--out", str(tmp_path)]
+        + ["--degradations", "clean"]
+        + PRESETS
+    )
+
+    printed = capsys.readouterr().out
+    assert "| phase_correlation |" in printed
+    assert "arosics" not in printed
+
+
+def test_requesting_a_method_not_installed_is_reported(monkeypatch):
+    monkeypatch.setattr(cli, "missing_dependencies", without_arosics)
+
+    with pytest.raises(SystemExit, match="arosics needs osgeo.*README"):
+        main(["benchmark", "--methods", "arosics"] + PRESETS)
+
+
+def test_synthetic_site_gets_the_nominal_grid():
+    args = cli._parser().parse_args(["benchmark"])
+
+    images, georefs = site_images(args)
+
+    assert georefs == {"synthetic": NOMINAL}
+    assert images["synthetic"].ndim == 2

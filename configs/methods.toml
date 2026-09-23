@@ -9,3 +9,14 @@
 ratio = 0.75
 ransac_threshold = 1.0
 min_inliers = 10
+
+# AROSICS global co-registration (COREG), an optional extra.
+#   window           side of the matching window, in px
+#   max_shift        largest shift component accepted, in px
+#   max_iter         attempts at finding a valid integer peak
+#   min_reliability  AROSICS' reliability below this, in %, is a failure
+[methods.arosics]
+window = 256
+max_shift = 5.0
+max_iter = 5
+min_reliability = 60.0

@@ -59,3 +59,22 @@ the centre, where a cloud bank can sit. The phase-correlation entry in
 `docs/decisions.md` said windowing would be tested once degradations arrived; it
 now has its evidence, and the choice is left to the N1 results table (ticket
 09), where both variants can be reported.
+
+---
+
+## 2026-09-23: A window size read from the wrong place
+
+**What was attempted.** To report the matching window AROSICS used, the first
+version read the shape of its `matchWin` attribute.
+
+**What happened.** On 128 px pairs it reported 126 px, and a test expecting 128
+failed. AROSICS had in fact correlated a 64 px window.
+
+**Why.** AROSICS cuts the matching window to fit the pair, then shrinks it to the
+largest power of two before the FFT, and does not update `matchWin` (its source
+says so in a FIXME). The attribute describes the window it cut, not the one it
+correlated.
+
+**What was done instead.** The diagnostic applies AROSICS' own shrinking function to
+that shape, so it reports the window correlated. The benchmark and tests use 256 px
+pairs, where both agree.

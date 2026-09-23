@@ -22,6 +22,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
+# Needs GDAL's Python bindings built against a system GDAL: see the README.
+arosics = ["arosics"]
 
 [project.scripts]
 satreg = "satreg.cli:main"

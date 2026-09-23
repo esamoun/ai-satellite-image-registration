@@ -16,6 +16,7 @@ from satreg.ingest import (
     cache_path,
     fetch_chip,
     read_chip,
+    read_georef,
     read_window,
     stac_search,
 )
@@ -98,6 +99,17 @@ def test_chip_is_a_window_of_the_source_grid_without_resampling(source):
     # Same pixel size, origin moved by whole pixels: the chip is on the source grid.
     assert profile["transform"] == TRANSFORM @ TRANSFORM.translation(left, top)
     assert profile["nodata"] == 0
+
+
+def test_chip_grid_is_read_back_from_the_file(tmp_path):
+    chip = tmp_path / "chip.tif"
+    write_cog(chip, np.ones((8, 8), np.uint16))
+
+    georef = read_georef(chip)
+
+    assert georef.crs == CRS
+    assert georef.transform == TRANSFORM
+    assert georef.window(3, 5).transform @ (0, 0) == TRANSFORM @ (5, 3)
 
 
 def test_chip_leaving_the_raster_is_unavailable(source):

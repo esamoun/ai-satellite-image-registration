@@ -832,3 +832,30 @@ so the floor changes nothing there.
 **Rejected.** Keeping 60 % because AROSICS uses it in its local co-registration:
 that default is tuned for a grid of many windows, where a declined window costs
 little, not for a single global shift.
+
+---
+
+## 2026-09-23: CI runs the same two make targets as a laptop, without AROSICS
+
+**Decision.** A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every
+push, on any branch, and on every pull request, with read-only permissions. It has
+two jobs: `lint` runs `make lint` on Python 3.11, and `test` runs `make test` on
+3.11 and 3.13. Both install with `pip install -e ".[dev]"`, without the `arosics`
+extra. A newer run on the same branch cancels the older one, except on `main`.
+
+**Why.** The Makefile targets are the one definition of lint and tests: CI calling
+them means a green laptop and a green CI check the same thing, and a change to a
+target cannot leave CI behind. 3.11 is the floor `requires-python` declares, and
+nothing else checks that claim, since the development machine runs 3.13. AROSICS
+is left out because it needs a system GDAL matching pip's bindings (see the
+AROSICS extra entry); the suite already skips its 8 tests without it, saying why,
+and the network is refused by the suite itself, so CI needs no secret and no
+catalogue. Run that way in a fresh 3.13 venv: lint clean, 211 tests pass, 8 skip.
+Lint is a separate job so a formatting slip and a failing test show up as two
+different red checks. `main` runs are never cancelled because the README badge
+reports `main`, and a cancelled run is neither pass nor fail.
+
+**Rejected.** An AROSICS job with `libgdal-dev` from apt: Ubuntu's GDAL version
+would have to match the pinned bindings, and it would test an optional method on
+every push at the cost of the slowest install in the project. Running on `main`
+only: most pushes on a repository worked on alone land on branches.

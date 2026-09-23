@@ -1,0 +1,71 @@
+# Lint and the test suite, on every push and every pull request, so that a regression is caught
+# by the repository rather than by the next person to read the code.
+#
+# Why pip, why the two make targets, and why AROSICS is left out: docs/decisions.md, "CI runs
+# the same two make targets as a laptop, without AROSICS". The rationale lives there and is not
+# repeated here, so the two cannot drift apart.
+
+name: CI
+
+on:
+  # Every branch, not just main: a branch is worth checking before it becomes a pull request,
+  # and on a repository worked on alone that is where most pushes land.
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# Keyed on the branch name rather than the ref, because the two triggers above name the same
+# branch differently: a push gives `refs/heads/x` and a pull request `refs/pull/N/merge`. Keyed
+# on the ref, a branch with an open pull request runs everything twice and neither run cancels
+# the other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  # Superseding a run cancels it, except on main: a cancelled run is neither pass nor fail, and
+  # main is the one branch whose status the README badge reports.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: make lint
+
+  test:
+    name: test (python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Report both versions. If 3.13 breaks, the 3.11 result is still worth having.
+      fail-fast: false
+      matrix:
+        # The floor the package declares, and the version the development machine runs.
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # The `dev` extra only: AROSICS needs a system GDAL, and its tests skip without it.
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Test
+        run: make test

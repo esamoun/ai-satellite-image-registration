@@ -2,6 +2,8 @@
 
 **Aligning satellite images to a tenth of a pixel: classic methods vs AI.**
 
+[![CI](https://github.com/esamoun/ai-satellite-image-registration/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/esamoun/ai-satellite-image-registration/actions/workflows/ci.yml)
+
 Two images of the same place never line up exactly. This project measures how well
 classic and deep-learning methods recover the displacement between two Sentinel-2
 images, on accuracy and on compute cost. Displacements are simulated on real

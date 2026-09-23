@@ -258,7 +258,8 @@ def test_georeferenced_methods_get_the_grid_of_the_window_each_pair_covers():
 
     run_benchmark({"site": site}, {"spy": spy}, CONFIG, georefs={"site": NOMINAL})
 
-    assert len(spy.seen) == CONFIG.n_pairs
+    # Each pair is called several times, to time it and trace its memory.
+    assert len({int(reference[0, 0]) for reference, _ in spy.seen}) == CONFIG.n_pairs
     for reference, georef in spy.seen:
         row, col = divmod(int(reference[0, 0]), 256)
         assert georef == NOMINAL.window(row, col)

@@ -25,9 +25,9 @@ satreg benchmark
 
 `satreg benchmark` simulates pairs with known sub-pixel motion, runs every method,
 prints the results table and writes it to `outputs/benchmark/` as `summary.md` and
-`summary.csv`, with one row per pair and method in `pairs.csv`. `satreg benchmark
---help` lists the options (number of pairs, image size, motion ranges, seed, failure
-threshold).
+`summary.csv`, with one row per pair and method in `pairs.csv`, and the machine it
+ran on in `context.json`. `satreg benchmark --help` lists the options (number of
+pairs, image size, motion ranges, seed, failure threshold, timing repeats).
 
 ### Methods
 
@@ -104,6 +104,18 @@ geometry, so the ground truth stays exact. `satreg benchmark` runs every preset;
 The table reports, per site, scenario, preset and method: the share of the moving image
 under cloud, the mean end-point error (EPE, in pixels), the share of pixels whose
 error is under 0.1 px and under 0.5 px, and the failure rate.
+
+### Compute cost
+
+Next to accuracy, the table reports what each method call costs: its wall-clock
+time, the median of `--repeats` calls (default 3) after `--warmup` untimed calls
+(default 1), and its peak memory as traced by Python's `tracemalloc`. Only the
+method call is measured, not the simulation or the scoring. `tracemalloc` misses
+memory that native code allocates for itself, so SIFT's figure is about a tenth of
+what it really uses; the limits are measured in
+[`docs/decisions.md`](docs/decisions.md). `context.json` records the CPU, memory,
+thread settings and library versions, so that runs on different machines are not
+mixed up.
 
 ## Where the reasoning is
 

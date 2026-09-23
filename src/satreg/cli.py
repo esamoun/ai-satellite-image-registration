@@ -1,6 +1,7 @@
 """Command-line entry point: ``satreg fetch`` and ``satreg benchmark``."""
 
 import argparse
+import json
 import logging
 from collections.abc import Sequence
 from pathlib import Path
@@ -8,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from .benchmark import SCENARIOS, BenchmarkConfig, run_benchmark
+from .compute import describe, environment, process_peak_rss_mib
 from .degrade import Preset, load_presets
 from .georef import NOMINAL, Georef
 from .ingest import fetch_chip, read_chip, read_georef
@@ -124,6 +126,18 @@ def _parser() -> argparse.ArgumentParser:
         type=float,
         default=FAILURE_EPE_PX,
         help="mean end-point error above which a pair failed, in px",
+    )
+    bench.add_argument(
+        "--warmup",
+        type=int,
+        default=defaults.warmup,
+        help="untimed calls of each method before timing it",
+    )
+    bench.add_argument(
+        "--repeats",
+        type=int,
+        default=defaults.repeats,
+        help="timed calls of a method on each pair, whose median is reported",
     )
     bench.add_argument(
         "--methods",
@@ -257,7 +271,7 @@ def benchmark(args: argparse.Namespace) -> str:
         args: Parsed ``benchmark`` arguments.
 
     Returns:
-        The results table as markdown.
+        The results table as markdown, followed by the machine it was measured on.
     """
     config = BenchmarkConfig(
         n_pairs=args.pairs,
@@ -269,6 +283,8 @@ def benchmark(args: argparse.Namespace) -> str:
         scenarios=tuple(dict.fromkeys(args.scenarios)),
         seed=args.seed,
         failure_threshold=args.failure_threshold,
+        warmup=args.warmup,
+        repeats=args.repeats,
     )
     degradations = degradation_presets(args)
     sites, georefs = site_images(args)
@@ -276,11 +292,23 @@ def benchmark(args: argparse.Namespace) -> str:
 
     results = run_benchmark(sites, methods, config, degradations, georefs)
     summary = summarize(results)
-    table = to_markdown(summary)
+    context = environment()
+    context["cost"] = {
+        "warmup": config.warmup,
+        "repeats": config.repeats,
+        "process_peak_rss_mib": process_peak_rss_mib(),
+    }
+    table = to_markdown(summary) + (
+        f"\nMeasured on {describe(context)}. Time is the median of {config.repeats} "
+        f"calls per pair, after {config.warmup} warm-up call(s) per method; memory "
+        "is the peak traced by tracemalloc, which misses native allocations. "
+        "Details in `context.json`.\n"
+    )
 
     write_csv(results, args.out / "pairs.csv")
     write_csv(summary, args.out / "summary.csv")
     (args.out / "summary.md").write_text(table)
+    (args.out / "context.json").write_text(json.dumps(context, indent=2) + "\n")
     return table
 
 

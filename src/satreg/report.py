@@ -16,7 +16,9 @@ class SummaryRow:
     """One row of the results table: a method on a site, scenario and degradation.
 
     Accuracy columns average the pairs that did not fail; failures are reported
-    by ``failure_rate`` alone, so one wild estimate cannot swamp the mean.
+    by ``failure_rate`` alone, so one wild estimate cannot swamp the mean. Cost
+    columns take the median over every pair, failed ones included, since
+    declining a pair costs time too.
 
     Attributes:
         site: Site name.
@@ -29,6 +31,8 @@ class SummaryRow:
         mean_epe: Mean end-point error over non-failed pairs, in pixels.
         share_below_0_1: Share of pixels under 0.1 px, over non-failed pairs.
         share_below_0_5: Share of pixels under 0.5 px, over non-failed pairs.
+        time_ms: Median over pairs of each pair's median call time, in ms.
+        peak_mib: Median over pairs of each call's traced peak memory, in MiB.
     """
 
     site: str
@@ -41,6 +45,8 @@ class SummaryRow:
     mean_epe: float
     share_below_0_1: float
     share_below_0_5: float
+    time_ms: float
+    peak_mib: float
 
 
 def summarize(results: Sequence[PairResult]) -> list[SummaryRow]:
@@ -64,6 +70,9 @@ def summarize(results: Sequence[PairResult]) -> list[SummaryRow]:
         def mean(values: list[float]) -> float:
             return float(np.mean(values)) if values else math.nan
 
+        def median(values: list[float]) -> float:
+            return float(np.median(values)) if values else math.nan
+
         rows.append(
             SummaryRow(
                 site=site,
@@ -76,6 +85,8 @@ def summarize(results: Sequence[PairResult]) -> list[SummaryRow]:
                 mean_epe=mean([r.mean_epe for r in kept]),
                 share_below_0_1=mean([r.share_below_0_1 for r in kept]),
                 share_below_0_5=mean([r.share_below_0_5 for r in kept]),
+                time_ms=median([r.time_ms for r in group]),
+                peak_mib=median([r.peak_mib for r in group]),
             )
         )
     return rows
@@ -116,16 +127,19 @@ def to_markdown(rows: Sequence[SummaryRow]) -> str:
     def pixels(x: float) -> str:
         return "n/a" if math.isnan(x) else f"{x:.4f}"
 
+    def cost(x: float) -> str:
+        return "n/a" if math.isnan(x) else f"{x:.1f}"
+
     header = (
         "| site | scenario | degradation | method | pairs | clouds | EPE (px) "
-        "| < 0.1 px | < 0.5 px | failures |\n"
-        "|---|---|---|---|---:|---:|---:|---:|---:|---:|\n"
+        "| < 0.1 px | < 0.5 px | failures | time (ms) | memory (MiB) |\n"
+        "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|\n"
     )
     body = "".join(
         f"| {r.site} | {r.scenario} | {r.degradation} | {r.method} | {r.n_pairs} "
         f"| {percent(r.cloud_fraction)} | {pixels(r.mean_epe)} "
         f"| {percent(r.share_below_0_1)} | {percent(r.share_below_0_5)} "
-        f"| {percent(r.failure_rate)} |\n"
+        f"| {percent(r.failure_rate)} | {cost(r.time_ms)} | {cost(r.peak_mib)} |\n"
         for r in rows
     )
     return header + body

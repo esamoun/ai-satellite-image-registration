@@ -661,3 +661,63 @@ its tags. It contains modified Copernicus Sentinel data 2025.
 the test suite refuses the network. 320 px holds a pair the size of AROSICS'
 default 256 px window, with a 32 px margin, and no more.
 Copernicus Sentinel data is free to redistribute with that attribution.
+
+---
+
+## 2026-09-23: Compute cost is the median of timed calls and a tracemalloc peak, per pair
+
+**Decision.** Every method call in the benchmark is measured on its own, after the
+pair has been simulated and degraded and before it is scored. Each method is
+first called `--warmup` times (default 1) on the first pair it gets, untimed. On
+every pair it is then called `--repeats` times (default 3), timed with
+`time.perf_counter`, and the median goes to `time_ms`. One more call runs under
+`tracemalloc`, and the peak it traces above what was already allocated goes to
+`peak_mib`. The estimate scored is the first timed call's. A call that declines
+or crashes is timed like any other, and the table takes the median over all the
+pairs of a row, failed ones included, since declining a pair costs time too.
+Each run writes `context.json` next to its tables, with the CPU, memory, thread
+settings, Python and library versions, the timing settings and the process's
+peak resident memory. `summary.md` ends with a one-line version of it.
+
+**Why.** The warm-up pays one-off costs that are not the method's cost per pair.
+On a 256 px Beauce pair, AROSICS' first call in a process takes 2.0 s, its lazy
+imports included, and every later one 16 ms. SIFT goes from 33 to 14 ms, phase
+correlation from 5.5 to 3.6 ms. The median of three calls ignores the one call
+the OS interrupts. Two runs of 10 pairs gave the same times to within 2 %. Memory
+is measured in a separate call because tracing slows Python code down, and would
+inflate the time of a method that loops in Python. `tracemalloc` is also the only
+per-call measure that the standard library offers: the resident-memory high-water
+mark covers the whole process and never goes back down, so after the first call it
+says nothing about the next one. The context file exists so that runs on the 8 GB
+M1 and on Kaggle can be told apart and not averaged together.
+
+**Limits.** `tracemalloc` counts what goes through Python's allocators, NumPy's
+array buffers included. It misses memory that native code allocates for itself:
+OpenCV's image pyramids, GDAL's datasets and caches, FFT and BLAS scratch. To see how
+much, each method was called once on a Beauce pair in a fresh process, after its
+libraries were loaded, and the rise of the process's resident high-water mark was
+compared with the traced peak of the same call:
+
+| method | pair | resident high-water rise | traced peak |
+|---|---:|---:|---:|
+| phase correlation | 512 px | 23.6 MiB | 22.9 MiB |
+| SIFT + RANSAC | 256 px | 15.4 MiB | 1.7 MiB |
+| SIFT + RANSAC | 512 px | 61.2 MiB | 6.6 MiB |
+| AROSICS | 256 px | 10.3 MiB | 10.0 MiB |
+
+Phase correlation and AROSICS do their work in NumPy arrays, and the two agree.
+SIFT's pyramids live in OpenCV, and the traced peak sees about a tenth of them. The
+high-water rise is itself a lower bound: at 256 px, phase correlation's call does
+not rise above what loading the pair had already reached, and reads 0. So
+`peak_mib` compares methods that keep their data in NumPy fairly, and understates
+SIFT's memory about ninefold. The same will hold for a PyTorch model whose tensors
+live outside Python's allocator, which is why RAFT at N2 will need its own
+measure (`torch.cuda.max_memory_allocated` on GPU). The process peak in
+`context.json` includes native memory but covers the whole run. Repeating calls on
+the same pair also leaves its data in the CPU caches, which flatters the times
+somewhat; by how much was not measured.
+
+**Rejected.** Sampling resident memory from a thread (`psutil`): it catches native
+allocations, but with calls of 3 to 17 ms it would have to sample well under a
+millisecond not to miss their peaks, and it adds a dependency. Measuring time and memory in
+the same call: tracing would slow down the time it measures.

@@ -6,10 +6,11 @@ import logging
 import math
 import zlib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
+from .compute import measure
 from .degrade import Degradation, Preset
 from .displacement import Affine
 from .georef import Georef
@@ -47,6 +48,8 @@ class BenchmarkConfig:
         scenarios: Geometric models to simulate, among ``SCENARIOS``.
         seed: Seed for pair geometry and degradations.
         failure_threshold: Mean end-point error above which a pair failed, in px.
+        warmup: Untimed calls of each method before its first timed one.
+        repeats: Timed calls of a method on each pair; its time is their median.
     """
 
     n_pairs: int = 20
@@ -58,8 +61,15 @@ class BenchmarkConfig:
     scenarios: tuple[str, ...] = SCENARIOS
     seed: int = 0
     failure_threshold: float = FAILURE_EPE_PX
+    warmup: int = 1
+    repeats: int = 3
 
     def __post_init__(self) -> None:
+        if self.warmup < 0 or self.repeats < 1:
+            raise ValueError(
+                f"need warmup >= 0 and repeats >= 1, got {self.warmup} and "
+                f"{self.repeats}"
+            )
         ranges = (self.max_shift, self.max_rotation_deg, self.max_shear)
         if min(ranges) < 0:
             raise ValueError(f"displacement ranges must be non-negative, got {ranges}")
@@ -94,6 +104,10 @@ class PairResult:
         error: Why the method gave up or crashed, empty otherwise.
         diagnostics: The method's own diagnostics as a JSON object, e.g.
             ``{"inliers": 153}``, empty if it reports none.
+        time_ms: Median wall-clock time of the method call over the repeats, in
+            milliseconds, whether it returned or raised.
+        peak_mib: Peak memory the method call allocated, in MiB, as traced by
+            ``tracemalloc`` (see ``satreg.compute``).
     """
 
     site: str
@@ -110,6 +124,10 @@ class PairResult:
     failed: bool
     error: str
     diagnostics: str
+    # Cost changes from one run to the next on the same seed, so it is left out
+    # of equality: two runs agree when their outcomes do.
+    time_ms: float = field(compare=False)
+    peak_mib: float = field(compare=False)
 
 
 def _rng(seed: int, *keys: str | int) -> np.random.Generator:
@@ -218,30 +236,39 @@ def _as_json(diagnostics: dict[str, float]) -> str:
 def _run_method(
     method: Method,
     pair: SimulatedPair,
-    failure_threshold: float,
+    config: BenchmarkConfig,
     labels: dict[str, str | int],
+    warmup: int = 0,
 ) -> PairResult:
-    """Run and score one method on one pair, turning any exception into a failure.
+    """Run, time and score one method on one pair; any exception is a failure.
 
     A ``RegistrationFailure`` is the method declining the pair, an expected
-    outcome; any other exception is a crash. Both are failed rows.
+    outcome; any other exception is a crash. Both are failed rows. Only the
+    method call is timed and traced: the pair is simulated and degraded before,
+    and scored after.
 
     Args:
         method: Method to run.
         pair: Simulated pair.
-        failure_threshold: Mean end-point error above which the pair failed, in px.
+        config: Run parameters: failure threshold and repeat count.
         labels: ``site``, ``scenario``, ``degradation``, ``method`` and ``pair``
             of the row.
+        warmup: Untimed calls to make first.
 
     Returns:
         The pair's result row.
     """
+
+    def call() -> object:
+        if isinstance(method, GeoreferencedMethod):
+            return method(pair.reference, pair.moving, pair.georef)
+        return method(pair.reference, pair.moving)
+
+    measured = measure(call, config.repeats, warmup)
+    cost = {"time_ms": 1000 * measured.seconds, "peak_mib": measured.peak_mib}
     diagnostics = {}
     try:
-        if isinstance(method, GeoreferencedMethod):
-            estimate = method(pair.reference, pair.moving, pair.georef)
-        else:
-            estimate = method(pair.reference, pair.moving)
+        estimate = measured.result()
         if isinstance(estimate, Estimate):
             diagnostics = dict(estimate.diagnostics)
             estimate = estimate.displacement
@@ -266,6 +293,7 @@ def _run_method(
             failed=True,
             error=f"{type(exc).__name__}: {exc}",
             diagnostics=_as_json(diagnostics),
+            **cost,
         )
     return PairResult(
         **labels,
@@ -275,9 +303,10 @@ def _run_method(
         mean_epe=pair_score.mean_epe,
         share_below_0_1=pair_score.share_below_0_1,
         share_below_0_5=pair_score.share_below_0_5,
-        failed=is_failure(pair_score, failure_threshold),
+        failed=is_failure(pair_score, config.failure_threshold),
         error="",
         diagnostics=_as_json(diagnostics),
+        **cost,
     )
 
 
@@ -293,6 +322,7 @@ def run_benchmark(
     Pair geometry depends only on the seed, the site name and the pair index, so
     every scenario, degradation and method sees the same window and the same
     displacement at the centre. Errors are averaged over the pair's valid pixels.
+    Each method is warmed up on the first pair it gets, then timed on every pair.
 
     Args:
         sites: Site name to 2-D image to cut pairs from.
@@ -312,6 +342,7 @@ def run_benchmark(
         raise ValueError(f"n_pairs must be positive, got {config.n_pairs}")
 
     georefs = georefs or {}
+    warmed: set[str] = set()
     results = []
     for site, image in sites.items():
         for index in range(config.n_pairs):
@@ -329,7 +360,9 @@ def run_benchmark(
                             "method": method_name,
                             "pair": index,
                         }
+                        warmup = 0 if method_name in warmed else config.warmup
+                        warmed.add(method_name)
                         results.append(
-                            _run_method(method, pair, config.failure_threshold, labels)
+                            _run_method(method, pair, config, labels, warmup)
                         )
     return results

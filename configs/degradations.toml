@@ -1,0 +1,24 @@
+# Degradation presets the benchmark sweeps over, from easiest to hardest. Each
+# preset lists the degradations it applies to a simulated pair; they are always
+# applied in the order radiometry, clouds, blur, noise. Units and the reasoning
+# behind the values are in docs/decisions.md.
+#
+#   radiometry  gain (x), offset (reference std), gamma: moving image only
+#   clouds      cover (share of pixels at least half covered), softness (edge
+#               width), brightness (reference std above the mean): moving only
+#   blur        sigma (px): moving image only
+#   noise       snr_db (reference std over noise std, dB): both images
+
+[presets.clean]
+
+[presets.mild]
+radiometry = { gain = 1.1, offset = 0.2, gamma = 0.9 }
+clouds = { cover = 0.05 }
+blur = { sigma = 0.4 }
+noise = { snr_db = 30 }
+
+[presets.hard]
+radiometry = { gain = 0.7, offset = -0.5, gamma = 1.5 }
+clouds = { cover = 0.3 }
+blur = { sigma = 1.0 }
+noise = { snr_db = 15 }

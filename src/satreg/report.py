@@ -23,6 +23,7 @@ class SummaryRow:
         degradation: Degradation name.
         method: Method name.
         n_pairs: Pairs attempted.
+        cloud_fraction: Mean share of the moving image under cloud, over all pairs.
         failure_rate: Share of pairs that failed.
         mean_epe: Mean end-point error over non-failed pairs, in pixels.
         share_below_0_1: Share of pixels under 0.1 px, over non-failed pairs.
@@ -33,6 +34,7 @@ class SummaryRow:
     degradation: str
     method: str
     n_pairs: int
+    cloud_fraction: float
     failure_rate: float
     mean_epe: float
     share_below_0_1: float
@@ -66,6 +68,7 @@ def summarize(results: Sequence[PairResult]) -> list[SummaryRow]:
                 degradation=degradation,
                 method=method,
                 n_pairs=len(group),
+                cloud_fraction=mean([r.cloud_fraction for r in group]),
                 failure_rate=(len(group) - len(kept)) / len(group),
                 mean_epe=mean([r.mean_epe for r in kept]),
                 share_below_0_1=mean([r.share_below_0_1 for r in kept]),
@@ -111,14 +114,15 @@ def to_markdown(rows: Sequence[SummaryRow]) -> str:
         return "n/a" if math.isnan(x) else f"{x:.4f}"
 
     header = (
-        "| site | degradation | method | pairs | EPE (px) | < 0.1 px | < 0.5 px "
-        "| failures |\n"
-        "|---|---|---|---:|---:|---:|---:|---:|\n"
+        "| site | degradation | method | pairs | clouds | EPE (px) | < 0.1 px "
+        "| < 0.5 px | failures |\n"
+        "|---|---|---|---:|---:|---:|---:|---:|---:|\n"
     )
     body = "".join(
         f"| {r.site} | {r.degradation} | {r.method} | {r.n_pairs} "
-        f"| {pixels(r.mean_epe)} | {percent(r.share_below_0_1)} "
-        f"| {percent(r.share_below_0_5)} | {percent(r.failure_rate)} |\n"
+        f"| {percent(r.cloud_fraction)} | {pixels(r.mean_epe)} "
+        f"| {percent(r.share_below_0_1)} | {percent(r.share_below_0_5)} "
+        f"| {percent(r.failure_rate)} |\n"
         for r in rows
     )
     return header + body

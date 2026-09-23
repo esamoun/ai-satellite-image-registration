@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from .benchmark import BenchmarkConfig, run_benchmark
+from .degrade import Preset, load_presets
 from .ingest import fetch_chip, read_chip
 from .methods import METHODS
 from .metrics import FAILURE_EPE_PX
@@ -22,6 +23,7 @@ SYNTHETIC_SITE = "synthetic"
 SYNTHETIC_SITE_PX = 1024
 
 DEFAULT_SITES_CONFIG = Path("configs/sites.toml")
+DEFAULT_DEGRADATIONS_CONFIG = Path("configs/degradations.toml")
 DEFAULT_DATA_DIR = Path("data")
 
 
@@ -69,6 +71,18 @@ def _parser() -> argparse.ArgumentParser:
         "which is generated offline)",
     )
     _add_data_arguments(bench)
+    bench.add_argument(
+        "--degradations",
+        nargs="+",
+        metavar="PRESET",
+        help="degradation presets to run (default: every configured preset)",
+    )
+    bench.add_argument(
+        "--degradations-config",
+        type=Path,
+        default=DEFAULT_DEGRADATIONS_CONFIG,
+        help="TOML file declaring the degradation presets",
+    )
     bench.add_argument("--pairs", type=int, default=defaults.n_pairs)
     bench.add_argument("--size", type=int, default=defaults.size)
     bench.add_argument("--max-shift", type=float, default=defaults.max_shift)
@@ -140,6 +154,33 @@ def site_images(args: argparse.Namespace) -> dict[str, np.ndarray]:
     return images
 
 
+def degradation_presets(args: argparse.Namespace) -> dict[str, Preset]:
+    """Load the degradation presets the benchmark runs over.
+
+    Args:
+        args: Parsed ``benchmark`` arguments.
+
+    Returns:
+        Preset name to preset, in the order requested, or in file order when no
+        preset is named.
+    """
+    try:
+        presets = load_presets(args.degradations_config)
+    except FileNotFoundError:
+        raise SystemExit(
+            f"satreg: no degradation presets at {args.degradations_config} "
+            "(run from the repository root or pass --degradations-config)"
+        ) from None
+    names = args.degradations or list(presets)
+    unknown = [name for name in names if name not in presets]
+    if unknown:
+        known = ", ".join(presets)
+        raise SystemExit(
+            f"satreg: unknown degradation preset {unknown[0]!r} (configured: {known})"
+        )
+    return {name: presets[name] for name in names}
+
+
 def benchmark(args: argparse.Namespace) -> str:
     """Run the benchmark on the requested sites and write its tables.
 
@@ -156,10 +197,11 @@ def benchmark(args: argparse.Namespace) -> str:
         seed=args.seed,
         failure_threshold=args.failure_threshold,
     )
+    degradations = degradation_presets(args)
     sites = site_images(args)
     methods = {name: METHODS[name] for name in args.methods}
 
-    results = run_benchmark(sites, methods, config)
+    results = run_benchmark(sites, methods, config, degradations)
     summary = summarize(results)
     table = to_markdown(summary)
 

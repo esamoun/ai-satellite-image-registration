@@ -21,11 +21,21 @@ class SimulatedPair:
         reference: Reference image.
         moving: Moving image, same shape as ``reference``.
         truth: Ground-truth displacement, in the convention of ``displacement``.
+        cloud: Opacity of the clouds laid over the moving image, in [0, 1], same
+            shape as ``moving``. ``None`` if the pair has no clouds.
     """
 
     reference: np.ndarray
     moving: np.ndarray
     truth: Displacement
+    cloud: np.ndarray | None = None
+
+    @property
+    def cloud_fraction(self) -> float:
+        """Share of moving-image pixels at least half covered by cloud."""
+        if self.cloud is None:
+            return 0.0
+        return float(np.mean(self.cloud >= 0.5))
 
 
 def margin_for(max_shift: float) -> int:

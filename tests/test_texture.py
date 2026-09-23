@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from satreg.texture import fractal_texture
+from satreg.texture import fractal_texture, power_law_field
 
 
 def test_texture_is_standardised():
@@ -35,3 +35,15 @@ def test_lower_mtf_leaves_less_energy_near_nyquist():
 def test_invalid_parameters_are_rejected(kwargs):
     with pytest.raises(ValueError):
         fractal_texture(seed=0, **kwargs)
+
+
+def test_steeper_power_law_is_smoother():
+    def roughness(image):
+        return np.abs(np.diff(image, axis=1)).mean()
+
+    rough = power_law_field((128, 96), 1.0, np.random.default_rng(0))
+    smooth = power_law_field((128, 96), 2.0, np.random.default_rng(0))
+
+    assert rough.shape == smooth.shape == (128, 96)
+    assert smooth.std() == pytest.approx(1.0)
+    assert roughness(smooth) < roughness(rough) / 3

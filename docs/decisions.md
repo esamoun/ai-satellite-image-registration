@@ -232,3 +232,93 @@ silently downloads a chip would pass locally and fail, or be slow, elsewhere.
 Disabling sockets turns "the tests are offline" from an intention into a check.
 The fixture rasters use a real UTM grid over the Beauce, so the lon/lat to pixel
 path is exercised with a real projection.
+
+---
+
+## 2026-09-23: Degradations change pixel values only, in a fixed physical order
+
+**Decision.** Four degradations make a simulated pair harder: a radiometric
+difference, clouds, a Gaussian blur and white Gaussian noise. Each one is a small
+parameterised object `(pair, rng) -> pair` that returns the ground truth it was
+given, untouched, and draws all its randomness from the generator it receives. A
+preset combines them, always in the order radiometry, clouds, blur, noise: the
+ground changes appearance, clouds cover it, the moving acquisition's optics blur
+everything they see, cloud edges included, and both detectors add noise last.
+Named presets (`clean`, `mild`, `hard`) sit in `configs/degradations.toml`, with
+fixed strengths rather than random ranges, so each row of the results table is
+one well-defined condition. `satreg benchmark` runs every preset by default, or
+the ones named with `--degradations`.
+
+Units are chosen so that a preset means the same thing on the unit-variance
+synthetic texture and on Sentinel-2 digital numbers, whose mean (2 300 on the
+Beauce chip, against a spread of 680) is far above their spread:
+
+- **Radiometry** (moving image): gamma bends the image's own range, mapped to
+  [0, 1] by its minimum and maximum; gain scales deviations from the image mean
+  (a contrast change); the offset shifts the level by a number of reference
+  standard deviations. A plain `gain * x` would, on digital numbers, turn a 30 %
+  contrast change into a level shift of several standard deviations.
+- **Clouds** (moving image): see the next entry.
+- **Blur** (moving image): Gaussian, sigma in pixels. It models a sharpness
+  difference between the two acquisitions (viewing angle, detector, focus), not
+  the sensor MTF itself, which the chips already carry.
+- **Noise** (both images, drawn independently): the SNR is
+  `20 log10(std(reference) / std(noise))`, the scene contrast over the noise,
+  which is what registration works from. A radiometric SNR (mean over noise)
+  would say little: two scenes with the same mean can have very different
+  texture.
+
+Preset values are judgement calls, to be checked against real pairs in N2:
+`mild` is a good pair (30 dB, 0.4 px blur, 10 % contrast change, 5 % clouds, i.e.
+what a scene-level cloud filter lets through); `hard` is a poor but usable one
+(15 dB, 1 px blur, 30 % contrast loss with a strong tone-curve change, 30 %
+clouds). For scale, the Beauce chip's own noise, estimated with Immerkær's
+method on 256 px windows, sits at 29-35 dB by this definition. That noise is
+identical in both images of a simulated pair, since both are cut from the same
+chip, so it does not hurt registration; only the added noise, independent
+between the images, does.
+
+**Why.** "Degradations never change the geometry" has to hold by construction,
+not by luck: pointwise changes (radiometry, noise) cannot move content, the
+Gaussian kernel is symmetric, and clouds are blended in place. The test suite
+checks the geometry on the pixels themselves (blurring the moving image equals
+shifting a blurred scene, to 0.01 standard deviations), not through a
+registration method, which has biases of its own (see `docs/failures.md`).
+Each degradation takes a generator rather than a seed, and the benchmark derives
+it from the run seed, site, pair index and preset name (entry above), so the
+same seed gives the same pair bit for bit.
+
+**Rejected.** Noise on the moving image only: it would make the reference an
+idealised noise-free image, which no real pair has. Random strengths drawn per
+pair within a range: the table would mix conditions inside one row.
+
+---
+
+## 2026-09-23: Clouds are left to the methods; metrics cover the whole grid
+
+**Decision.** Clouds are laid over the moving image only, as a smooth random field
+(1/f² spectrum) thresholded so that exactly the requested share of pixels is at
+least half covered. Opacity ramps from 0 to 1 across the threshold, so banks have
+opaque cores and thin edges, and the cloud level is the reference mean plus four
+standard deviations. Methods get no cloud mask: they see the cloudy image, as
+they would a real scene, and must cope. Metrics are computed over the whole
+reference grid, cloud included. Each pair's cloud fraction (share at least half
+covered) is reported in `pairs.csv`, and its mean per row in the results table.
+
+**Why.** In N1 the displacement is global: it is defined, and known, under the
+cloud as much as beside it, so there is no pixel where the truth is missing and
+no reason to drop pixels from the metric. What clouds test is whether a method
+is thrown off by bright, featureless, moving-image-only structure. Handing
+methods a mask would test the mask instead. The L2A scene classification does
+provide one in practice, but it misses thin cloud edges and haze, which is where
+methods break. Reporting the cloud fraction next to the error keeps the two
+readable together. When dense fields arrive (N2), a pixel under an opaque cloud
+has no observable ground, so the validity mask introduced with affine warps
+(ticket 04) will be extended to exclude opaque cloud from the dense metrics;
+global models will still be scored everywhere.
+
+**Rejected.** Masking clouds out of the metric for global models (it would score
+nothing the method did); giving methods the true cloud mask (unrealistically
+perfect); clouds on both images (a later option, but a cloud in the reference
+only is symmetric to one in the moving image for a global shift, and one side
+keeps the table readable).

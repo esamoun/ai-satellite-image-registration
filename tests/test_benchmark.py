@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from satreg.benchmark import BenchmarkConfig, draw_pair, run_benchmark
+from satreg.degrade import Clouds, Noise, Preset
 from satreg.displacement import Translation
 from satreg.methods.phase_correlation import phase_correlation
 from satreg.report import summarize, to_markdown, write_csv
@@ -76,8 +77,9 @@ def test_summary_reports_failure_rate_and_averages_the_rest():
     assert good.share_below_0_1 == 1.0
     assert bad.failure_rate == 1.0
     assert math.isnan(bad.mean_epe)
-    assert "| synthetic | clean | crashes | 4 | n/a | n/a | n/a | 100.0 % |" in (
-        to_markdown(summary)
+    assert (
+        "| synthetic | clean | crashes | 4 | 0.0 % | n/a | n/a | n/a | 100.0 % |"
+        in (to_markdown(summary))
     )
 
 
@@ -99,3 +101,36 @@ def test_tables_are_written_as_csv(tmp_path):
 def test_non_positive_pair_count_is_rejected():
     with pytest.raises(ValueError):
         run_benchmark(SITES, {}, BenchmarkConfig(n_pairs=0))
+
+
+def test_cloud_fraction_is_reported_per_pair_and_averaged_per_row():
+    degradations = {"clean": Preset(), "cloudy": Preset(clouds=Clouds(0.25))}
+    methods = {"phase_correlation": phase_correlation}
+
+    results = run_benchmark(SITES, methods, CONFIG, degradations)
+
+    fractions = {r.degradation: r.cloud_fraction for r in results}
+    assert fractions["clean"] == 0.0
+    assert fractions["cloudy"] == pytest.approx(0.25, abs=1e-3)
+    rows = {row.degradation: row for row in summarize(results)}
+    assert rows["cloudy"].cloud_fraction == pytest.approx(0.25, abs=1e-3)
+    assert "| synthetic | cloudy | phase_correlation | 4 | 25.0 % |" in (
+        to_markdown(summarize(results))
+    )
+
+
+def test_degraded_runs_are_reproducible_and_keep_the_clean_geometry():
+    degradations = {"clean": Preset(), "noisy": Preset(noise=Noise(10))}
+    methods = {"phase_correlation": phase_correlation}
+
+    first = run_benchmark(SITES, methods, CONFIG, degradations)
+    second = run_benchmark(SITES, methods, CONFIG, degradations)
+
+    assert first == second
+    truths = {}
+    for r in first:
+        truths.setdefault(r.pair, set()).add(r.truth)
+    assert all(len(t) == 1 for t in truths.values())
+    noisy = [r.mean_epe for r in first if r.degradation == "noisy"]
+    clean = [r.mean_epe for r in first if r.degradation == "clean"]
+    assert np.mean(noisy) > np.mean(clean)

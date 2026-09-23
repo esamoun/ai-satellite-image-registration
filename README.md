@@ -9,8 +9,8 @@ imagery, so the ground truth is exact down to a fraction of a pixel.
 
 **Status: in progress, level N1** (simulator, classic methods, metrics). So far the
 pipeline runs end to end with phase correlation, on a synthetic texture or on a
-real Sentinel-2 chip. Degradations, affine motion, SIFT + RANSAC and AROSICS come
-next.
+real Sentinel-2 chip, under increasingly degraded conditions. Affine motion,
+SIFT + RANSAC and AROSICS come next.
 
 ## Run it
 
@@ -45,8 +45,18 @@ resampling. No account is needed. The chip (about 1.5 MB per site) is cached in
 cloud limit, chip size and band are set in [`configs/sites.toml`](configs/sites.toml).
 Without `--site`, the benchmark uses the synthetic texture and runs offline.
 
-The table reports, per method: mean end-point error (EPE, in pixels), the share of
-pixels whose error is under 0.1 px and under 0.5 px, and the failure rate.
+### Under degraded conditions
+
+Each pair is run clean and under named degradation presets, declared in
+[`configs/degradations.toml`](configs/degradations.toml): `mild` and `hard` add
+sensor noise, blur, a radiometric difference (contrast, level, tone curve) and
+procedural clouds, at increasing strength. Every preset keeps the pair's
+geometry, so the ground truth stays exact. `satreg benchmark` runs every preset;
+`--degradations mild hard` picks some.
+
+The table reports, per site, preset and method: the share of the moving image
+under cloud, the mean end-point error (EPE, in pixels), the share of pixels whose
+error is under 0.1 px and under 0.5 px, and the failure rate.
 
 ## Where the reasoning is
 

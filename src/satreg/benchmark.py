@@ -3,23 +3,19 @@
 import logging
 import math
 import zlib
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
 
+from .degrade import Degradation, Preset
 from .methods import Method
 from .metrics import FAILURE_EPE_PX, is_failure, score
 from .simulate import SimulatedPair, margin_for, simulate_translation
 
 logger = logging.getLogger(__name__)
 
-Degradation = Callable[[SimulatedPair, np.random.Generator], SimulatedPair]
-"""Turns a clean pair into a degraded one, without touching its ground truth."""
-
-DEGRADATIONS: dict[str, Degradation] = {
-    "clean": lambda pair, rng: pair,
-}
+DEGRADATIONS: dict[str, Degradation] = {"clean": Preset()}
 
 
 @dataclass(frozen=True)
@@ -51,6 +47,7 @@ class PairResult:
         degradation: Name of the degradation applied to the pair.
         method: Name of the method.
         pair: Index of the pair within its site.
+        cloud_fraction: Share of the moving image at least half covered by cloud.
         truth: Ground-truth displacement, as text.
         estimate: Estimated displacement as text, empty if the method raised.
         mean_epe: Mean end-point error in pixels, NaN if the method raised.
@@ -64,6 +61,7 @@ class PairResult:
     degradation: str
     method: str
     pair: int
+    cloud_fraction: float
     truth: str
     estimate: str
     mean_epe: float
@@ -135,6 +133,7 @@ def _run_method(
         logger.warning("%s failed: %s: %s", labels["method"], type(exc).__name__, exc)
         return PairResult(
             **labels,
+            cloud_fraction=pair.cloud_fraction,
             truth=repr(pair.truth),
             estimate="",
             mean_epe=math.nan,
@@ -145,6 +144,7 @@ def _run_method(
         )
     return PairResult(
         **labels,
+        cloud_fraction=pair.cloud_fraction,
         truth=repr(pair.truth),
         estimate=repr(estimate),
         mean_epe=pair_score.mean_epe,

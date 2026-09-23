@@ -8,6 +8,43 @@ import numpy as np
 MTF_AT_NYQUIST = 0.3
 
 
+def power_law_field(
+    shape: tuple[int, int],
+    exponent: float,
+    rng: np.random.Generator,
+    mtf_at_nyquist: float = 1.0,
+) -> np.ndarray:
+    """Generate a random field whose amplitude spectrum falls as ``1 / f**exponent``.
+
+    Args:
+        shape: ``(rows, cols)`` of the field.
+        exponent: Spectral slope. 1 gives the texture of natural scenes; larger
+            values give smoother fields dominated by large structures.
+        rng: Generator for the random phases and amplitudes.
+        mtf_at_nyquist: Value at Nyquist of a Gaussian MTF applied to the
+            spectrum, in (0, 1]. 1 applies none.
+
+    Returns:
+        Float array of ``shape`` with zero mean and unit standard deviation.
+
+    Raises:
+        ValueError: If ``mtf_at_nyquist`` is out of range.
+    """
+    if not 0 < mtf_at_nyquist <= 1:
+        raise ValueError(f"mtf_at_nyquist must be in (0, 1], got {mtf_at_nyquist}")
+
+    fy = np.fft.fftfreq(shape[0])[:, None]
+    fx = np.fft.fftfreq(shape[1])[None, :]
+    freq = np.hypot(fy, fx)
+    amplitude = np.zeros_like(freq)
+    np.power(freq, -exponent, out=amplitude, where=freq > 0)
+    amplitude *= mtf_at_nyquist ** ((freq / 0.5) ** 2)
+
+    noise = rng.normal(size=shape) + 1j * rng.normal(size=shape)
+    field = np.fft.ifft2(noise * amplitude).real
+    return (field - field.mean()) / field.std()
+
+
 def fractal_texture(
     size: int, seed: int, mtf_at_nyquist: float = MTF_AT_NYQUIST
 ) -> np.ndarray:
@@ -29,16 +66,6 @@ def fractal_texture(
     """
     if size < 8:
         raise ValueError(f"size must be at least 8 px, got {size}")
-    if not 0 < mtf_at_nyquist <= 1:
-        raise ValueError(f"mtf_at_nyquist must be in (0, 1], got {mtf_at_nyquist}")
-
-    rng = np.random.default_rng(seed)
-    fy = np.fft.fftfreq(size)[:, None]
-    fx = np.fft.fftfreq(size)[None, :]
-    freq = np.hypot(fy, fx)
-    amplitude = np.divide(1.0, freq, out=np.zeros_like(freq), where=freq > 0)
-    amplitude *= mtf_at_nyquist ** ((freq / 0.5) ** 2)
-
-    noise = rng.normal(size=(size, size)) + 1j * rng.normal(size=(size, size))
-    image = np.fft.ifft2(noise * amplitude).real
-    return (image - image.mean()) / image.std()
+    return power_law_field(
+        (size, size), 1.0, np.random.default_rng(seed), mtf_at_nyquist
+    )

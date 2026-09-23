@@ -1,0 +1,201 @@
+"""Run methods on simulated pairs and score them against the ground truth."""
+
+import logging
+import math
+import zlib
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+
+import numpy as np
+
+from .methods import Method
+from .metrics import FAILURE_EPE_PX, is_failure, score
+from .simulate import SimulatedPair, margin_for, simulate_translation
+
+logger = logging.getLogger(__name__)
+
+Degradation = Callable[[SimulatedPair, np.random.Generator], SimulatedPair]
+"""Turns a clean pair into a degraded one, without touching its ground truth."""
+
+DEGRADATIONS: dict[str, Degradation] = {
+    "clean": lambda pair, rng: pair,
+}
+
+
+@dataclass(frozen=True)
+class BenchmarkConfig:
+    """Parameters of a benchmark run.
+
+    Attributes:
+        n_pairs: Simulated pairs per site.
+        size: Side of each image in a pair, in pixels.
+        max_shift: Shift components are drawn uniformly in ``[-max_shift,
+            max_shift]`` px.
+        seed: Seed for pair geometry and degradations.
+        failure_threshold: Mean end-point error above which a pair failed, in px.
+    """
+
+    n_pairs: int = 20
+    size: int = 256
+    max_shift: float = 4.0
+    seed: int = 0
+    failure_threshold: float = FAILURE_EPE_PX
+
+
+@dataclass(frozen=True)
+class PairResult:
+    """Outcome of one method on one pair: one row of the per-pair table.
+
+    Attributes:
+        site: Site the pair was cut from.
+        degradation: Name of the degradation applied to the pair.
+        method: Name of the method.
+        pair: Index of the pair within its site.
+        truth: Ground-truth displacement, as text.
+        estimate: Estimated displacement as text, empty if the method raised.
+        mean_epe: Mean end-point error in pixels, NaN if the method raised.
+        share_below_0_1: Share of pixels with an error under 0.1 px.
+        share_below_0_5: Share of pixels with an error under 0.5 px.
+        failed: Whether the pair counts as a failure.
+        error: Exception raised by the method, empty otherwise.
+    """
+
+    site: str
+    degradation: str
+    method: str
+    pair: int
+    truth: str
+    estimate: str
+    mean_epe: float
+    share_below_0_1: float
+    share_below_0_5: float
+    failed: bool
+    error: str
+
+
+def _rng(seed: int, *keys: str | int) -> np.random.Generator:
+    """Derive a generator from the run seed and names, stable under reordering."""
+    ints = [zlib.crc32(k.encode()) if isinstance(k, str) else k for k in keys]
+    return np.random.default_rng([seed, *ints])
+
+
+def draw_pair(
+    image: np.ndarray, config: BenchmarkConfig, rng: np.random.Generator
+) -> SimulatedPair:
+    """Cut a random window from a site image and simulate a random translation.
+
+    Args:
+        image: 2-D site image.
+        config: Run parameters.
+        rng: Generator for the window position and the shift.
+
+    Returns:
+        A clean simulated pair of ``config.size`` px.
+
+    Raises:
+        ValueError: If the image is too small for the window and its margin.
+    """
+    margin = margin_for(config.max_shift)
+    window = config.size + 2 * margin
+    rows, cols = image.shape
+    if rows < window or cols < window:
+        raise ValueError(
+            f"site image {image.shape} is smaller than the {window} px window needed "
+            f"for {config.size} px pairs with shifts up to {config.max_shift} px"
+        )
+    top = int(rng.integers(0, rows - window + 1))
+    left = int(rng.integers(0, cols - window + 1))
+    dy, dx = rng.uniform(-config.max_shift, config.max_shift, size=2)
+    source = image[top : top + window, left : left + window]
+    return simulate_translation(source, dx=float(dx), dy=float(dy), margin=margin)
+
+
+def _run_method(
+    method: Method,
+    pair: SimulatedPair,
+    failure_threshold: float,
+    labels: dict[str, str | int],
+) -> PairResult:
+    """Run and score one method on one pair, turning any exception into a failure.
+
+    Args:
+        method: Method to run.
+        pair: Simulated pair.
+        failure_threshold: Mean end-point error above which the pair failed, in px.
+        labels: ``site``, ``degradation``, ``method`` and ``pair`` of the row.
+
+    Returns:
+        The pair's result row.
+    """
+    try:
+        estimate = method(pair.reference, pair.moving)
+        pair_score = score(pair.truth, estimate, pair.reference.shape)
+    # A method that crashes is a result, not a reason to stop the run.
+    except Exception as exc:
+        logger.warning("%s failed: %s: %s", labels["method"], type(exc).__name__, exc)
+        return PairResult(
+            **labels,
+            truth=repr(pair.truth),
+            estimate="",
+            mean_epe=math.nan,
+            share_below_0_1=0.0,
+            share_below_0_5=0.0,
+            failed=True,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+    return PairResult(
+        **labels,
+        truth=repr(pair.truth),
+        estimate=repr(estimate),
+        mean_epe=pair_score.mean_epe,
+        share_below_0_1=pair_score.share_below_0_1,
+        share_below_0_5=pair_score.share_below_0_5,
+        failed=is_failure(pair_score, failure_threshold),
+        error="",
+    )
+
+
+def run_benchmark(
+    sites: Mapping[str, np.ndarray],
+    methods: Mapping[str, Method],
+    config: BenchmarkConfig,
+    degradations: Mapping[str, Degradation] = DEGRADATIONS,
+) -> list[PairResult]:
+    """Score every method on every simulated pair.
+
+    Pair geometry depends only on the seed, the site name and the pair index, so
+    every degradation and every method sees the same displacements.
+
+    Args:
+        sites: Site name to 2-D image to cut pairs from.
+        methods: Method name to method.
+        config: Run parameters.
+        degradations: Degradation name to degradation.
+
+    Returns:
+        One result per site, degradation, method and pair.
+
+    Raises:
+        ValueError: If ``config.n_pairs`` is not positive.
+    """
+    if config.n_pairs < 1:
+        raise ValueError(f"n_pairs must be positive, got {config.n_pairs}")
+
+    results = []
+    for site, image in sites.items():
+        for index in range(config.n_pairs):
+            clean = draw_pair(image, config, _rng(config.seed, site, index))
+            for degradation_name, degrade in degradations.items():
+                rng = _rng(config.seed, site, index, degradation_name)
+                pair = degrade(clean, rng)
+                for method_name, method in methods.items():
+                    labels = {
+                        "site": site,
+                        "degradation": degradation_name,
+                        "method": method_name,
+                        "pair": index,
+                    }
+                    results.append(
+                        _run_method(method, pair, config.failure_threshold, labels)
+                    )
+    return results

@@ -2,6 +2,7 @@ import csv
 import dataclasses
 import json
 import math
+import sys
 import tracemalloc
 
 import numpy as np
@@ -10,8 +11,14 @@ from test_cli import PRESETS
 
 from satreg import compute
 from satreg.benchmark import BenchmarkConfig, run_benchmark
-from satreg.cli import main
-from satreg.compute import describe, environment, measure, peak_memory
+from satreg.cli import main, memory_note
+from satreg.compute import (
+    MEMORY_READINGS,
+    describe,
+    environment,
+    measure,
+    peak_memory,
+)
 from satreg.displacement import Translation
 from satreg.methods import RegistrationFailure
 from satreg.report import summarize, to_markdown, write_csv
@@ -244,5 +251,81 @@ def test_benchmark_writes_the_context_next_to_the_tables(tmp_path, capsys):
     assert context["cost"]["repeats"] == 2
     assert context["cost"]["warmup"] == 0
     assert context["cost"]["process_peak_rss_mib"] > 0
+    assert context["cost"]["memory"] == {"phase_correlation": "tracemalloc"}
+    assert context["devices"] == {"phase_correlation": "cpu"}
     printed = capsys.readouterr().out
     assert f"Measured on {describe(context)}." in printed
+
+
+class RecordingMeter:
+    """A meter that notes when it is asked to synchronise, and reads 42 MiB."""
+
+    name = "recording"
+
+    def __init__(self, log):
+        self.log = log
+
+    def synchronize(self):
+        self.log.append("sync")
+
+    def peak_mib(self, call):
+        call()
+        return 42.0
+
+
+def test_the_meter_synchronises_around_each_clock_read(clock):
+    log = []
+
+    def call():
+        log.append("call")
+        clock.now += 1.0
+
+    measured = measure(call, repeats=2, meter=RecordingMeter(log))
+
+    # Two timed calls, each between two synchronisations, then the memory call.
+    assert log == ["sync", "call", "sync", "sync", "call", "sync", "call"]
+    assert measured.peak_mib == 42.0
+
+
+def test_the_torch_meter_peaks_at_what_cpu_tensors_hold():
+    torch = pytest.importorskip("torch", reason="needs the dl extra")
+    mib = 2**20 // 4  # float32 elements in 1 MiB
+
+    def call():
+        a = torch.ones(100 * mib)
+        b = torch.ones(50 * mib)
+        del a
+        c = torch.ones(30 * mib)
+        return b, c
+
+    # 100 + 50 held together, then 50 + 30.
+    assert compute.torch_cpu_peak(call) == pytest.approx(150.0, abs=0.1)
+    assert compute.TorchMeter("cpu").peak_mib(call) == pytest.approx(150.0, abs=0.1)
+    assert torch.get_num_threads() == environment()["threads"]["torch"]
+
+
+def test_the_torch_meter_has_no_figure_on_mps():
+    calls = []
+
+    assert math.isnan(compute.TorchMeter("mps").peak_mib(lambda: calls.append(1)))
+    assert calls == [1]
+
+
+def test_the_environment_does_not_import_torch(monkeypatch):
+    monkeypatch.delitem(sys.modules, "torch", raising=False)
+
+    context = environment()
+
+    assert context["threads"]["torch"] is None
+    assert "torch" not in sys.modules
+
+
+def test_the_footnote_names_how_each_method_was_measured():
+    assert memory_note({"a": "tracemalloc", "b": "tracemalloc"}) == (
+        "memory is " + MEMORY_READINGS["tracemalloc"]
+    )
+    note = memory_note({"a": "tracemalloc", "r": "torch-cpu", "s": "tracemalloc"})
+    assert note == (
+        f"memory is {MEMORY_READINGS['tracemalloc']} for a, s; "
+        f"{MEMORY_READINGS['torch-cpu']} for r"
+    )

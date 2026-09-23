@@ -12,7 +12,9 @@ imagery, so the ground truth is exact down to a fraction of a pixel.
 **Status: in progress, level N1** (simulator, classic methods, metrics). So far the
 pipeline runs end to end with the three classic methods (phase correlation, SIFT +
 RANSAC and AROSICS), on a synthetic texture or on a real Sentinel-2 chip, under
-increasingly degraded conditions, for translations and small affine motions.
+increasingly degraded conditions, for translations and small affine motions. N2
+has started: RAFT, a pretrained optical-flow network, runs in the same benchmark
+and returns a displacement for every pixel.
 
 **First results:** [the N1 table](docs/evaluation.md), 1,200 simulated pairs on two
 Sentinel-2 sites. Phase correlation is the most robust under clouds and blur, SIFT
@@ -74,6 +76,21 @@ the `arosics` extra (`pip install -e ".[dev,arosics]"`). On Linux, install
 `libgdal-dev` first. The test suite runs without it and skips the AROSICS tests,
 saying why.
 
+### Deep-learning methods
+
+RAFT (`raft`, torchvision's large model, and `raft_small`) needs PyTorch, an
+optional extra:
+
+```bash
+make install-dl
+```
+
+This installs the `dl` extra (`pip install -e ".[dev,dl]"`) and downloads the
+pretrained weights once, to PyTorch's cache (`~/.cache/torch`), outside the
+repository. Each method runs on the device set in `configs/methods.toml` (`cpu` by
+default, or `mps` or `cuda`); nothing picks one for you. The test suite runs
+without the extra and skips the RAFT tests, saying why.
+
 ### Translation and affine motion
 
 Each pair is simulated twice: shifted, and under a small affine motion (rotation,
@@ -124,8 +141,12 @@ time, the median of `--repeats` calls (default 3) after `--warmup` untimed calls
 method call is measured, not the simulation or the scoring. `tracemalloc` misses
 memory that native code allocates for itself, so SIFT's figure is about a tenth of
 what it really uses; the limits are measured in
-[`docs/decisions.md`](docs/decisions.md). `context.json` records the CPU, memory,
-thread settings and library versions, so that runs on different machines are not
+[`docs/decisions.md`](docs/decisions.md). PyTorch methods are measured their own
+way: the device is synchronised before each clock read, and memory is the peak
+held by tensors (read by PyTorch's profiler on CPU, by CUDA's counter on GPU, and
+not available on MPS). The table's footnote says which methods were measured
+which way. `context.json` records the CPU, memory, thread settings, library
+versions and each method's device, so that runs on different machines are not
 mixed up.
 
 ### The N1 run

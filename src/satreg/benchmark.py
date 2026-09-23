@@ -14,7 +14,13 @@ from .compute import measure
 from .degrade import Degradation, Preset
 from .displacement import Affine
 from .georef import Georef
-from .methods import Estimate, GeoreferencedMethod, Method, RegistrationFailure
+from .methods import (
+    Estimate,
+    GeoreferencedMethod,
+    Method,
+    RegistrationFailure,
+    cost_meter,
+)
 from .metrics import FAILURE_EPE_PX, is_failure, score
 from .simulate import (
     SimulatedPair,
@@ -106,8 +112,9 @@ class PairResult:
             ``{"inliers": 153}``, empty if it reports none.
         time_ms: Median wall-clock time of the method call over the repeats, in
             milliseconds, whether it returned or raised.
-        peak_mib: Peak memory the method call allocated, in MiB, as traced by
-            ``tracemalloc`` (see ``satreg.compute``).
+        peak_mib: Peak memory the method call allocated, in MiB, as its meter
+            reads it: traced by ``tracemalloc`` unless the method has its own
+            (see ``satreg.compute``). NaN if the meter has no figure.
     """
 
     site: str
@@ -264,7 +271,7 @@ def _run_method(
             return method(pair.reference, pair.moving, pair.georef)
         return method(pair.reference, pair.moving)
 
-    measured = measure(call, config.repeats, warmup)
+    measured = measure(call, config.repeats, warmup, cost_meter(method))
     cost = {"time_ms": 1000 * measured.seconds, "peak_mib": measured.peak_mib}
     diagnostics = {}
     try:

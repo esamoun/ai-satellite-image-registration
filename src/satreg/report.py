@@ -32,7 +32,7 @@ class SummaryRow:
         share_below_0_1: Share of pixels under 0.1 px, over non-failed pairs.
         share_below_0_5: Share of pixels under 0.5 px, over non-failed pairs.
         time_ms: Median over pairs of each pair's median call time, in ms.
-        peak_mib: Median over pairs of each call's traced peak memory, in MiB.
+        peak_mib: Median over pairs of each call's peak memory, in MiB.
     """
 
     site: str

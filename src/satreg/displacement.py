@@ -136,3 +136,45 @@ class Affine(Displacement):
         """Evaluate ``(matrix - I) @ p + offset`` on a ``shape`` grid."""
         grid = np.indices(shape, dtype=float)
         return self.apply(grid) - grid
+
+
+@dataclass(frozen=True, eq=False, repr=False)
+class Dense(Displacement):
+    """A displacement given pixel by pixel, on one grid only.
+
+    Attributes:
+        values: Array of shape ``(2, rows, cols)``: ``dy`` then ``dx``, in pixels.
+            A read-only float copy of the array it was built from.
+    """
+
+    values: np.ndarray
+
+    def __post_init__(self) -> None:
+        values = np.array(self.values, dtype=float)
+        if values.ndim != 3 or values.shape[0] != 2:
+            raise ValueError(
+                f"a dense field has shape (2, rows, cols), got {values.shape}"
+            )
+        values.flags.writeable = False
+        object.__setattr__(self, "values", values)
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        """``(rows, cols)`` of the grid the field is given on."""
+        return self.values.shape[1:]
+
+    def field(self, shape: tuple[int, int]) -> np.ndarray:
+        """Return a copy of the field, which exists on its own grid only.
+
+        Raises:
+            ValueError: If ``shape`` is not the field's own grid.
+        """
+        if tuple(shape) != self.shape:
+            raise ValueError(f"field is given on {self.shape}, not on {tuple(shape)}")
+        return self.values.copy()
+
+    def __repr__(self) -> str:
+        # A summary, not the values: the repr goes to one cell of the per-pair
+        # table.
+        dy, dx = self.values.reshape(2, -1).mean(axis=1)
+        return f"Dense(shape={self.shape}, mean_dx={dx:.6g}, mean_dy={dy:.6g})"

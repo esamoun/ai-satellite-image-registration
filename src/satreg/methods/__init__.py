@@ -4,17 +4,21 @@ A method takes ``(reference, moving)`` and returns the estimated displacement,
 bare or wrapped in an ``Estimate`` with diagnostics. A ``GeoreferencedMethod``
 also takes the pair's map grid. A method that judges it cannot register a pair
 raises ``RegistrationFailure``: the benchmark counts the pair as failed and
-moves on. Method parameters are read from a TOML file, which can also declare
-variants: a configurable method under a new name, with other parameters.
+moves on. A method whose cost is not read the default way, such as one that
+runs on a GPU, has a ``meter`` attribute (see ``satreg.compute``). Method
+parameters are read from a TOML file, which can also declare variants: a
+configurable method under a new name, with other parameters.
 """
 
 import tomllib
 from pathlib import Path
 
-from . import arosics
+from ..compute import TRACEMALLOC, Meter
+from . import arosics, deep
 from .arosics import Arosics
 from .base import Estimate, GeoreferencedMethod, Method, RegistrationFailure
 from .phase_correlation import PhaseCorrelation, phase_correlation
+from .raft import Raft
 from .sift_ransac import SiftRansac
 
 __all__ = [
@@ -23,6 +27,7 @@ __all__ = [
     "GeoreferencedMethod",
     "Method",
     "RegistrationFailure",
+    "cost_meter",
     "load_methods",
     "missing_dependencies",
 ]
@@ -30,6 +35,7 @@ __all__ = [
 METHODS: dict[str, Method] = {
     "arosics": Arosics(),
     "phase_correlation": phase_correlation,
+    "raft": Raft(),
     "sift_ransac": SiftRansac(),
 }
 
@@ -38,6 +44,7 @@ METHODS: dict[str, Method] = {
 _CONFIGURABLE: dict[str, type] = {
     "arosics": Arosics,
     "phase_correlation": PhaseCorrelation,
+    "raft": Raft,
     "sift_ransac": SiftRansac,
 }
 
@@ -46,7 +53,7 @@ VARIANT_KEY = "method"
 
 # Methods that need optional packages, by their class and the function naming
 # the missing ones. Keyed by class so that variants inherit the requirement.
-_OPTIONAL = {Arosics: arosics.missing_modules}
+_OPTIONAL = {Arosics: arosics.missing_modules, Raft: deep.missing_modules}
 
 
 def missing_dependencies(method: Method) -> list[str]:
@@ -62,6 +69,18 @@ def missing_dependencies(method: Method) -> list[str]:
         if isinstance(method, cls):
             return check()
     return []
+
+
+def cost_meter(method: Method) -> Meter:
+    """The meter that reads a method's time and memory.
+
+    Args:
+        method: A method, built-in or variant.
+
+    Returns:
+        The method's own ``meter`` if it has one, ``tracemalloc`` otherwise.
+    """
+    return getattr(method, "meter", TRACEMALLOC)
 
 
 def load_methods(path: Path) -> dict[str, Method]:

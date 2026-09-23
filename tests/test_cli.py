@@ -11,6 +11,7 @@ from satreg import cli
 from satreg.cli import load_run_config, main, parse_args, site_images
 from satreg.georef import NOMINAL
 from satreg.ingest import cache_path
+from satreg.methods import missing_dependencies
 from satreg.methods.arosics import Arosics
 from satreg.sites import load_sites
 
@@ -152,7 +153,8 @@ def test_missing_method_parameters_file_is_reported(tmp_path):
 
 
 def without_arosics(method):
-    return ["osgeo"] if isinstance(method, Arosics) else []
+    # Other methods keep what this machine really lacks.
+    return ["osgeo"] if isinstance(method, Arosics) else missing_dependencies(method)
 
 
 def test_default_methods_leave_out_those_not_installed(tmp_path, capsys, monkeypatch):

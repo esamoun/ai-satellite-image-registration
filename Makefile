@@ -1,4 +1,4 @@
-.PHONY: install install-arosics lint format test fetch benchmark n1 clean
+.PHONY: install install-arosics install-dl lint format test fetch benchmark n1 clean
 
 install:
 	pip install -e ".[dev]"
@@ -8,6 +8,12 @@ install:
 install-arosics:
 	pip install "gdal==$$(gdal-config --version)"
 	pip install -e ".[dev,arosics]"
+
+# PyTorch, then the pretrained weights, downloaded once to PyTorch's cache
+# (~/.cache/torch unless TORCH_HOME says otherwise), outside the repository.
+install-dl:
+	pip install -e ".[dev,dl]"
+	python -c "from satreg.methods.raft import fetch_weights; print(*fetch_weights(), sep='\n')"
 
 lint:
 	ruff check src tests

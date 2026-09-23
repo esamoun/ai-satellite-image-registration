@@ -1,24 +1,30 @@
 """Measure what a method call costs, and record the machine it was measured on.
 
 Time is wall-clock, the median over repeated calls on the same pair. Memory is
-the peak traced by ``tracemalloc`` during one more call, made apart from the
-timed ones because tracing slows Python code down. ``tracemalloc`` sees
-allocations made through Python's allocators, which include NumPy's array
-buffers, but not memory that native code (OpenCV, GDAL, FFT or BLAS scratch)
-allocates for itself. ``docs/decisions.md`` measures how much that misses.
+the peak measured during one more call, made apart from the timed ones because
+measuring it slows the call down. How time and memory are read is the method's
+``Meter``. By default memory is the peak traced by ``tracemalloc``, which sees
+allocations made through Python's allocators, NumPy's array buffers included, but
+not memory that native code (OpenCV, GDAL, FFT or BLAS scratch) allocates for
+itself. ``docs/decisions.md`` measures how much that misses. PyTorch methods
+use a ``TorchMeter`` instead, since ``tracemalloc`` does not see tensors either.
 """
 
+import contextlib
 import importlib.metadata
+import itertools
+import math
 import os
 import platform
 import statistics
 import subprocess
 import sys
 import tracemalloc
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import perf_counter
+from typing import Protocol
 
 MIB = 2**20
 
@@ -31,6 +37,8 @@ LIBRARIES = (
     "rasterio",
     "arosics",
     "GDAL",
+    "torch",
+    "torchvision",
 )
 
 # Environment variables that cap the threads of native libraries.
@@ -50,8 +58,8 @@ class Measured:
         value: What the first timed call returned, ``None`` if it raised.
         error: What the first timed call raised, ``None`` if it returned.
         seconds: Median wall-clock time over the timed calls.
-        peak_mib: Peak memory traced during the memory call, in MiB, above what
-            was allocated before it.
+        peak_mib: Peak memory the meter measured during the memory call, in MiB,
+            above what was allocated before it, NaN if the meter has no figure.
     """
 
     value: object
@@ -99,18 +107,181 @@ def peak_memory(call: Callable[[], object]) -> float:
     return (peak - before) / MIB
 
 
-def measure(call: Callable[[], object], repeats: int, warmup: int = 0) -> Measured:
+# What each meter's memory figure is, by meter name, as the results table says it.
+MEMORY_READINGS = {
+    "tracemalloc": "the peak traced by tracemalloc, which misses native allocations",
+    "torch-cpu": "the peak held by CPU tensors, from PyTorch's profiler",
+    "cuda": "the peak held by CUDA tensors",
+    "none": "not measured, as no counter is available on the device",
+}
+
+
+class Meter(Protocol):
+    """How the cost of a method's calls is read.
+
+    Attributes:
+        name: What the memory figure is, a key of ``MEMORY_READINGS``, recorded
+            with the results so that figures read differently are not compared.
+    """
+
+    name: str
+
+    def synchronize(self) -> None:
+        """Wait until the work the call started is done, before a clock read."""
+
+    def peak_mib(self, call: Callable[[], object]) -> float:
+        """Run a call once and return its peak memory, in MiB, or NaN if unknown."""
+
+
+@dataclass(frozen=True)
+class Tracemalloc:
+    """The default meter: work ends when the call returns, memory is traced."""
+
+    name: str = "tracemalloc"
+
+    def synchronize(self) -> None:
+        """Nothing to wait for: the call's work is done when it returns."""
+
+    def peak_mib(self, call: Callable[[], object]) -> float:
+        """Peak memory traced by ``tracemalloc``, see ``peak_memory``."""
+        return peak_memory(call)
+
+
+TRACEMALLOC = Tracemalloc()
+
+
+@contextlib.contextmanager
+def _native_stderr_silenced() -> Iterator[None]:
+    """Send what native code writes to stderr to the null device, meanwhile."""
+    sys.stderr.flush()
+    saved = os.dup(2)
+    try:
+        with open(os.devnull, "w") as null:
+            os.dup2(null.fileno(), 2)
+            yield
+    finally:
+        os.dup2(saved, 2)
+        os.close(saved)
+
+
+def torch_cpu_peak(call: Callable[[], object]) -> float:
+    """Run a call once and return the peak memory held by CPU tensors, in MiB.
+
+    PyTorch's profiler reports every tensor allocation and release with its
+    size. Summed in time order they give the bytes held at each moment; the
+    peak is taken above what was held before the call. The allocator's own
+    cache, the model's weights and NumPy arrays are not counted.
+
+    Args:
+        call: Call to measure. What it returns or raises is discarded.
+
+    Returns:
+        Peak tensor memory during the call, in MiB.
+    """
+    import torch
+    from torch.profiler import ProfilerActivity, profile
+
+    profiler = profile(activities=[ProfilerActivity.CPU], profile_memory=True)
+    # Kineto announces each start and stop on stderr, which would print two
+    # lines per pair. The call itself keeps its stderr.
+    with _native_stderr_silenced():
+        profiler.start()
+    try:
+        _attempt(call)
+    finally:
+        with _native_stderr_silenced():
+            profiler.stop()
+    # The profiler's own event list, rebuilt from these, loses allocations made
+    # on worker threads; the raw events keep them. Pinned by a test.
+    events = sorted(
+        (event.start_ns(), event.nbytes())
+        for event in profiler.profiler.kineto_results.events()
+        if event.name() == "[memory]"
+        and event.device_type() == torch.autograd.DeviceType.CPU
+    )
+    held = itertools.accumulate(nbytes for _, nbytes in events)
+    return max(itertools.chain([0], held)) / MIB
+
+
+def cuda_peak(call: Callable[[], object], device: str = "cuda") -> float:
+    """Run a call once and return the peak memory CUDA tensors took, in MiB.
+
+    Args:
+        call: Call to measure. What it returns or raises is discarded.
+        device: CUDA device the call runs on.
+
+    Returns:
+        Peak of ``torch.cuda.max_memory_allocated`` during the call, above what
+        was allocated before it.
+    """
+    import torch
+
+    torch.cuda.synchronize(device)
+    torch.cuda.reset_peak_memory_stats(device)
+    before = torch.cuda.memory_allocated(device)
+    _attempt(call)
+    torch.cuda.synchronize(device)
+    return (torch.cuda.max_memory_allocated(device) - before) / MIB
+
+
+@dataclass(frozen=True)
+class TorchMeter:
+    """Cost of a PyTorch method's calls on one device.
+
+    Attributes:
+        device: ``"cpu"``, ``"mps"`` or ``"cuda"``.
+    """
+
+    device: str
+
+    @property
+    def name(self) -> str:
+        """``torch-cpu``, ``cuda``, or ``none`` on MPS, which has no peak counter."""
+        return {"cpu": "torch-cpu", "cuda": "cuda"}.get(self.device, "none")
+
+    def synchronize(self) -> None:
+        """Wait for the kernels queued on the device, which run asynchronously."""
+        import torch
+
+        if self.device == "cuda":
+            torch.cuda.synchronize()
+        elif self.device == "mps":
+            torch.mps.synchronize()
+
+    def peak_mib(self, call: Callable[[], object]) -> float:
+        """Peak tensor memory on the device, or NaN on MPS.
+
+        MPS allocations reach neither the profiler nor a peak counter, and the
+        process's resident memory does not tell one call from the next (see
+        docs/decisions.md), so no figure is better than a wrong one.
+        """
+        if self.device == "cuda":
+            return cuda_peak(call)
+        if self.device == "cpu":
+            return torch_cpu_peak(call)
+        _attempt(call)
+        return math.nan
+
+
+def measure(
+    call: Callable[[], object],
+    repeats: int,
+    warmup: int = 0,
+    meter: Meter = TRACEMALLOC,
+) -> Measured:
     """Time a call, then measure its peak memory.
 
     The call is made ``warmup`` times untimed, ``repeats`` times timed, and once
-    more under ``tracemalloc``. Only the call is measured: whatever prepares its
-    inputs happens before this function is entered.
+    more for its memory. Only the call is measured: whatever prepares its inputs
+    happens before this function is entered.
 
     Args:
         call: Call to measure, with its inputs bound.
         repeats: Timed calls, at least one.
         warmup: Untimed calls made first, to pay one-off costs such as lazy
             imports and library initialisation.
+        meter: How time and memory are read. The meter synchronises before each
+            clock read, so work left running on a device is counted.
 
     Returns:
         The outcome of the first timed call, the median time and the peak memory.
@@ -126,15 +297,17 @@ def measure(call: Callable[[], object], repeats: int, warmup: int = 0) -> Measur
         _attempt(call)
     outcomes, seconds = [], []
     for _ in range(repeats):
+        meter.synchronize()
         start = perf_counter()
         outcomes.append(_attempt(call))
+        meter.synchronize()
         seconds.append(perf_counter() - start)
     value, error = outcomes[0]
     return Measured(
         value=value,
         error=error,
         seconds=statistics.median(seconds),
-        peak_mib=peak_memory(call),
+        peak_mib=meter.peak_mib(call),
     )
 
 
@@ -180,6 +353,13 @@ def _opencv_threads() -> int | None:
     return cv2.getNumThreads()
 
 
+def _torch_threads() -> int | None:
+    # Only if a method has loaded torch: importing it to read one number would
+    # cost over a second.
+    torch = sys.modules.get("torch")
+    return None if torch is None else torch.get_num_threads()
+
+
 def _version(distribution: str) -> str | None:
     try:
         return importlib.metadata.version(distribution)
@@ -223,6 +403,7 @@ def environment() -> dict[str, object]:
             "cpu_count": os.cpu_count(),
             "usable_cpus": _usable_cpus(),
             "opencv": _opencv_threads(),
+            "torch": _torch_threads(),
             **{name: os.environ.get(name) for name in THREAD_VARIABLES},
         },
         "python": platform.python_version(),

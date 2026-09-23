@@ -10,11 +10,17 @@ from pathlib import Path
 import numpy as np
 
 from .benchmark import SCENARIOS, BenchmarkConfig, run_benchmark
-from .compute import describe, environment, process_peak_rss_mib
+from .compute import MEMORY_READINGS, describe, environment, process_peak_rss_mib
 from .degrade import Preset, load_presets
 from .georef import NOMINAL, Georef
 from .ingest import fetch_chip, read_chip, read_georef
-from .methods import METHODS, Method, load_methods, missing_dependencies
+from .methods import (
+    METHODS,
+    Method,
+    cost_meter,
+    load_methods,
+    missing_dependencies,
+)
 from .metrics import FAILURE_EPE_PX
 from .report import summarize, to_markdown, write_csv
 from .sites import SitesConfig, load_sites
@@ -339,6 +345,27 @@ def configured_methods(args: argparse.Namespace) -> dict[str, Method]:
     return {name: methods[name] for name in args.methods}
 
 
+def memory_note(meters: dict[str, str]) -> str:
+    """Say how the memory column was read, naming methods read another way.
+
+    Args:
+        meters: Meter name of each method, in table order.
+
+    Returns:
+        A clause for the table's footnote, e.g. ``"memory is the peak traced by
+        tracemalloc, which misses native allocations"``.
+    """
+    by_meter: dict[str, list[str]] = {}
+    for method, meter in meters.items():
+        by_meter.setdefault(meter, []).append(method)
+    if len(by_meter) == 1:
+        return f"memory is {MEMORY_READINGS[next(iter(by_meter))]}"
+    return "memory is " + "; ".join(
+        f"{MEMORY_READINGS[meter]} for {', '.join(methods)}"
+        for meter, methods in by_meter.items()
+    )
+
+
 def benchmark(args: argparse.Namespace) -> str:
     """Run the benchmark on the requested sites and write its tables.
 
@@ -368,19 +395,25 @@ def benchmark(args: argparse.Namespace) -> str:
     results = run_benchmark(sites, methods, config, degradations, georefs)
     summary = summarize(results)
     context = environment()
+    meters = {name: cost_meter(method).name for name, method in methods.items()}
     context["cost"] = {
         "warmup": config.warmup,
         "repeats": config.repeats,
         "process_peak_rss_mib": process_peak_rss_mib(),
+        "memory": meters,
+    }
+    # Where each method ran: the deep-learning ones name their device, the
+    # others run on the CPU.
+    context["devices"] = {
+        name: getattr(method, "device", "cpu") for name, method in methods.items()
     }
     # Every option the run used, whether from the command line, a run config or
     # a default, so the tables can be reproduced from this file alone.
     context["run"] = {k: v for k, v in sorted(vars(args).items()) if k != "command"}
     table = to_markdown(summary) + (
         f"\nMeasured on {describe(context)}. Time is the median of {config.repeats} "
-        f"calls per pair, after {config.warmup} warm-up call(s) per method; memory "
-        "is the peak traced by tracemalloc, which misses native allocations. "
-        "Details in `context.json`.\n"
+        f"calls per pair, after {config.warmup} warm-up call(s) per method; "
+        f"{memory_note(meters)}. Details in `context.json`.\n"
     )
 
     write_csv(results, args.out / "pairs.csv")

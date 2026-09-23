@@ -21,6 +21,15 @@ max_shift = 5.0
 max_iter = 5
 min_reliability = 40.0
 
+# RAFT optical flow with torchvision's pretrained weights, an optional extra.
+#   model       "large" (5.3 M parameters) or "small" (1.0 M)
+#   iterations  recurrent refinements of the flow
+#   device      "cpu", "mps" or "cuda"; never picked automatically
+[methods.raft]
+model = "large"
+iterations = 12
+device = "cpu"
+
 # Variants: a table with a `method` key is a new method, built like the method it
 # names with the table's other keys as parameters. `satreg benchmark` runs them
 # only when they are named in --methods or in a run config.
@@ -35,3 +44,8 @@ window = "hann"
 [methods.arosics_floor60]
 method = "arosics"
 min_reliability = 60.0
+
+# RAFT's small model, five times fewer parameters.
+[methods.raft_small]
+method = "raft"
+model = "small"

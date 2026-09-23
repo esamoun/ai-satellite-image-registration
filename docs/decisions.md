@@ -859,3 +859,211 @@ reports `main`, and a cancelled run is neither pass nor fail.
 would have to match the pinned bindings, and it would test an optional method on
 every push at the cost of the slowest install in the project. Running on `main`
 only: most pushes on a repository worked on alone land on branches.
+
+---
+
+## 2026-09-23: PyTorch is an optional extra; weights live in PyTorch's cache; the device is named
+
+**Decision.** PyTorch and torchvision are the `dl` extra of `pyproject.toml`
+(`make install-dl` installs it and downloads the pretrained weights). The package
+imports them only inside the methods that need them, which are declared optional in
+the method registry like AROSICS: `satreg benchmark` leaves them out of its default
+methods when torch is missing, and says what to install when one is asked for.
+Weights are downloaded by torchvision, once, to PyTorch's own cache
+(`~/.cache/torch/hub/checkpoints`, or under `TORCH_HOME`), never into the
+repository. Each method runs on the device its configuration names (`cpu`, `mps`
+or `cuda`, default `cpu`), and a device that is not available is an error, never a
+silent fall back. Networks are built once per process and per device.
+
+**Why.** torch and torchvision take about 600 MB installed and 1.1 s to import: the
+core suite and CI have no use for them, and the same split already works for
+AROSICS. The CI installs `.[dev]` only, so the deep-learning tests skip there,
+saying why; the suite was run with torch and torchvision blocked: 245 pass and 5
+skip. The weights (21 MB for RAFT large, 4 MB for small) are artefacts that
+torchvision already versions and verifies by hash, so a second copy in the
+repository or in `data/` would only drift. The conftest refuses the network, so
+tests never download them: the tests that run a network skip, naming the missing
+file and `make install-dl`. An explicit device is what makes a number reproducible:
+the same config gives the same run on the M1 and on Kaggle, and `context.json`
+records which device each method ran on. Picking the fastest device automatically
+would change results between machines without anything saying so; on MPS, RAFT's
+estimates happen to be identical to the CPU's to four decimals, but that is a
+finding, not a guarantee.
+
+**Rejected.** torch as a core dependency (every install and every CI run would pay
+for it). Weights committed or stored in `data/` (duplicates torchvision's cache and
+its hash check). Automatic device choice (results would depend on the machine
+silently). ONNX Runtime instead of torch (ticket 02 looks at it as a spike, for
+inference only).
+
+## 2026-09-23: Dense displacements exist on one grid only
+
+**Decision.** A `Dense` displacement holds a `(2, rows, cols)` field, `dy` then
+`dx`, copied to a read-only float array. `field(shape)` returns a copy of it and
+refuses any other shape. Its text form, which goes into the per-pair table, is its
+shape and mean components, not its values.
+
+**Why.** Unlike a translation or an affine model, a flow has no formula to evaluate
+on another grid, and resampling it silently would score something the method did
+not estimate. The metrics only ever see fields, so a dense estimate is scored by
+the same code as the others; a test pins that a translation or an affine model,
+sampled into a `Dense`, scores exactly like itself. The copy protects the estimate
+from the caller and the caller from it. A 256 px field written in full would be
+131 072 numbers in one CSV cell.
+
+## 2026-09-23: RAFT as torchvision ships it, 12 refinements, one stretch per image
+
+**Decision.** RAFT is the method `raft` (torchvision's `raft_large`, weights
+`C_T_SKHT_V2`) with a `raft_small` variant (`raft_small`, weights `C_T_V2`), 12
+refinement iterations and the CPU by default, all set in `configs/methods.toml`.
+Weights are pinned by name, not by torchvision's `DEFAULT`. It is used as
+shipped, without fine-tuning. Each image of the pair goes through the same
+conversion, which depends on that image alone:
+
+1. **Stretch.** Values are stretched linearly so that the image's own 1st and
+   99th percentiles land on -1 and 1, then clipped, in float32. A flat image
+   gives zeros.
+2. **Three channels.** The band is repeated into the three input channels.
+3. **Padding.** Rows and columns are added after the last ones, by edge
+   replication, up to the next multiple of 8 and to at least 128 px.
+4. **Crop.** The flow of the last refinement is cropped back to the image's
+   rows and columns and put in `(dy, dx)` order.
+
+torchvision's flow maps image1 to image2 (`image2(p + flow) = image1(p)`,
+components `(dx, dy)`). With the reference as image1, it is the displacement of
+the project's convention. A test pins this against a shift of 3 px right and 2 px
+up on the synthetic texture, for both models.
+
+**Why.** *Weights.* `C_T_SKHT_V2` is torchvision's default for the large model:
+trained on FlyingChairs and FlyingThings, then fine-tuned on Sintel, KITTI and
+HD1K. `C_T_V2` is the only set torchvision ships for the small model. Pinning them
+by name keeps a torchvision upgrade from changing the numbers.
+*Iterations.* 12 is torchvision's default. On clean Beauce translations, 24
+iterations gained 0.003 px of mean error (0.034 to 0.031 px on a probe of a few
+pairs), and 32 another 0.001, at twice and three times the time.
+*Stretch.* The weights expect RGB frames scaled to [-1, 1]; Sentinel-2 bands are
+uint16 reflectance numbers with most of the range unused. A stretch computed on
+each image is blind to any gain or offset between the two images, works on the
+synthetic texture, which has no reflectance scale, and does not depend on which
+degradation made the pair. It is the rule SIFT's 8-bit conversion already uses.
+The choice barely matters for accuracy. On 20 Beauce translation pairs (RAFT
+large, MPS), the mean errors were:
+
+| stretch | clean | mild | hard |
+|---|---:|---:|---:|
+| percentiles 1 to 99, per image (kept) | 0.043 | 0.078 | 0.228 |
+| percentiles 2 to 98, per image | 0.043 | 0.095 | 0.222 |
+| minimum to maximum, per image | 0.044 | 0.131 | 0.230 |
+| fixed, digital numbers 1000 to 4000 | 0.043 | 0.119 | 0.194 |
+
+Clean pairs do not tell them apart. On mild pairs the clipped percentile stretches
+do best, and min-max suffers from the outliers that the noise adds. On hard pairs
+the fixed stretch does best, but on only 20 pairs, and it assumes a reflectance
+scale that holds neither for the synthetic texture nor for another sensor.
+*Three channels.* The network was trained on colour. Copying one band into all
+three keeps the input in the range it saw, and costs nothing next to the network.
+*Padding.* RAFT computes features at 1/8 resolution and builds a four-level
+correlation pyramid on them, so each side must be a multiple of 8 and at least 128
+px: torchvision raises an error on smaller images. Padding only after the last
+row and column leaves every pixel where it was, so cropping needs no shift. The
+128 px floor lets RAFT run on the test suite's 64 px pairs, but it costs accuracy:
+0.14 to 0.30 px of mean error on 64 px synthetic pairs, against 0.02 to 0.07 px at
+256 px. The benchmark runs at 256 px.
+
+**Rejected.** A fixed reflectance stretch (see the table). Tiling images larger
+than the network was trained on: not needed at 256 px, and ticket 03 will say if it
+is at larger sizes. torchvision's `DEFAULT` weights (can change between releases).
+Fine-tuning at this stage (the walking skeleton measures the pretrained network).
+
+## 2026-09-23: A PyTorch method's memory is the peak its tensors hold, read by the profiler
+
+**Decision.** The time and memory of a method call are read by the method's
+*meter*. Methods without one keep `tracemalloc`. RAFT's meter depends on its
+device:
+
+- **Time.** On every device, the meter synchronises the device before each clock
+  read: `torch.cuda.synchronize` on CUDA, `torch.mps.synchronize` on MPS.
+- **CPU memory.** It is the peak of bytes held by CPU tensors during the call,
+  above what they held before it. PyTorch's profiler records every tensor
+  allocation and release with its size (`profile_memory=True`), and summing those
+  raw events in time order gives the bytes held at each moment.
+- **CUDA memory.** It is `torch.cuda.max_memory_allocated`, reset before the call,
+  minus what was allocated before it.
+- **MPS memory.** There is no figure: the table says `n/a`.
+
+`context.json` records what each method's memory figure is and the device each
+method ran on, along with torch's version and thread count. The table's footnote
+says which methods were measured which way. This supersedes the plan, in the
+ticket, of reading the resident high-water mark on CPU.
+
+**Why.** *Time.* CUDA and MPS kernels run asynchronously, so a call can return
+before its work is done. Synchronising around the call puts that work inside the
+timed interval. On CPU there is nothing to wait for.
+*CPU memory.* `tracemalloc` does not see tensors, and three ways of reading the
+process's memory failed to give a per-call figure on the M1:
+
+- Sampling the resident set every millisecond from a thread read 0 on most warm
+  calls of RAFT large, and anything from 0 to 725 MiB on others. The allocator
+  keeps freed pages, so a warm call reuses them and the resident set does not
+  move.
+- macOS's own peak counter (`ri_interval_max_phys_footprint`, reset before the
+  call) behaves the same: a second 200 MiB NumPy array read 0 for the same
+  reason.
+- The profiler's event list (`key_averages`) counted more releases than
+  allocations, because it loses the ones made on worker threads.
+
+The raw events are exact on a known case: allocating 100, then 50, releasing the
+100, then allocating 30 MiB reads 150.0 MiB, and a test pins that. On RAFT they
+are stable from call to call: 105.5 MiB for the large model at 256 px and 422 MiB
+at 512 px; 25.0 and 132 MiB for the small model. Profiling adds no time that
+could be measured, and in any case memory has its own call. What the figure
+leaves out: the model's weights, the allocator's cache and the NumPy input
+conversion. Those are either paid once per process or small next to the
+activations. The process's peak resident memory stays in `context.json` (721 MiB
+for a 20-pair RAFT run of both models).
+*MPS memory.* Metal allocations reach neither the profiler nor a peak counter,
+and the process's resident memory has the problem described above. A wrong
+number would be worse than none. Kaggle's GPU runs (ticket 06) will read the CUDA
+peak.
+
+**Limits.** Kineto writes two lines to stderr each time the profiler starts or
+stops, from native code that no environment variable silences, so stderr is sent
+to the null device during those two steps only. The method's own call keeps its
+stderr. torch also warns once per process that a block was allocated before
+profiling started. That block's release is then not counted, so the peak cannot
+be understated by it.
+
+**Rejected.** The resident high-water mark and the other process-wide readings
+above (no per-call figure on warm calls). `psutil`, which was only needed for
+sampling. The profiler's aggregated event list (drops worker-thread events).
+Profiling the timed calls (would mix the two measurements).
+
+## 2026-09-23: What RAFT does on the benchmark, first measurement on the M1
+
+**Decision.** None yet: this records the first measurement, to compare against
+from ticket 03 onwards. It was run with `satreg benchmark --site beauce --scenarios
+translation affine --degradations clean --pairs 20`, at 256 px, with RAFT on CPU
+and on MPS. The machine was the M1 with 8 GB, and torch 2.14 with 4 threads.
+
+| method | scenario | mean error (px) | < 0.1 px | time (ms) | memory (MiB) |
+|---|---|---:|---:|---:|---:|
+| phase correlation | translation | 0.023 | 100 % | 5.2 | 6.5 |
+| SIFT + RANSAC | translation | 0.023 | 100 % | 14.6 | 1.7 |
+| RAFT large, CPU | translation | 0.043 | 95.9 % | 371 | 105.5 |
+| RAFT large, MPS | translation | 0.043 | 95.9 % | 138 | n/a |
+| RAFT small, CPU | translation | 0.119 | 46.1 % | 105 | 25.0 |
+| RAFT small, MPS | translation | 0.119 | 46.1 % | 56 | n/a |
+| RAFT large, CPU | affine | 0.052 | 92.2 % | 371 | 105.5 |
+| RAFT small, CPU | affine | 0.120 | 45.2 % | 104 | 25.0 |
+
+The cost columns do not measure the same thing for every method: see the entries
+on compute cost.
+
+**Why it is worth noting.** Out of the box, RAFT large is half as accurate as the
+classic methods on clean pairs and 25 to 70 times slower, but it reads the
+per-pixel field. On affine pairs it degrades less than phase correlation
+(0.052 px, against the 0.218 px phase correlation's global model reaches there).
+MPS gives the same estimates about three times faster than the CPU for the large
+model. The small model's errors are about three times larger than the large one's.
+It has five times fewer parameters, and its weights skipped the fine-tuning on
+Sintel, KITTI and HD1K, so which of the two costs more is not known.

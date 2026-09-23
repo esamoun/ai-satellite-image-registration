@@ -1,4 +1,4 @@
-.PHONY: install lint format test benchmark clean
+.PHONY: install lint format test fetch benchmark clean
 
 install:
 	pip install -e ".[dev]"
@@ -13,6 +13,9 @@ format:
 
 test:
 	pytest -q
+
+fetch:
+	satreg fetch
 
 benchmark:
 	satreg benchmark

@@ -1,0 +1,27 @@
+# Sites that benchmark pairs are cut from. Each chip is a square window of
+# `chip_px` pixels centred on (lon, lat), read from the least cloudy Sentinel-2
+# L2A scene of the date range. See docs/decisions.md.
+
+[stac]
+url = "https://earth-search.aws.element84.com/v1"
+collection = "sentinel-2-c1-l2a"
+
+# Open-field agriculture: large regular parcels, strong straight edges.
+[sites.beauce]
+lon = 1.60
+lat = 48.20
+chip_px = 1024
+start = 2025-04-01
+end = 2025-09-30
+max_cloud = 5.0
+band = "B04"
+
+# Dense urban texture and the Garonne. Optional in N1.
+[sites.toulouse]
+lon = 1.444
+lat = 43.604
+chip_px = 1024
+start = 2025-04-01
+end = 2025-09-30
+max_cloud = 5.0
+band = "B04"

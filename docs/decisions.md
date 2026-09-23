@@ -134,3 +134,101 @@ numpy, scipy and scikit-image. Tables are written with the standard `csv` module
 pip is what CI will use. The conda install on the development machine is currently
 broken, which was a nudge but not the reason. pandas would be one more dependency
 for writing two small tables.
+
+---
+
+## 2026-09-23: Chips are whole-pixel windows of the native COG, nothing else
+
+**Decision.** A site's chip is read from the Sentinel-2 COG as an integer-aligned
+window: the site centre is projected into the tile's UTM CRS, the pixel it falls in
+is found, and a `chip_px` square around it is read. No resampling, no
+reprojection, no warping. The chip is saved as a GeoTIFF with the source CRS and
+the source geotransform offset by a whole number of pixels, plus the scene it came
+from in its tags.
+
+**Why.** The benchmark measures errors of a hundredth of a pixel. Any resampling
+on the way in, even to "the same" grid, interpolates the image and changes its
+sub-pixel content by amounts of that order, and a reprojection to another CRS also
+bends the pixel grid. Reading whole source pixels means the chip is exactly what
+the product delivered, and the test suite checks it pixel for pixel against the
+source array and its geotransform. The price is that a chip always lives in its
+tile's own UTM zone and cannot straddle two tiles. A scene where the window leaves
+the tile or touches no-data (the edge of the swath) is skipped for the next one.
+
+**Rejected.** `rasterio.warp` or a VRT to a common grid (resampling);
+`stackstac`/`odc-stac` (built to mosaic and reproject, which is the opposite of
+what is wanted here, and heavy dependencies for a single window).
+
+---
+
+## 2026-09-23: Earth Search, Sentinel-2 Collection 1 L2A
+
+**Decision.** Scenes are searched in the `sentinel-2-c1-l2a` collection of Earth
+Search (Element 84), through `pystac-client`. The catalogue URL and collection sit
+in `configs/sites.toml`, not in the code.
+
+**Why.** Its COGs are public over plain HTTPS: no account, no token, no URL
+signing, so a fresh clone can fetch the data and nothing expires between runs.
+Collection 1 is ESA's reprocessing of the archive with one processing baseline,
+so two scenes from different years went through the same geometric processing,
+which matters once real pairs arrive in N2. Planetary Computer also serves native
+COGs, but its asset URLs must be signed with short-lived tokens, which adds a
+dependency and a failure mode for no gain here. Band assets are found by their
+`eo:bands` name (`B04`), not by Earth Search's asset keys (`red`), so switching
+catalogue only means editing the configuration. Only single-band assets match,
+so the 8-bit true-colour `visual` asset, which also lists B04, is never picked.
+
+**Rejected.** Planetary Computer (signed URLs); Earth Search `sentinel-2-l2a`
+(mixed processing baselines); Google Earth Engine (see the first entry).
+
+---
+
+## 2026-09-23: Sites are a centre and a size in pixels; the least cloudy scene wins
+
+**Decision.** A site is declared in `configs/sites.toml` as a centre (lon, lat), a
+chip size in source pixels (1024 by default, 10.24 km), a date range, a maximum
+scene cloud cover and a band (B04 by default). The chip comes from the least
+cloudy scene of the range, ties broken by item id. Beauce is the N1 site, Toulouse
+is declared as the optional second one.
+
+**Why.** A bounding box in degrees does not map to a square window of pixels in
+UTM, and its size in pixels would change with latitude; a centre plus a size in
+pixels gives the same square chip everywhere. The cloud filter uses the scene's
+`eo:cloud_cover`, not a cloud mask of the chip itself. That is enough for N1: both
+images of a simulated pair are cut from the same chip, so a cloud there is just
+texture, present in both, and the ground truth is still exact. Real pairs (N2) will
+need a chip-level mask, and it will be added then. The dates are in the
+configuration, so the chosen scene is reproducible as long as the catalogue does
+not change.
+
+---
+
+## 2026-09-23: Chips are cached under a key of the parameters that pick them
+
+**Decision.** A chip is cached as `data/chips/<site>/<band>_<hash>.tif`, the hash
+covering every site parameter and the catalogue. A cached chip is used without any
+network call; a missing one is fetched on demand by `satreg benchmark` or ahead of
+time by `satreg fetch`. `data/` is gitignored.
+
+**Why.** Keyed on the site name alone, editing the dates or the size in the
+configuration would silently keep benchmarking the old chip. With the parameters
+in the key, a change fetches a new chip and the old one stays valid for its old
+parameters. The file is written under a temporary name and renamed once complete,
+so an interrupted download is never mistaken for a cached chip. Chips keep the
+product's digital numbers (uint16): phase correlation, and the methods to come, do
+not depend on an affine change of intensity, and converting to reflectance would
+change nothing geometric.
+
+---
+
+## 2026-09-23: The test suite refuses the network
+
+**Decision.** Every test runs with Python socket connections disabled
+(`tests/conftest.py`). The STAC search is replaced by a fake, and COG reads are
+served from tiny GeoTIFFs written by the tests themselves.
+
+**Why.** CI must not depend on a public catalogue being up, and a test that
+silently downloads a chip would pass locally and fail, or be slow, elsewhere.
+Disabling sockets turns "the tests are offline" from an intention into a check.
+The fixture rasters use a real UTM grid over the Beauce, so the lon/lat to pixel
+path is exercised with a real projection.

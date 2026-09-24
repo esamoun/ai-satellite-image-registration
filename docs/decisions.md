@@ -1070,3 +1070,67 @@ MPS gives the same estimates about three times faster than the CPU for the large
 model. The small model's errors are about three times larger than the large one's.
 It has five times fewer parameters, and its weights skipped the fine-tuning on
 Sintel, KITTI and HD1K, so which of the two costs more is not known.
+
+## 2026-09-24: RAFT exports to ONNX as it is; it stays the model N3 fine-tunes
+
+**Decision.** RAFT stays the N3 model: both torchvision models export to ONNX and
+run under ONNX Runtime on the CPU with the same flow as PyTorch. Which of the two
+sizes N3 fine-tunes is left to N3. The export that works with the least fuss is
+the TorchScript-based one (`torch.onnx.export(..., dynamo=False)`) at opset 17,
+with the image size dynamic. The number of refinements is fixed when the model is
+exported. The spike's script is `scripts/raft_onnx_spike.py` (it needs `onnx`,
+`onnxruntime` and `onnxscript` on top of the `dl` extra, installed by hand: they
+are not an extra until N3 uses them).
+
+**What was measured.** One simulated Beauce translation pair (1.37, -2.61 px),
+12 refinements, M1 8 GB, torch 2.14, ONNX Runtime 1.30, 4 threads on both sides,
+median of 5 calls after one untimed call. Times vary by about 15 % from run to
+run, so ranges are given.
+
+| model | export | size (MiB) | largest flow difference vs torch (px) | torch (ms) | ONNX Runtime (ms) |
+|---|---|---:|---:|---:|---:|
+| large | TorchScript, 256 px fixed | 20.4 | 3.4e-4 | 380-470 | 630-700 |
+| large | TorchScript, dynamic size | 20.5 | 1.5e-4 (1.2e-4 at 512 px) | 410 | 670 |
+| large | dynamo, dynamic size, opset 18 | 22.2 | 3.6e-4 (2.6e-4 at 512 px) | 360 | 720 |
+| small | TorchScript, dynamic size | 4.1 | 3e-5 (7e-5 at 512 px) | 100 | 240 |
+| large | int8, dynamic quantization | 6.0 | 0.14 (mean 0.03) | | 470-530 |
+| small | int8, dynamic quantization | 1.8 | 0.97 (mean 0.24) | | 230 |
+
+**What breaks, and what does not.**
+- RAFT's correlation lookup samples the correlation volume with `grid_sample`
+  (48 `GridSample` nodes for 12 refinements and 4 pyramid levels). ONNX has it from
+  opset 16 on; at opset 15 the export stops with `UnsupportedOperatorError` on
+  `aten::grid_sampler`. No other operator is missing.
+- The refinement loop is a Python loop, so both exporters unroll it: the graph
+  holds exactly the 12 refinements it was exported with (2 562 nodes with
+  TorchScript, 1 333 with dynamo), with no ONNX `Loop`. Another iteration count
+  means another export, which is cheap (2 s).
+- The dynamo exporter has no opset 17 for `Pad`: asked for 17, it builds at 18,
+  fails to convert down and keeps 18, with a long traceback on the way. It
+  otherwise works, dynamic size included, but takes 7 to 17 s against 2.
+- The TorchScript exporter warns that `instance_norm` is exported with
+  `train=True`. That is what RAFT's feature encoder does in PyTorch too: its
+  instance norms keep no running statistics and always use the image's own. The
+  flow agreeing to 3e-4 px confirms it.
+- The legacy exporter prints a deprecation warning: PyTorch made dynamo the
+  default in 2.9. It still works in 2.14, and the dynamo route is the fallback if
+  it goes.
+
+**Why it is worth noting.** The spec asked to check this before any fine-tuning,
+because N3 exports and quantizes the fine-tuned model: the answer is yes, with no
+change to torchvision's code. Two things N3 should know:
+- On the M1 CPU, ONNX Runtime is slower than PyTorch, 1.6 times for the large
+  model and 2.4 times for the small one. What ONNX brings is a model that runs
+  without PyTorch and can be quantized, not speed on this machine.
+- Dynamic int8 quantization runs and shrinks the files 3.4 and 2.3 times, but gains
+  only 25 % of time on the large model and almost nothing on the small one, and
+  moves the flow by the size of the model's own error (large: mean 0.03 px, against
+  0.043 px of error on clean pairs) or more (small: mean 0.24 px, against 0.119).
+  This is one pair and no accuracy study, which is N3's; but it says the default
+  dynamic quantization, applied as it is, costs accuracy that matters at a tenth of
+  a pixel.
+
+**Rejected.** A fallback model (not needed: RAFT exports). The dynamo exporter as
+the default (slower to export and cannot target opset 17; kept as the fallback).
+Rewriting the correlation lookup without `grid_sample` (opset 16 came with ONNX
+1.11 in early 2022, so no runtime N3 targets lacks it).

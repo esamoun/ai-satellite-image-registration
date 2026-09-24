@@ -171,10 +171,12 @@ reading are in [`docs/evaluation.md`](docs/evaluation.md).
 
 ## How this was built
 
-I use Claude Code as an assistant throughout. It writes a share of the code and
-prose, under review. The decisions are recorded in
-[`docs/decisions.md`](docs/decisions.md), which is the place to judge whether I
-understand what is here.
+I designed this project and I lead it: I set the question, the methods compared,
+how they are evaluated and the plan, and I make the calls that shape the results.
+Claude Code is my coding assistant: it writes most of the code and drafts the docs,
+and I review its changes and check the results before they go in. The reasoning
+behind each choice is in [`docs/decisions.md`](docs/decisions.md); the entries
+marked *My call* are the ones where I chose between options.
 
 ## License
 

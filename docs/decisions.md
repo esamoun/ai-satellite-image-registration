@@ -4,6 +4,9 @@ Why each choice was made, dated, with the reasoning that produced it. Append; do
 rewrite history. When a decision turns out to be wrong, add a new entry that
 supersedes the old one rather than editing it.
 
+Entries are drafted with Claude Code and reviewed by me. Those marked *My call*
+are the ones where I chose between options.
+
 ---
 
 ## 2026-09-23: Sentinel-2 from native COGs via STAC, not Google Earth Engine

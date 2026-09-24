@@ -14,8 +14,9 @@ pipeline runs end to end with the three classic methods (phase correlation, SIFT
 RANSAC and AROSICS), on a synthetic texture or on a real Sentinel-2 chip, under
 increasingly degraded conditions, for translations and small affine motions. N2
 has started: RAFT, a pretrained optical-flow network, runs in the same benchmark
-and returns a displacement for every pixel, and a third scenario simulates a
-displacement that varies across the pair.
+and returns a displacement for every pixel, LightGlue, a learned keypoint matcher,
+runs next to SIFT, and a third scenario simulates a displacement that varies
+across the pair.
 
 **First results:** [the N1 table](docs/evaluation.md), 1,200 simulated pairs on two
 Sentinel-2 sites. Phase correlation is the most robust under clouds and blur, SIFT
@@ -59,8 +60,8 @@ minimum inlier count; AROSICS' window, maximum shift and reliability threshold)
 are set in [`configs/methods.toml`](configs/methods.toml). A variant of a method,
 with other parameters, is declared there too, as a table with a `method` key, and
 runs under its own name: `phase_correlation_hann` (phase correlation with a Hann
-window) and `arosics_floor60` (AROSICS with a 60 % reliability floor) are declared
-this way.
+window), `arosics_floor60` (AROSICS with a 60 % reliability floor) and
+`lightglue_disk` (LightGlue on DISK keypoints) are declared this way.
 
 ### AROSICS
 
@@ -79,8 +80,14 @@ saying why.
 
 ### Deep-learning methods
 
-RAFT (`raft`, torchvision's large model, and `raft_small`) needs PyTorch, an
-optional extra:
+Two pretrained methods need PyTorch, an optional extra:
+
+- RAFT (`raft`, torchvision's large model, and `raft_small`): optical flow, a
+  displacement for every pixel.
+- LightGlue (`lightglue`, on ALIKED keypoints, and `lightglue_disk`, on DISK
+  keypoints), kornia's implementation: learned keypoints matched by a
+  transformer, then the same RANSAC affine fit as `sift_ransac`. Its match and
+  inlier counts are in `pairs.csv`.
 
 ```bash
 make install-dl
@@ -90,7 +97,7 @@ This installs the `dl` extra (`pip install -e ".[dev,dl]"`) and downloads the
 pretrained weights once, to PyTorch's cache (`~/.cache/torch`), outside the
 repository. Each method runs on the device set in `configs/methods.toml` (`cpu` by
 default, or `mps` or `cuda`); nothing picks one for you. The test suite runs
-without the extra and skips the RAFT tests, saying why.
+without the extra and skips the tests that run the networks, saying why.
 
 ### Translation, affine and dense motion
 

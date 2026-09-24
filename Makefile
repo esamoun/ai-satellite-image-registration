@@ -13,7 +13,7 @@ install-arosics:
 # (~/.cache/torch unless TORCH_HOME says otherwise), outside the repository.
 install-dl:
 	pip install -e ".[dev,dl]"
-	python -c "from satreg.methods.raft import fetch_weights; print(*fetch_weights(), sep='\n')"
+	python -c "from satreg.methods import lightglue, raft; print(*raft.fetch_weights(), *lightglue.fetch_weights(), sep='\n')"
 
 lint:
 	ruff check src tests

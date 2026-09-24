@@ -1265,3 +1265,103 @@ three presets took 6.5 min on the M1.
   the error lands in the moving image, where nothing measures it.
 - Scoring pixels under any cloud (opacity ≥ 0.5): that would drop the thin edges
   the degradation exists to test.
+
+---
+
+## 2026-09-24: LightGlue from kornia, on ALIKED keypoints, with a DISK variant
+
+*My call*: kornia's implementation rather than the authors' repository, and ALIKED
+as the extractor of `lightglue`, with DISK as the `lightglue_disk` variant.
+
+**Decision.** `lightglue` is kornia 0.8.3's LightGlue on ALIKED keypoints (model
+`aliked-n16`), and `lightglue_disk` is the same matcher on DISK keypoints (model
+`depth`). Each uses the LightGlue weights trained on its extractor. Both are used
+as shipped, without fine-tuning. Parameters are set in `configs/methods.toml`: at
+most 2048 keypoints per image, LightGlue's match threshold 0.1 (kornia's
+default), then the RANSAC settings of `sift_ransac` (1 px, 10 inliers). The
+matches go through the same RANSAC affine fit as SIFT's, moved to
+`methods/ransac.py`, so the two methods differ only in how they find their
+matches. That includes the failure: fewer than 10 matches or inliers declines the
+pair. The keypoint, match and inlier counts go to `pairs.csv`.
+
+Each image goes through the same conversion, which depends on that image alone:
+
+1. **Stretch.** RAFT's stretch (1st and 99th percentiles of the image to the
+   ends of the range, clipped), moved to [0, 1], the range both extractors were
+   trained on.
+2. **Three channels.** The band is repeated into three channels.
+3. **Padding.** ALIKED pads its input itself, by edge replication, to a multiple
+   of 32. DISK's U-Net needs sides that are multiples of 16. kornia pads with
+   zeros, so the input is padded here instead, after the last row and column, by
+   edge replication, and keypoints that land on the padding are dropped.
+
+Keypoints come out in `(x, y)` order with pixel centres on integers, which is
+the convention the RANSAC fit already takes from SIFT.
+
+**Why.** *kornia.* It is on PyPI under Apache-2.0, pinned like torchvision, and
+ships LightGlue with its weights and two extractors. The authors' repository
+(`cvg/LightGlue`) is not on PyPI and would be installed from git. ALIKED appears
+in kornia 0.8.3, so the `dl` extra requires that version.
+*ALIKED rather than DISK.* DISK keeps its keypoints on whole pixels (the maxima
+of its heatmap, with no sub-pixel refinement), and only the averaging over many
+inliers brings its fit under a pixel. ALIKED refines each keypoint below the
+pixel. On clean synthetic pairs at 256 to 300 px, ALIKED lands at 0.015 to
+0.023 px on translations and 0.041 px on an affine pair, DISK at 0.11 to 0.14 px
+and 0.078 px. DISK is kept as a variant because it is the other extractor
+LightGlue has weights for, and it declines fewer hard pairs (next entry).
+*Licences.* LightGlue's code and weights are Apache-2.0, DISK's too, and
+ALIKED's are BSD-3-Clause. SuperPoint, the extractor LightGlue was first trained
+on, has Magic Leap's non-commercial licence, and kornia has no SuperPoint
+extractor to load it with.
+*Keypoints and threshold.* 2048 is LightGlue's usual budget. ALIKED keeps
+keypoints scoring above 0.2, the value LightGlue's own ALIKED wrapper uses.
+*The shared fit.* A copy of the fit would let the two methods drift apart, and
+the comparison would no longer isolate the matching.
+*stdout.* kornia prints a line when it loads LightGlue's weights. The benchmark's
+summary table goes to stdout, so that line is redirected to stderr.
+
+**Rejected.**
+- `cvg/LightGlue` installed from git: not on PyPI, and kornia has the same model.
+- SuperPoint: non-commercial licence, and no extractor in kornia.
+- DISK as the main extractor: its whole-pixel keypoints, numbers above.
+- kornia's zero padding for DISK: the edge of the zeros draws keypoints.
+- A threshold on LightGlue's matches other than kornia's default: nothing
+  measured yet argues for one.
+
+---
+
+## 2026-09-24: What LightGlue does on the benchmark, first measurement on the M1
+
+**Decision.** None yet: this records the first measurement, to compare against
+in later tickets. It was run with `satreg benchmark --site beauce --scenarios
+translation affine --degradations clean hard --pairs 100 --methods sift_ransac
+lightglue lightglue_disk`, at 256 px, on CPU. The machine was the M1 with 8 GB.
+Failures are split into the pairs the method declined (too few matches or
+inliers) and the pairs where it answered with a mean error above 1 px. The mean
+error is over the pairs that did not fail, as in the benchmark's table.
+
+| method | scenario | clean error (px) | hard error (px) | hard: declined | hard: above 1 px | time (ms) | memory (MiB) |
+|---|---|---:|---:|---:|---:|---:|---:|
+| SIFT + RANSAC | translation | 0.022 | 0.560 | 69 % | 7 % | 15 | 1.7 |
+| LightGlue, ALIKED | translation | 0.043 | 0.566 | 21 % | 23 % | 150 | 99.5 |
+| LightGlue, DISK | translation | 0.161 | 0.550 | 4 % | 52 % | 484 | 600 |
+| SIFT + RANSAC | affine | 0.021 | 0.520 | 68 % | 8 % | 15 | 1.7 |
+| LightGlue, ALIKED | affine | 0.047 | 0.576 | 23 % | 30 % | 148 | 99.5 |
+| LightGlue, DISK | affine | 0.165 | 0.619 | 3 % | 42 % | 496 | 600 |
+
+Time is the clean pairs' median. The cost columns do not measure the same thing
+for SIFT and for the PyTorch methods: see the entries on compute cost.
+
+**Why it is worth noting.** On clean pairs, learned matching does not beat SIFT:
+ALIKED's error is twice SIFT's, DISK's seven times, for ten and thirty times the
+time. Under `hard`, LightGlue fails fewer pairs (44 to 53 % with ALIKED, against
+76 % for SIFT), but mostly by answering where SIFT declines. Its pairs above 1 px
+are off by 1.5 px at the median, with 10 to 28 inliers, so the 10-inlier floor
+that makes SIFT a cautious method does not do the same for LightGlue. On the pairs
+it does register, its error is no better than SIFT's: on the 21 hard pairs (both
+scenarios together) that all three methods register, the errors are within
+0.15 px of each other, with no method best on both scenarios. DISK declines almost nothing and
+is wrong on half the hard pairs, with 44 inliers at the median. What LightGlue
+adds is reach: on hard translations it registers 35 pairs SIFT fails, SIFT only
+3 that LightGlue fails. A later ticket can say whether a stricter inlier floor
+or match threshold turns the pairs above 1 px into declined ones.

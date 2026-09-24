@@ -25,7 +25,8 @@ dev = ["pytest", "ruff"]
 # Needs GDAL's Python bindings built against a system GDAL: see the README.
 arosics = ["arosics"]
 # PyTorch for the pretrained deep-learning methods; weights go to PyTorch's cache.
-dl = ["torch>=2.0", "torchvision>=0.15"]
+# kornia 0.8.3 is the first release with ALIKED.
+dl = ["torch>=2.0", "torchvision>=0.15", "kornia>=0.8.3"]
 
 [project.scripts]
 satreg = "satreg.cli:main"

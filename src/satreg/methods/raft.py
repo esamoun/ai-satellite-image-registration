@@ -56,16 +56,9 @@ def stretch(image: np.ndarray) -> np.ndarray:
     return np.clip(scaled, -1, 1).astype(np.float32)
 
 
-def padded_side(side: int) -> int:
-    """The side RAFT is given for an image side: a multiple of 8, at least 128."""
-    return max(MIN_SIDE, -(-side // SIDE_MULTIPLE) * SIDE_MULTIPLE)
-
-
 def pad(image: np.ndarray) -> np.ndarray:
     """Extend an image down and right, by edge replication, to a side RAFT takes.
 
-    Padding only after the last row and column leaves every pixel where it was,
-    so the flow of the padded image, cropped back, is on the image's own grid.
     An image under 128 px a side runs, but padding it that far costs accuracy:
     0.1 to 0.3 px of mean error on 64 px synthetic pairs, against 0.02 to 0.07
     at 256 px (see docs/decisions.md).
@@ -76,11 +69,7 @@ def pad(image: np.ndarray) -> np.ndarray:
     Returns:
         The padded image, the image itself if no padding is needed.
     """
-    rows, cols = image.shape
-    extra = (padded_side(rows) - rows, padded_side(cols) - cols)
-    if extra == (0, 0):
-        return image
-    return np.pad(image, ((0, extra[0]), (0, extra[1])), mode="edge")
+    return deep.pad(image, SIDE_MULTIPLE, MIN_SIDE)
 
 
 def network_input(image: np.ndarray) -> np.ndarray:

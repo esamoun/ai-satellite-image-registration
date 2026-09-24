@@ -14,9 +14,10 @@ import tomllib
 from pathlib import Path
 
 from ..compute import TRACEMALLOC, Meter
-from . import arosics, deep
+from . import arosics, deep, lightglue
 from .arosics import Arosics
 from .base import Estimate, GeoreferencedMethod, Method, RegistrationFailure
+from .lightglue import LightGlue
 from .phase_correlation import PhaseCorrelation, phase_correlation
 from .raft import Raft
 from .sift_ransac import SiftRansac
@@ -34,6 +35,7 @@ __all__ = [
 
 METHODS: dict[str, Method] = {
     "arosics": Arosics(),
+    "lightglue": LightGlue(),
     "phase_correlation": phase_correlation,
     "raft": Raft(),
     "sift_ransac": SiftRansac(),
@@ -43,6 +45,7 @@ METHODS: dict[str, Method] = {
 # builds them from those parameters.
 _CONFIGURABLE: dict[str, type] = {
     "arosics": Arosics,
+    "lightglue": LightGlue,
     "phase_correlation": PhaseCorrelation,
     "raft": Raft,
     "sift_ransac": SiftRansac,
@@ -53,7 +56,11 @@ VARIANT_KEY = "method"
 
 # Methods that need optional packages, by their class and the function naming
 # the missing ones. Keyed by class so that variants inherit the requirement.
-_OPTIONAL = {Arosics: arosics.missing_modules, Raft: deep.missing_modules}
+_OPTIONAL = {
+    Arosics: arosics.missing_modules,
+    LightGlue: lightglue.missing_modules,
+    Raft: deep.missing_modules,
+}
 
 
 def missing_dependencies(method: Method) -> list[str]:

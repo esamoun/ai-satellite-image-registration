@@ -1,4 +1,4 @@
-.PHONY: install install-arosics install-dl lint format test fetch benchmark n1 clean
+.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 clean
 
 install:
 	pip install -e ".[dev]"
@@ -14,6 +14,15 @@ install-arosics:
 install-dl:
 	pip install -e ".[dev,dl]"
 	python -c "from satreg.methods import lightglue, raft; print(*raft.fetch_weights(), *lightglue.fetch_weights(), sep='\n')"
+
+# RoMa on top of the dl extra. romatch is installed without the dependencies it
+# declares: it would pull opencv-python over opencv-python-headless, and training
+# and benchmarking packages that inference never imports (see docs/decisions.md).
+# The weights (1.7 GB) go to PyTorch's cache.
+install-roma: install-dl
+	pip install -e ".[dev,dl,roma]"
+	pip install --no-deps "romatch==0.1.2"
+	python -c "from satreg.methods import roma; print(*roma.fetch_weights(), sep='\n')"
 
 lint:
 	ruff check src tests

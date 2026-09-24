@@ -176,7 +176,8 @@ def without_arosics(method):
 
 
 def test_default_methods_leave_out_those_not_installed(tmp_path, capsys, monkeypatch):
-    monkeypatch.setattr(cli, "missing_dependencies", without_arosics)
+    # The defaults are chosen in the methods package, when the parser is built.
+    monkeypatch.setattr("satreg.methods.missing_dependencies", without_arosics)
 
     main(
         ["benchmark", "--pairs", "2", "--size", "64", "--out", str(tmp_path)]
@@ -187,6 +188,16 @@ def test_default_methods_leave_out_those_not_installed(tmp_path, capsys, monkeyp
     printed = capsys.readouterr().out
     assert "| phase_correlation |" in printed
     assert "arosics" not in printed
+
+
+def test_default_methods_leave_out_roma_even_when_installed(monkeypatch):
+    monkeypatch.setattr("satreg.methods.missing_dependencies", lambda method: [])
+
+    args = parse_args(["benchmark"])
+
+    assert "roma" not in args.methods
+    assert "raft" in args.methods
+    assert parse_args(["benchmark", "--methods", "roma"]).methods == ["roma"]
 
 
 def test_requesting_a_method_not_installed_is_reported(monkeypatch):

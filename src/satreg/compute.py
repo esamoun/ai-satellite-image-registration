@@ -11,6 +11,7 @@ use a ``TorchMeter`` instead, since ``tracemalloc`` does not see tensors either.
 """
 
 import contextlib
+import gc
 import importlib.metadata
 import itertools
 import math
@@ -200,7 +201,13 @@ def torch_cpu_peak(call: Callable[[], object]) -> float:
         and event.device_type() == torch.autograd.DeviceType.CPU
     )
     held = itertools.accumulate(nbytes for _, nbytes in events)
-    return max(itertools.chain([0], held)) / MIB
+    peak = max(itertools.chain([0], held)) / MIB
+    # The profiler sits in a reference cycle that keeps its trace, about 1 GB
+    # for one RoMa call, and Python's collector reaches it only now and then:
+    # over a run the process grew until macOS killed it. Collected here.
+    del profiler, events
+    gc.collect()
+    return peak
 
 
 def cuda_peak(call: Callable[[], object], device: str = "cuda") -> float:

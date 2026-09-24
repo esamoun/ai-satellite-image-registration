@@ -1365,3 +1365,251 @@ is wrong on half the hard pairs, with 44 inliers at the median. What LightGlue
 adds is reach: on hard translations it registers 35 pairs SIFT fails, SIFT only
 3 that LightGlue fails. A later ticket can say whether a stricter inlier floor
 or match threshold turns the pairs above 1 px into declined ones.
+
+---
+
+## 2026-09-24: RoMa from romatch 0.1.2, installed without the dependencies it declares
+
+**Decision.** RoMa is the outdoor model of `romatch` 0.1.2, the authors' package on
+PyPI, used as shipped, without fine-tuning. `make install-roma` installs it with
+`pip install --no-deps "romatch==0.1.2"`, on top of the `dl` extra and a `roma`
+extra that adds the two packages it imports that the project does not already
+have, `einops` and `loguru`. Its weights are two files, fetched once to PyTorch's
+cache by the same target and loaded with `weights_only=True`:
+
+| file | size | SHA-256 |
+|---|---:|---|
+| `roma_outdoor.pth` | 0.4 GB | `c7a45c80d41ad788a63c641d1b686d7cb3f297f40097c6f4e75039889e5cc8ba` |
+| `dinov2_vitl14_pretrain.pth` | 1.2 GB | `d5383ea8f4877b2472eb973e0fd72d557c7da5d3611bd527ceeb1d7162cbf428` |
+
+The files are not versioned upstream, so the hashes identify the ones measured.
+
+**Why.** *romatch.* It is the reference implementation, on PyPI, and the version
+can be pinned. *Without its dependencies.* romatch declares the packages of its
+training and evaluation code: `albumentations`, `h5py`, `matplotlib`, `poselib`,
+`timm`, `tqdm`, `wandb`, and `opencv-python`, which would install a second OpenCV
+over the project's `opencv-python-headless`. Building the model and matching a
+pair imports only `einops`, `loguru` and `cv2`, besides torch and torchvision
+(checked by listing the modules loaded). *Licences.* romatch's code and RoMa's
+weights are MIT (Johan Edstedt), DINOv2's weights Apache-2.0. *The outdoor
+model.* It is trained on MegaDepth, outdoor photographs, the nearest of RoMa's
+two models to overhead imagery; the indoor one is trained on ScanNet.
+
+**Rejected.**
+- romatch with its declared dependencies: a second OpenCV and a dozen packages
+  inference never imports.
+- Tiny RoMa, the ticket's fallback if the full model did not fit the M1: the full
+  model fits (a later entry), and tiny RoMa loads XFeat through `torch.hub.load`,
+  which runs code fetched from GitHub at load time.
+
+---
+
+## 2026-09-24: RoMa's warp is read at the pixel centres of the pair
+
+**Decision.** Both images are resized to RoMa's square working grid (bicubic,
+PyTorch's `align_corners=False`) after LightGlue's conversion (1st and 99th
+percentiles stretched to [0, 1], three equal channels), then normalised with
+ImageNet's statistics as romatch's own loader does. RoMa returns, for every cell
+of the working grid, the matching position in the moving image in normalised
+coordinates, and a certainty. Both are brought to the pair's grid in two steps:
+
+1. **Grid to grid.** Pair pixel `i` of `n` sits at `(i + 0.5) * m / n - 0.5` on a
+   working side of `m`: the two grids cover the image edge to edge and sample
+   the centres of their cells. The warp and certainty are interpolated linearly
+   there (`to_pair_grid`).
+2. **Normalised to pixels.** RoMa's -1 and 1 are the outer edges of the image, so
+   pixel centre `i` of `n` is at `(2 i + 1) / n - 1`, and a normalised `x`
+   becomes `(x + 1) * n / 2 - 0.5` (`to_pixels`).
+
+The displacement of a pixel is then its matched position minus its own. For the
+affine output, the matches are the certain pixels of a regular lattice centred on
+the pair, at most 5000 pixels (every 4th row and column at 256 px), given to the
+RANSAC affine fit shared with SIFT and LightGlue.
+
+**Why.** *The half pixel.* romatch's `to_pixel_coordinates` computes
+`(x + 1) * n / 2`, which puts the centre of the first pixel at 0.5. Used as is,
+it would shift every estimate by half a pixel on each axis, more than the error
+of every method measured. A test pins the mapping by feeding a known warp through
+it, at the working grid's own size and at others, and one shows that leaving the
+half pixel out moves the field by 0.5 px. *A lattice, not romatch's `sample`.*
+`sample` draws matches at random, weighted by certainty, and balanced by a kernel
+density estimate: the same pair would give a different fit on each run, and the
+draw would favour the textured areas that already hold most matches. The lattice
+is the same on every run and covers the pair evenly; the certainty threshold is
+what removes the pixels RoMa does not trust.
+
+**Rejected.**
+- romatch's `to_pixel_coordinates`: half a pixel off, as above.
+- romatch's `sample`: random, above.
+
+---
+
+## 2026-09-24: RoMa works on a 280 px grid, in one pass and one direction
+
+*My call*: 280 px rather than 560 px (romatch's default) or 224 px.
+
+**Decision.** RoMa's working grid is 280 px on a side (20 DINOv2 patches), set as
+`resolution` in `configs/methods.toml`. The second, refining pass at a higher
+resolution (`upsample_resolution`) is off. The network matches the reference to
+the moving image only (`symmetric=False`), and computes its local correlation
+with PyTorch's portable code (`use_custom_corr=False`).
+
+**Why.** *280 px.* The pairs are 256 px, so 280 px is the smallest multiple of
+14 above them: no pixel of the pair is lost to the resize. On the same 10 Beauce
+pairs, 560 px was slightly better on clean pairs (0.039 to 0.043 px for the dense
+output against 0.045 to 0.051 px; 0.025 px against 0.026 px for the affine one),
+but worse under `hard`, where the affine fit failed 50 to 70 % of the pairs
+against 30 to 40 % at 280 px, and the fraction of certain pixels fell from about
+1 % to 0.2 %. At 560 px a pair takes 12 s instead of 2.9 s, its tensors hold
+1751 MiB at their peak instead of 438 MiB, and the process's memory footprint
+reached 7.5 GB of the M1's 8 GB. *No refining pass.* It would upsample a 256 px
+pair further, for the same cost as a larger grid. *One direction.* The symmetric
+pass adds the moving-to-reference warp, which nothing reads. *The portable
+correlation.* romatch's fused kernel is Linux-only, and the same code on every
+platform lets a Linux GPU and the M1 compute the same thing.
+
+**Rejected.**
+- 560 px, romatch's default: four times the time and memory, and more failures
+  under clouds and blur, for 0.01 px on clean pairs.
+- 224 px, below the pair's size: it would throw away pixels. The network tests
+  use it, because it is faster (2 s a call on the M1).
+
+---
+
+## 2026-09-24: RoMa declines a pair where less than 0.5 % of the pixels are certain
+
+**Decision.** A pixel is certain when RoMa's certainty is at least 0.5. When
+fewer than 0.5 % of the pair's pixels are certain, RoMa declines the pair, which
+counts as a failure. The mean certainty and the certain fraction go to
+`pairs.csv` for every pair; the affine fit adds its match and inlier counts, and
+declines too with fewer than 10 of either, as SIFT does. Both numbers are in
+`configs/methods.toml` (`certainty_threshold`, `min_certain_fraction`).
+
+**Why.** RoMa's certainty is a sigmoid, so 0.5 is where it rates a match more
+likely right than wrong. The floor was first set at 50 %, from synthetic pairs,
+where every clean texture is certain almost everywhere and a flat or unrelated
+pair almost nowhere. On Beauce it would have declined every pair: clean pairs
+have 9 to 36 % of their pixels certain (28 to 31 % at the median). Under `hard`, the certain fraction is 0 to 4 %,
+and the pairs at 0.1 % or less were all wrong by 50 to 140 px as dense fields, or
+declined by the affine fit's RANSAC. 0.5 % sits between the two groups, and
+still declines the flat, ramp and unrelated test pairs. It has a cost: one
+`hard` dense pair, at 0.49 % certain, is now declined, where the affine fit had
+registered it at 0.42 px. The floor was chosen on the same 20 pairs it is
+measured on, so it is fitted to them; a later ticket with other sites can check
+it.
+
+**Rejected.**
+- 50 %, the synthetic calibration: it declines every Beauce pair.
+- No floor: the dense output would return fields 100 px wrong as answers.
+
+---
+
+## 2026-09-24: The `roma` row is the affine fit; the dense warp is the `roma_dense` variant
+
+*My call*: the affine fit as the headline row, rather than the dense warp.
+
+**Decision.** `roma` fits the RANSAC affine to RoMa's certain matches.
+`roma_dense`, declared in `configs/methods.toml`, returns RoMa's warp as a
+displacement for every pixel.
+
+**Why.** On the 20 Beauce pairs (last entry of the day), the affine fit is the
+more accurate of the two on clean translations and affine pairs, and it fails
+half as many `hard` pairs. The dense warp keeps the pixels RoMa is unsure of, the
+ones under cloud included, and a `Dense` displacement has no mask to leave them
+out, so its field is wrong where the certainty is low. The affine row also puts
+RoMa next to SIFT and LightGlue with the same fit, so the comparison isolates the
+matching. What the affine row loses is the local field of the `dense` scenario,
+which no affine fit follows: `roma_dense` is there for it.
+
+**Rejected.**
+- The dense warp as the headline: fails most `hard` pairs, as above.
+- The dense warp with uncertain pixels filled from their certain neighbours:
+  possible, but a method of its own, left to a later ticket.
+
+---
+
+## 2026-09-24: RoMa runs only when named
+
+*My call*: RoMa is left out of the default `satreg benchmark` run.
+
+**Decision.** Without `--methods`, the benchmark runs every built-in method
+whose dependencies are installed, except those in `OPT_IN` in
+`methods/__init__.py`, which is RoMa. `--methods roma roma_dense` runs it, as a
+run config listing it does.
+
+**Why.** RoMa takes about 3 s a call on the M1's CPU. The default run (20 pairs,
+three scenarios, three presets, three timed calls and one traced call a pair)
+would take over half an hour more with it, and the full test suite, which runs
+the default methods several times, took over ten minutes instead of a minute and
+a half.
+
+**Rejected.**
+- RoMa in the default run: above.
+- RoMa left out only when it is not installed, like AROSICS: the cost is the
+  reason, not the install.
+
+---
+
+## 2026-09-24: The PyTorch memory meter frees the profiler's trace
+
+**Decision.** After reading a peak, the torch meter deletes its profiler and
+runs Python's garbage collector (`gc.collect`).
+
+**Why.** PyTorch's profiler sits in a reference cycle that keeps its whole trace
+alive after the call. Python's cyclic collector reaches it only now and then, and
+a RoMa call's trace, with `profile_memory=True`, is about 1 GB. Over a benchmark
+run the traces piled up (12 GB after eight pairs) until macOS killed the process,
+twice. RAFT and LightGlue go through the same meter; their runs finished, and
+this fix applies to them too. A test checks that no profiler is left alive after a reading, with the
+collector disabled around it; it fails without the fix.
+
+---
+
+## 2026-09-24: What RoMa does on the benchmark, first measurement on the M1
+
+**Decision.** None: this records the first measurement, to compare against in
+later tickets. It was run with `satreg benchmark --site beauce --scenarios
+translation affine dense --degradations clean hard --pairs 20 --repeats 1
+--methods roma roma_dense`, at 256 px, on the M1's CPU, with the settings of
+`configs/methods.toml`. SIFT, RAFT and LightGlue ran on the same 20 pairs. Only
+20 pairs, because RoMa takes 2.9 s a call: the numbers below move by a pair
+(5 %) at a time. Failures are split as in the LightGlue entry; errors are over
+the pairs that did not fail.
+
+| method | scenario | clean error (px) | hard error (px) | hard: declined | hard: above 1 px |
+|---|---|---:|---:|---:|---:|
+| SIFT + RANSAC | translation | 0.023 | 0.382 | 70 % | 5 % |
+| RAFT | translation | 0.043 | 0.228 | 0 % | 0 % |
+| LightGlue, ALIKED | translation | 0.039 | 0.541 | 20 % | 30 % |
+| RoMa, affine (`roma`) | translation | 0.041 | 0.500 | 35 % | 0 % |
+| RoMa, dense (`roma_dense`) | translation | 0.053 | 0.685 | 35 % | 50 % |
+| SIFT + RANSAC | affine | 0.023 | 0.322 | 80 % | 0 % |
+| RAFT | affine | 0.052 | 0.224 | 0 % | 0 % |
+| LightGlue, ALIKED | affine | 0.044 | 0.619 | 20 % | 40 % |
+| RoMa, affine (`roma`) | affine | 0.032 | 0.499 | 35 % | 5 % |
+| RoMa, dense (`roma_dense`) | affine | 0.049 | 0.728 | 35 % | 50 % |
+| SIFT + RANSAC | dense | 0.139 | 0.431 | 70 % | 10 % |
+| RAFT | dense | 0.092 | 0.260 | 0 % | 0 % |
+| LightGlue, ALIKED | dense | 0.146 | 0.493 | 25 % | 35 % |
+| RoMa, affine (`roma`) | dense | 0.137 | 0.463 | 40 % | 5 % |
+| RoMa, dense (`roma_dense`) | dense | 0.050 | 0.585 | 40 % | 30 % |
+
+Cost, for both RoMa outputs: 2.9 s a call (median), 438 MiB held by tensors at
+the peak, and a process memory footprint (`footprint`, what macOS counts before
+it kills a process) of about 4 GB, the 1.7 GB of weights included. RoMa runs on
+the M1's CPU, so its rows need no GPU runner. MPS was not measured.
+
+**Why it is worth noting.** On clean pairs, RoMa's affine fit is as accurate as
+LightGlue's on translations and the most accurate learned method on affine
+pairs, still above SIFT's 0.023 px. `roma_dense` is the most accurate method on
+the clean dense scenario (0.050 px, against 0.092 px for RAFT), the only one
+where a field for every pixel beats a single transform, and the least accurate of
+the two RoMa rows elsewhere. Under `hard`, every RoMa decline comes from the
+certainty floor, and the affine fit then answers above 1 px on one pair in
+twenty at most: RoMa is cautious where LightGlue is not. It registers 4 to 5
+pairs per scenario that LightGlue fails and 8 that SIFT fails, against 1 to 2
+and 0 to 1 the other way. But on the hard pairs RoMa registers, RAFT's error is
+half RoMa's (0.23 to 0.26 px against 0.46 to 0.50 px), and RAFT registers every
+pair, in a seventh of the time. `roma_dense` answers half the hard pairs of the
+first two scenarios wrong, by 3 px at the median: the certainty that selects the
+affine fit's matches does not mask the field.

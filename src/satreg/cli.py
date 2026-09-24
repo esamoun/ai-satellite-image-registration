@@ -16,8 +16,10 @@ from .georef import NOMINAL, Georef
 from .ingest import fetch_chip, read_chip, read_georef
 from .methods import (
     METHODS,
+    OPT_IN,
     Method,
     cost_meter,
+    default_methods,
     load_methods,
     missing_dependencies,
 )
@@ -180,12 +182,10 @@ def _parser(run_config: dict[str, object] | None = None) -> argparse.ArgumentPar
         "--methods",
         nargs="+",
         metavar="METHOD",
-        default=[
-            name for name in sorted(METHODS) if not missing_dependencies(METHODS[name])
-        ],
+        default=default_methods(),
         help=f"methods to run, among {', '.join(sorted(METHODS))} and the variants "
         "declared in the methods config (default: every built-in method whose "
-        "dependencies are installed)",
+        f"dependencies are installed, except {', '.join(sorted(OPT_IN))})",
     )
     bench.add_argument(
         "--methods-config",

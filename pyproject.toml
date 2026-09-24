@@ -27,6 +27,9 @@ arosics = ["arosics"]
 # PyTorch for the pretrained deep-learning methods; weights go to PyTorch's cache.
 # kornia 0.8.3 is the first release with ALIKED.
 dl = ["torch>=2.0", "torchvision>=0.15", "kornia>=0.8.3"]
+# What RoMa imports besides the dl extra. romatch itself is installed without its
+# declared dependencies, by make install-roma: see the Makefile.
+roma = ["einops", "loguru"]
 
 [project.scripts]
 satreg = "satreg.cli:main"

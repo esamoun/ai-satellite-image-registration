@@ -14,12 +14,13 @@ import tomllib
 from pathlib import Path
 
 from ..compute import TRACEMALLOC, Meter
-from . import arosics, deep, lightglue
+from . import arosics, deep, lightglue, roma
 from .arosics import Arosics
 from .base import Estimate, GeoreferencedMethod, Method, RegistrationFailure
 from .lightglue import LightGlue
 from .phase_correlation import PhaseCorrelation, phase_correlation
 from .raft import Raft
+from .roma import Roma
 from .sift_ransac import SiftRansac
 
 __all__ = [
@@ -29,6 +30,7 @@ __all__ = [
     "Method",
     "RegistrationFailure",
     "cost_meter",
+    "default_methods",
     "load_methods",
     "missing_dependencies",
 ]
@@ -38,6 +40,7 @@ METHODS: dict[str, Method] = {
     "lightglue": LightGlue(),
     "phase_correlation": phase_correlation,
     "raft": Raft(),
+    "roma": Roma(),
     "sift_ransac": SiftRansac(),
 }
 
@@ -48,8 +51,13 @@ _CONFIGURABLE: dict[str, type] = {
     "lightglue": LightGlue,
     "phase_correlation": PhaseCorrelation,
     "raft": Raft,
+    "roma": Roma,
     "sift_ransac": SiftRansac,
 }
+
+# Built-in methods a benchmark runs only when they are named: RoMa takes about
+# 3 s a call on the M1's CPU, over half an hour more in the default run.
+OPT_IN = frozenset({"roma"})
 
 # Key of a configuration table that makes it a variant of the method it names.
 VARIANT_KEY = "method"
@@ -60,6 +68,7 @@ _OPTIONAL = {
     Arosics: arosics.missing_modules,
     LightGlue: lightglue.missing_modules,
     Raft: deep.missing_modules,
+    Roma: roma.missing_modules,
 }
 
 
@@ -76,6 +85,20 @@ def missing_dependencies(method: Method) -> list[str]:
         if isinstance(method, cls):
             return check()
     return []
+
+
+def default_methods() -> list[str]:
+    """Name the methods a benchmark runs when none are named.
+
+    Returns:
+        The built-in methods whose dependencies are installed, less the opt-in
+        ones, sorted.
+    """
+    return [
+        name
+        for name in sorted(METHODS)
+        if name not in OPT_IN and not missing_dependencies(METHODS[name])
+    ]
 
 
 def cost_meter(method: Method) -> Meter:

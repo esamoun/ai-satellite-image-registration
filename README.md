@@ -15,8 +15,8 @@ RANSAC and AROSICS), on a synthetic texture or on a real Sentinel-2 chip, under
 increasingly degraded conditions, for translations and small affine motions. N2
 has started: RAFT, a pretrained optical-flow network, runs in the same benchmark
 and returns a displacement for every pixel, LightGlue, a learned keypoint matcher,
-runs next to SIFT, and a third scenario simulates a displacement that varies
-across the pair.
+runs next to SIFT, RoMa, a dense matcher, runs when it is named, and a third
+scenario simulates a displacement that varies across the pair.
 
 **First results:** [the N1 table](docs/evaluation.md), 1,200 simulated pairs on two
 Sentinel-2 sites. Phase correlation is the most robust under clouds and blur, SIFT
@@ -34,7 +34,8 @@ make test
 satreg benchmark
 ```
 
-`satreg benchmark` simulates pairs with known sub-pixel motion, runs every method,
+`satreg benchmark` simulates pairs with known sub-pixel motion, runs every installed
+method but RoMa (about 3 s a pair on a laptop CPU, so it runs only when named),
 prints the results table and writes it to `outputs/benchmark/` as `summary.md` and
 `summary.csv`, with one row per pair and method in `pairs.csv`, and the machine it
 ran on in `context.json`. `satreg benchmark --help` lists the options (number of
@@ -60,8 +61,9 @@ minimum inlier count; AROSICS' window, maximum shift and reliability threshold)
 are set in [`configs/methods.toml`](configs/methods.toml). A variant of a method,
 with other parameters, is declared there too, as a table with a `method` key, and
 runs under its own name: `phase_correlation_hann` (phase correlation with a Hann
-window), `arosics_floor60` (AROSICS with a 60 % reliability floor) and
-`lightglue_disk` (LightGlue on DISK keypoints) are declared this way.
+window), `arosics_floor60` (AROSICS with a 60 % reliability floor),
+`lightglue_disk` (LightGlue on DISK keypoints) and `roma_dense` (RoMa's warp as a
+displacement for every pixel) are declared this way.
 
 ### AROSICS
 
@@ -80,7 +82,7 @@ saying why.
 
 ### Deep-learning methods
 
-Two pretrained methods need PyTorch, an optional extra:
+Three pretrained methods need PyTorch, an optional extra:
 
 - RAFT (`raft`, torchvision's large model, and `raft_small`): optical flow, a
   displacement for every pixel.
@@ -88,14 +90,24 @@ Two pretrained methods need PyTorch, an optional extra:
   keypoints), kornia's implementation: learned keypoints matched by a
   transformer, then the same RANSAC affine fit as `sift_ransac`. Its match and
   inlier counts are in `pairs.csv`.
+- RoMa (`roma`, and `roma_dense`), the outdoor model from `romatch`: a dense
+  matcher on a DINOv2 backbone that places every reference pixel in the moving
+  image and rates each match with a certainty. `roma` fits the RANSAC affine of
+  `sift_ransac` to the certain matches, `roma_dense` keeps the warp as a
+  displacement for every pixel. Both decline a pair where less than 0.5 % of the
+  pixels are certain. The certainty is in `pairs.csv`. RoMa takes about 3 s a
+  pair on the M1's CPU and runs only when named, as in
+  `satreg benchmark --methods roma roma_dense`.
 
 ```bash
 make install-dl
+make install-roma   # RoMa, on top of the dl extra
 ```
 
 This installs the `dl` extra (`pip install -e ".[dev,dl]"`) and downloads the
 pretrained weights once, to PyTorch's cache (`~/.cache/torch`), outside the
-repository. Each method runs on the device set in `configs/methods.toml` (`cpu` by
+repository. `make install-roma` adds `romatch` 0.1.2 without the dependencies it
+declares (see [`docs/decisions.md`](docs/decisions.md)) and its 1.7 GB of weights. Each method runs on the device set in `configs/methods.toml` (`cpu` by
 default, or `mps` or `cuda`); nothing picks one for you. The test suite runs
 without the extra and skips the tests that run the networks, saying why.
 

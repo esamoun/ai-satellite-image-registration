@@ -46,6 +46,29 @@ ransac_threshold = 1.0
 min_inliers = 10
 device = "cpu"
 
+# RoMa, a dense matcher on a DINOv2 backbone, outdoor weights, an optional extra
+# (make install-roma).
+#   output                "affine", an affine transform fitted by RANSAC to the
+#                         warp, or "dense", the warp at every pixel
+#   resolution            side of RoMa's working grid, in px, a multiple of 14
+#   upsample_resolution   side of a second, refining pass, in px, 0 for none
+#   certainty_threshold   a pixel whose certainty is at least this is certain
+#   min_certain_fraction  fewer certain pixels than this is reported as a failure
+#   max_matches           most lattice pixels given to the affine fit
+#   ransac_threshold      largest reprojection error of an inlier, in px
+#   min_inliers           fewer inliers than this is reported as a failure
+#   device                "cpu", "mps" or "cuda"; never picked automatically
+[methods.roma]
+output = "affine"
+resolution = 280
+upsample_resolution = 0
+certainty_threshold = 0.5
+min_certain_fraction = 0.005
+max_matches = 5000
+ransac_threshold = 1.0
+min_inliers = 10
+device = "cpu"
+
 # Variants: a table with a `method` key is a new method, built like the method it
 # names with the table's other keys as parameters. `satreg benchmark` runs them
 # only when they are named in --methods or in a run config.
@@ -70,3 +93,8 @@ model = "small"
 [methods.lightglue_disk]
 method = "lightglue"
 features = "disk"
+
+# RoMa's warp read at every pixel as a Dense displacement.
+[methods.roma_dense]
+method = "roma"
+output = "dense"

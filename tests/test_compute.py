@@ -1,5 +1,6 @@
 import csv
 import dataclasses
+import gc
 import json
 import math
 import sys
@@ -302,6 +303,22 @@ def test_the_torch_meter_peaks_at_what_cpu_tensors_hold():
     assert compute.torch_cpu_peak(call) == pytest.approx(150.0, abs=0.1)
     assert compute.TorchMeter("cpu").peak_mib(call) == pytest.approx(150.0, abs=0.1)
     assert torch.get_num_threads() == environment()["threads"]["torch"]
+
+
+def test_the_torch_meter_does_not_keep_the_profiler_alive():
+    # The profiler sits in a reference cycle holding its trace. Left to Python's
+    # collector, RoMa's traces piled up until macOS killed the benchmark.
+    pytest.importorskip("torch", reason="needs the dl extra")
+    from torch.profiler import profile
+
+    gc.disable()
+    try:
+        compute.torch_cpu_peak(lambda: None)
+        alive = [obj for obj in gc.get_objects() if isinstance(obj, profile)]
+    finally:
+        gc.enable()
+
+    assert alive == []
 
 
 def test_the_torch_meter_has_no_figure_on_mps():

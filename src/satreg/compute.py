@@ -24,6 +24,7 @@ import tracemalloc
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from time import perf_counter
 from typing import Protocol
 
@@ -390,22 +391,73 @@ def process_peak_rss_mib() -> float | None:
     return peak / MIB if sys.platform == "darwin" else peak / 1024
 
 
+def code_version(directory: Path | None = None) -> dict[str, object] | None:
+    """Name the commit of the code that runs, and whether it was modified.
+
+    Args:
+        directory: A directory inside the repository; by default the one this
+            module is in, which is the repository's own for an editable install.
+
+    Returns:
+        ``commit``, the hash of the checked-out commit, and ``dirty``, whether
+        tracked files differ from it. ``None`` outside a git repository or
+        without git, as for a package installed from a wheel.
+    """
+    directory = directory or Path(__file__).parent
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(directory), *args],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    try:
+        commit = git("rev-parse", "HEAD")
+        changes = git("status", "--porcelain", "--untracked-files=no")
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return {"commit": commit, "dirty": bool(changes)}
+
+
+def _gpu() -> dict[str, object] | None:
+    """Describe the CUDA device, if a method has loaded torch and one is there."""
+    # Only if a method has loaded torch, as for its thread count: a run that
+    # used no GPU has nothing to describe.
+    torch = sys.modules.get("torch")
+    if torch is None or not torch.cuda.is_available():
+        return None
+    properties = torch.cuda.get_device_properties(0)
+    return {
+        "name": properties.name,
+        "memory_gib": properties.total_memory / 2**30,
+        "count": torch.cuda.device_count(),
+        "capability": ".".join(map(str, torch.cuda.get_device_capability(0))),
+        "cuda": torch.version.cuda,
+        "cudnn": torch.backends.cudnn.version(),
+    }
+
+
 def environment() -> dict[str, object]:
     """Describe the machine and software the costs are measured with.
 
     Returns:
-        A JSON-ready mapping: hardware, thread settings, Python and library
-        versions (``None`` for a library not installed), and the time it was
-        taken, so that runs on different machines can be told apart.
+        A JSON-ready mapping: hardware, the CUDA device if one was used, thread
+        settings, Python and library versions (``None`` for a library not
+        installed), the commit of the code, and the time it was taken, so that
+        runs on different machines can be told apart and traced to their code.
     """
     return {
         "recorded_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "code": code_version(),
         "machine": {
             "system": platform.platform(),
             "architecture": platform.machine(),
             "cpu": _cpu_name(),
             "memory_gib": _memory_gib(),
         },
+        "gpu": _gpu(),
         "threads": {
             "cpu_count": os.cpu_count(),
             "usable_cpus": _usable_cpus(),
@@ -426,7 +478,8 @@ def describe(context: dict[str, object]) -> str:
 
     Returns:
         CPU, memory, thread count and system, e.g. ``Apple M1, 8 GiB, 8 CPUs,
-        macOS-15.6-arm64-arm-64bit``.
+        macOS-15.6-arm64-arm-64bit``, then the GPU if one was used, e.g. ``;
+        GPU Tesla T4, 15 GiB, CUDA 12.4``.
     """
     machine, threads = context["machine"], context["threads"]
     memory = machine["memory_gib"]
@@ -436,4 +489,10 @@ def describe(context: dict[str, object]) -> str:
         f"{threads['usable_cpus']} CPUs",
         machine["system"],
     ]
-    return ", ".join(part for part in parts if part)
+    line = ", ".join(part for part in parts if part)
+    # Contexts written before the GPU was recorded have no such key.
+    gpu = context.get("gpu")
+    if gpu:
+        name, gpu_memory, cuda = gpu["name"], gpu["memory_gib"], gpu["cuda"]
+        line += f"; GPU {name}, {gpu_memory:.0f} GiB, CUDA {cuda}"
+    return line

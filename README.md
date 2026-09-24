@@ -107,8 +107,11 @@ make install-roma   # RoMa, on top of the dl extra
 This installs the `dl` extra (`pip install -e ".[dev,dl]"`) and downloads the
 pretrained weights once, to PyTorch's cache (`~/.cache/torch`), outside the
 repository. `make install-roma` adds `romatch` 0.1.2 without the dependencies it
-declares (see [`docs/decisions.md`](docs/decisions.md)) and its 1.7 GB of weights. Each method runs on the device set in `configs/methods.toml` (`cpu` by
-default, or `mps` or `cuda`); nothing picks one for you. The test suite runs
+declares (see [`docs/decisions.md`](docs/decisions.md)) and its 1.7 GB of weights.
+Each method runs on the device set in `configs/methods.toml` (`cpu` by default,
+or `mps` or `cuda`); nothing picks one for you. `--device cuda` moves every
+deep-learning method of a run to that device, the other methods staying on the
+CPU, and stops before the first pair if the machine lacks it. The test suite runs
 without the extra and skips the tests that run the networks, saying why.
 
 ### Translation, affine and dense motion
@@ -169,8 +172,24 @@ way: the device is synchronised before each clock read, and memory is the peak
 held by tensors (read by PyTorch's profiler on CPU, by CUDA's counter on GPU, and
 not available on MPS). The table's footnote says which methods were measured
 which way. `context.json` records the CPU, memory, thread settings, library
-versions and each method's device, so that runs on different machines are not
-mixed up.
+versions, the commit, the GPU if one was used, and each method's device, so
+that runs on different machines are not mixed up. The table has a `device`
+column.
+
+### On a Kaggle GPU
+
+The M1 has no CUDA device. [`kaggle/satreg-gpu-benchmark.ipynb`](kaggle/satreg-gpu-benchmark.ipynb)
+runs [`configs/gpu.toml`](configs/gpu.toml) on a Kaggle GPU and saves the run as
+its output; the same config runs on the M1 with `--device cpu`. `satreg merge`
+puts the two runs in one table, by device, without re-running either:
+
+```bash
+satreg merge outputs/gpu-m1 outputs/kaggle/outputs/gpu --out outputs/gpu-merged
+```
+
+It refuses runs that measured the same device, or whose pairs or scoring differ.
+The procedure, where the weights go and how long a run takes are in
+[`docs/kaggle.md`](docs/kaggle.md).
 
 ### The N1 run
 
@@ -191,6 +210,7 @@ reading are in [`docs/evaluation.md`](docs/evaluation.md).
   reproduce it, and what it shows.
 - [`docs/decisions.md`](docs/decisions.md): each choice and why it was made.
 - [`docs/failures.md`](docs/failures.md): what did not work, and what it taught.
+- [`docs/kaggle.md`](docs/kaggle.md): running the benchmark on a Kaggle GPU.
 
 ## How this was built
 

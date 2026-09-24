@@ -1,19 +1,23 @@
-"""Command-line entry point: ``satreg fetch`` and ``satreg benchmark``."""
+"""Command-line entry point: ``satreg fetch``, ``satreg benchmark`` and
+``satreg merge``."""
 
 import argparse
+import dataclasses
 import json
 import logging
 import tomllib
 from collections.abc import Sequence
 from pathlib import Path
+from time import perf_counter
 
 import numpy as np
 
-from .benchmark import SCENARIOS, BenchmarkConfig, run_benchmark
-from .compute import MEMORY_READINGS, describe, environment, process_peak_rss_mib
+from .benchmark import SCENARIOS, BenchmarkConfig, method_device, run_benchmark
+from .compute import describe, environment, process_peak_rss_mib
 from .degrade import Preset, load_presets
 from .georef import NOMINAL, Georef
 from .ingest import fetch_chip, read_chip, read_georef
+from .merge import MergeError, merge
 from .methods import (
     METHODS,
     OPT_IN,
@@ -23,8 +27,9 @@ from .methods import (
     load_methods,
     missing_dependencies,
 )
+from .methods.deep import DEVICES, check_available
 from .metrics import FAILURE_EPE_PX
-from .report import summarize, to_markdown, write_csv
+from .report import memory_note, summarize, to_markdown, write_csv
 from .sites import SitesConfig, load_sites
 from .texture import fractal_texture
 
@@ -193,9 +198,30 @@ def _parser(run_config: dict[str, object] | None = None) -> argparse.ArgumentPar
         default=DEFAULT_METHODS_CONFIG,
         help="TOML file setting the methods' parameters",
     )
+    bench.add_argument(
+        "--device",
+        choices=DEVICES,
+        help="device every deep-learning method runs on, in place of the one its "
+        "parameters name (default: those parameters); the other methods run on "
+        "the CPU",
+    )
     bench.add_argument("--out", type=Path, default=Path("outputs/benchmark"))
     if run_config:
         bench.set_defaults(**run_config)
+
+    merging = commands.add_parser(
+        "merge",
+        help="merge the tables of runs made on different devices into one, "
+        "without running anything",
+    )
+    merging.add_argument(
+        "runs",
+        nargs="+",
+        type=Path,
+        metavar="RUN",
+        help="directory a benchmark run wrote (its --out), at least two",
+    )
+    merging.add_argument("--out", type=Path, default=Path("outputs/merged"))
     return parser
 
 
@@ -337,7 +363,8 @@ def configured_methods(args: argparse.Namespace) -> dict[str, Method]:
         args: Parsed ``benchmark`` arguments.
 
     Returns:
-        Method name to method, in the order requested.
+        Method name to method, in the order requested, each deep-learning one on
+        ``args.device`` if it is set.
     """
     try:
         methods = load_methods(args.methods_config)
@@ -356,28 +383,23 @@ def configured_methods(args: argparse.Namespace) -> dict[str, Method]:
                 f"satreg: method {name} needs {', '.join(missing)}, not installed "
                 "(see the README)"
             )
-    return {name: methods[name] for name in args.methods}
-
-
-def memory_note(meters: dict[str, str]) -> str:
-    """Say how the memory column was read, naming methods read another way.
-
-    Args:
-        meters: Meter name of each method, in table order.
-
-    Returns:
-        A clause for the table's footnote, e.g. ``"memory is the peak traced by
-        tracemalloc, which misses native allocations"``.
-    """
-    by_meter: dict[str, list[str]] = {}
-    for method, meter in meters.items():
-        by_meter.setdefault(meter, []).append(method)
-    if len(by_meter) == 1:
-        return f"memory is {MEMORY_READINGS[next(iter(by_meter))]}"
-    return "memory is " + "; ".join(
-        f"{MEMORY_READINGS[meter]} for {', '.join(methods)}"
-        for meter, methods in by_meter.items()
-    )
+    chosen = {name: methods[name] for name in args.methods}
+    if args.device:
+        chosen = {
+            name: dataclasses.replace(method, device=args.device)
+            if hasattr(method, "device")
+            else method
+            for name, method in chosen.items()
+        }
+    # A device the machine lacks would fail every pair of the method, one by
+    # one, and leave a table of failures: refused before the first pair.
+    for name, method in chosen.items():
+        if (device := method_device(method)) != "cpu":
+            try:
+                check_available(device)
+            except RuntimeError as exc:
+                raise SystemExit(f"satreg: method {name}: {exc}") from None
+    return chosen
 
 
 def benchmark(args: argparse.Namespace) -> str:
@@ -408,7 +430,9 @@ def benchmark(args: argparse.Namespace) -> str:
     sites, georefs = site_images(args)
     methods = configured_methods(args)
 
+    started = perf_counter()
     results = run_benchmark(sites, methods, config, degradations, georefs)
+    run_seconds = perf_counter() - started
     summary = summarize(results)
     context = environment()
     meters = {name: cost_meter(method).name for name, method in methods.items()}
@@ -417,12 +441,13 @@ def benchmark(args: argparse.Namespace) -> str:
         "repeats": config.repeats,
         "process_peak_rss_mib": process_peak_rss_mib(),
         "memory": meters,
+        # The whole run, pairs simulated and scored included, but not the
+        # chips fetched before it.
+        "run_seconds": run_seconds,
     }
     # Where each method ran: the deep-learning ones name their device, the
     # others run on the CPU.
-    context["devices"] = {
-        name: getattr(method, "device", "cpu") for name, method in methods.items()
-    }
+    context["devices"] = {name: method_device(m) for name, m in methods.items()}
     # Every option the run used, whether from the command line, a run config or
     # a default, so the tables can be reproduced from this file alone.
     context["run"] = {k: v for k, v in sorted(vars(args).items()) if k != "command"}
@@ -452,3 +477,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             print(path)
     elif args.command == "benchmark":
         print(benchmark(args), end="")
+    elif args.command == "merge":
+        try:
+            print(merge(args.runs, args.out), end="")
+        except MergeError as exc:
+            raise SystemExit(f"satreg: {exc}") from None

@@ -1,0 +1,44 @@
+# The deep-learning methods on a CUDA GPU, the run kaggle/satreg-gpu-benchmark.ipynb
+# makes on Kaggle (see docs/kaggle.md). The same file runs them on the M1's CPU:
+#
+#   satreg benchmark --config configs/gpu.toml --device cpu --out outputs/gpu-m1
+#
+# and `satreg merge outputs/gpu-m1 outputs/gpu` puts both runs in one table, by
+# device. Keys are the options of `satreg benchmark`, as in configs/n1.toml.
+
+[benchmark]
+# The pairs of the first RoMa measurement (docs/decisions.md, 2026-09-24).
+sites = ["beauce"]
+scenarios = ["translation", "affine", "dense"]
+degradations = ["clean", "hard"]
+methods = [
+    "raft",
+    "raft_small",
+    "lightglue",
+    "lightglue_disk",
+    "roma",
+    "roma_dense",
+]
+# Every deep-learning method runs here, whatever configs/methods.toml names.
+device = "cuda"
+
+pairs = 20
+size = 256
+seed = 0
+
+max_shift = 4.0
+max_rotation = 0.2
+max_scale_change = 0.002
+max_shear = 0.002
+max_local_shift = 0.8
+local_length = 64.0
+
+failure_threshold = 1.0
+warmup = 1
+repeats = 3
+
+sites_config = "configs/sites.toml"
+degradations_config = "configs/degradations.toml"
+methods_config = "configs/methods.toml"
+data_dir = "data"
+out = "outputs/gpu"

@@ -11,7 +11,7 @@ from satreg import cli
 from satreg.cli import load_run_config, main, parse_args, site_images
 from satreg.georef import NOMINAL
 from satreg.ingest import cache_path
-from satreg.methods import missing_dependencies
+from satreg.methods import load_methods, missing_dependencies
 from satreg.methods.arosics import Arosics
 from satreg.sites import load_sites
 
@@ -31,9 +31,8 @@ def test_benchmark_writes_its_tables_and_prints_the_summary(tmp_path, capsys):
 
     printed = capsys.readouterr().out
     # Every configured preset, in file order.
-    assert (
-        "| synthetic | translation | clean | phase_correlation | 3 | 0.0 % |" in printed
-    )
+    row = "| synthetic | translation | clean | phase_correlation | cpu | 3 | 0.0 % |"
+    assert row in printed
     assert printed.index("| mild |") < printed.index("| hard |")
     assert (tmp_path / "summary.md").read_text() == printed
     assert (tmp_path / "pairs.csv").exists()
@@ -80,7 +79,7 @@ def test_benchmark_runs_on_a_configured_site_from_the_cache(
     )
 
     printed = capsys.readouterr().out
-    assert "| beauce | translation | clean | phase_correlation | 2 |" in printed
+    assert "| beauce | translation | clean | phase_correlation | cpu | 2 |" in printed
     assert "synthetic" not in printed
     assert "mild" not in printed
     assert (out / "summary.md").read_text() == printed
@@ -118,7 +117,7 @@ def test_benchmark_runs_only_the_requested_scenarios(tmp_path, capsys):
     )
 
     printed = capsys.readouterr().out
-    assert "| synthetic | affine | clean | phase_correlation | 2 |" in printed
+    assert "| synthetic | affine | clean | phase_correlation | cpu | 2 |" in printed
     assert "translation" not in printed
 
 
@@ -132,7 +131,7 @@ def test_benchmark_runs_the_dense_scenario(tmp_path, capsys):
     )
 
     printed = capsys.readouterr().out
-    assert "| synthetic | dense | clean | phase_correlation | 2 |" in printed
+    assert "| synthetic | dense | clean | phase_correlation | cpu | 2 |" in printed
     assert "| affine |" not in printed
     rows = (tmp_path / "pairs.csv").read_text().splitlines()
     assert all(",dense," in row for row in rows[1:])
@@ -158,7 +157,7 @@ def test_benchmark_runs_sift_ransac_and_writes_its_diagnostics(tmp_path, capsys)
     )
 
     printed = capsys.readouterr().out
-    assert "| synthetic | affine | clean | sift_ransac | 2 |" in printed
+    assert "| synthetic | affine | clean | sift_ransac | cpu | 2 |" in printed
     assert "phase_correlation" not in printed
     assert '""inliers"": ' in (tmp_path / "pairs.csv").read_text()
 
@@ -207,6 +206,43 @@ def test_requesting_a_method_not_installed_is_reported(monkeypatch):
         main(["benchmark", "--methods", "arosics"] + PRESETS)
 
 
+def test_device_option_moves_every_deep_learning_method(monkeypatch):
+    monkeypatch.setattr(cli, "missing_dependencies", lambda method: [])
+    monkeypatch.setattr(cli, "check_available", lambda device: None)
+    names = ["raft", "lightglue_disk", "phase_correlation"]
+
+    args = parse_args(["benchmark", "--methods", *names, "--device", "cuda"] + PRESETS)
+    methods = cli.configured_methods(args)
+
+    assert methods["raft"].device == "cuda"
+    assert methods["lightglue_disk"].device == "cuda"
+    # The variant keeps its other parameters.
+    assert methods["lightglue_disk"].features == "disk"
+    assert not hasattr(methods["phase_correlation"], "device")
+
+
+def test_without_the_device_option_methods_keep_their_configured_device(
+    monkeypatch,
+):
+    monkeypatch.setattr(cli, "missing_dependencies", lambda method: [])
+
+    args = parse_args(["benchmark", "--methods", "raft"] + PRESETS)
+
+    assert cli.configured_methods(args)["raft"].device == "cpu"
+
+
+def test_a_device_the_machine_lacks_is_refused_before_the_first_pair(monkeypatch):
+    monkeypatch.setattr(cli, "missing_dependencies", lambda method: [])
+
+    def unavailable(device):
+        raise RuntimeError(f"device {device} is not available on this machine")
+
+    monkeypatch.setattr(cli, "check_available", unavailable)
+
+    with pytest.raises(SystemExit, match="method raft: device cuda is not available"):
+        main(["benchmark", "--methods", "raft", "--device", "cuda"] + PRESETS)
+
+
 def test_synthetic_site_gets_the_nominal_grid():
     args = cli._parser().parse_args(["benchmark"])
 
@@ -223,7 +259,7 @@ def test_benchmark_runs_a_variant_declared_in_the_methods_config(tmp_path, capsy
         + PRESETS
     )
 
-    assert "| synthetic | translation | clean | phase_correlation_hann | 2 |" in (
+    assert "| synthetic | translation | clean | phase_correlation_hann | cpu | 2 |" in (
         capsys.readouterr().out
     )
 
@@ -257,7 +293,7 @@ def test_run_config_sets_the_options(tmp_path, capsys):
     main(["benchmark", "--config", str(config)])
 
     printed = capsys.readouterr().out
-    assert "| synthetic | affine | clean | phase_correlation | 2 |" in printed
+    assert "| synthetic | affine | clean | phase_correlation | cpu | 2 |" in printed
     assert "translation" not in printed
     assert (tmp_path / "out" / "summary.md").read_text() == printed
 
@@ -304,6 +340,15 @@ def test_repository_n1_config_is_valid():
 
     assert options["sites"] == ["beauce", "toulouse"]
     assert {"phase_correlation", "sift_ransac", "arosics"} <= set(options["methods"])
+
+
+def test_repository_gpu_config_runs_the_deep_learning_methods_on_cuda():
+    options = load_run_config(CONFIGS / "gpu.toml")
+    methods = load_methods(CONFIGS / "methods.toml")
+
+    assert options["device"] == "cuda"
+    assert {"raft", "lightglue", "roma"} <= set(options["methods"])
+    assert all(hasattr(methods[name], "device") for name in options["methods"])
 
 
 def test_context_records_every_option_of_the_run(tmp_path):

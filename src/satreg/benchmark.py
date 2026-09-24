@@ -117,6 +117,7 @@ class PairResult:
         scenario: Geometric model the pair was simulated with.
         degradation: Name of the degradation applied to the pair.
         method: Name of the method.
+        device: Device the method ran on, ``"cpu"``, ``"mps"`` or ``"cuda"``.
         pair: Index of the pair within its site.
         cloud_fraction: Share of the moving image at least half covered by cloud.
         truth: Ground-truth displacement, as text.
@@ -139,6 +140,7 @@ class PairResult:
     scenario: str
     degradation: str
     method: str
+    device: str
     pair: int
     cloud_fraction: float
     truth: str
@@ -261,6 +263,19 @@ def draw_pair(
     return dataclasses.replace(pair, georef=georef.window(top + margin, left + margin))
 
 
+def method_device(method: Method) -> str:
+    """Name the device a method runs on.
+
+    Args:
+        method: A method, built-in or variant.
+
+    Returns:
+        The device its configuration names, for the deep-learning methods, and
+        ``"cpu"`` for the others, which run on no other.
+    """
+    return getattr(method, "device", "cpu")
+
+
 def _as_json(diagnostics: dict[str, float]) -> str:
     """Render diagnostics for a CSV cell: a JSON object, or empty if none."""
     return json.dumps(diagnostics, sort_keys=True) if diagnostics else ""
@@ -284,8 +299,8 @@ def _run_method(
         method: Method to run.
         pair: Simulated pair.
         config: Run parameters: failure threshold and repeat count.
-        labels: ``site``, ``scenario``, ``degradation``, ``method`` and ``pair``
-            of the row.
+        labels: ``site``, ``scenario``, ``degradation``, ``method``, ``device``
+            and ``pair`` of the row.
         warmup: Untimed calls to make first.
 
     Returns:
@@ -391,6 +406,7 @@ def run_benchmark(
                             "scenario": scenario,
                             "degradation": degradation_name,
                             "method": method_name,
+                            "device": method_device(method),
                             "pair": index,
                         }
                         warmup = 0 if method_name in warmed else config.warmup

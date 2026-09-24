@@ -89,7 +89,7 @@ def test_summary_reports_failure_rate_and_averages_the_rest():
     assert good.share_below_0_1 == 1.0
     assert bad.failure_rate == 1.0
     assert math.isnan(bad.mean_epe)
-    row = "| synthetic | translation | clean | crashes | 4 | 0.0 % |"
+    row = "| synthetic | translation | clean | crashes | cpu | 4 | 0.0 % |"
     assert row + " n/a | n/a | n/a | 100.0 % |" in to_markdown(summary)
 
 
@@ -124,9 +124,8 @@ def test_cloud_fraction_is_reported_per_pair_and_averaged_per_row():
     assert fractions["cloudy"] == pytest.approx(0.25, abs=1e-3)
     rows = {row.degradation: row for row in summarize(results)}
     assert rows["cloudy"].cloud_fraction == pytest.approx(0.25, abs=1e-3)
-    assert "| synthetic | translation | cloudy | phase_correlation | 4 | 25.0 % |" in (
-        to_markdown(summarize(results))
-    )
+    row = "| synthetic | translation | cloudy | phase_correlation | cpu | 4 | 25.0 % |"
+    assert row in to_markdown(summarize(results))
 
 
 def test_degraded_runs_are_reproducible_and_keep_the_clean_geometry():
@@ -207,8 +206,8 @@ def test_scenario_is_a_column_of_the_results_and_the_summary():
     assert len(results) == 3 * ALL.n_pairs
     summary = to_markdown(summarize(results))
     assert "| site | scenario | degradation |" in summary
-    assert "| synthetic | affine | clean | phase_correlation | 4 |" in summary
-    assert "| synthetic | dense | clean | phase_correlation | 4 |" in summary
+    assert "| synthetic | affine | clean | phase_correlation | cpu | 4 |" in summary
+    assert "| synthetic | dense | clean | phase_correlation | cpu | 4 |" in summary
 
 
 def test_a_translation_estimate_is_worse_on_affine_pairs():

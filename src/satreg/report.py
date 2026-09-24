@@ -9,11 +9,13 @@ from pathlib import Path
 import numpy as np
 
 from .benchmark import PairResult
+from .compute import MEMORY_READINGS
 
 
 @dataclass(frozen=True)
 class SummaryRow:
-    """One row of the results table: a method on a site, scenario and degradation.
+    """One row of the results table: a method on a device, on a site, scenario and
+    degradation.
 
     Accuracy columns average the pairs that did not fail; failures are reported
     by ``failure_rate`` alone, so one wild estimate cannot swamp the mean. Cost
@@ -25,6 +27,7 @@ class SummaryRow:
         scenario: Geometric model of the pairs.
         degradation: Degradation name.
         method: Method name.
+        device: Device the method ran on, ``"cpu"``, ``"mps"`` or ``"cuda"``.
         n_pairs: Pairs attempted.
         cloud_fraction: Mean share of the moving image under cloud, over all pairs.
         failure_rate: Share of pairs that failed.
@@ -39,6 +42,7 @@ class SummaryRow:
     scenario: str
     degradation: str
     method: str
+    device: str
     n_pairs: int
     cloud_fraction: float
     failure_rate: float
@@ -50,7 +54,7 @@ class SummaryRow:
 
 
 def summarize(results: Sequence[PairResult]) -> list[SummaryRow]:
-    """Group per-pair results by site, scenario, degradation and method.
+    """Group per-pair results by site, scenario, degradation, method and device.
 
     Args:
         results: Per-pair results, in any order.
@@ -58,13 +62,13 @@ def summarize(results: Sequence[PairResult]) -> list[SummaryRow]:
     Returns:
         One row per group, in order of first appearance.
     """
-    groups: dict[tuple[str, str, str, str], list[PairResult]] = {}
-    for result in results:
-        key = (result.site, result.scenario, result.degradation, result.method)
-        groups.setdefault(key, []).append(result)
+    groups: dict[tuple[str, str, str, str, str], list[PairResult]] = {}
+    for r in results:
+        key = (r.site, r.scenario, r.degradation, r.method, r.device)
+        groups.setdefault(key, []).append(r)
 
     rows = []
-    for (site, scenario, degradation, method), group in groups.items():
+    for (site, scenario, degradation, method, device), group in groups.items():
         kept = [r for r in group if not r.failed]
 
         def mean(values: list[float]) -> float:
@@ -79,6 +83,7 @@ def summarize(results: Sequence[PairResult]) -> list[SummaryRow]:
                 scenario=scenario,
                 degradation=degradation,
                 method=method,
+                device=device,
                 n_pairs=len(group),
                 cloud_fraction=mean([r.cloud_fraction for r in group]),
                 failure_rate=(len(group) - len(kept)) / len(group),
@@ -131,15 +136,37 @@ def to_markdown(rows: Sequence[SummaryRow]) -> str:
         return "n/a" if math.isnan(x) else f"{x:.1f}"
 
     header = (
-        "| site | scenario | degradation | method | pairs | clouds | EPE (px) "
-        "| < 0.1 px | < 0.5 px | failures | time (ms) | memory (MiB) |\n"
-        "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|\n"
+        "| site | scenario | degradation | method | device | pairs | clouds "
+        "| EPE (px) | < 0.1 px | < 0.5 px | failures | time (ms) | memory (MiB) |\n"
+        "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|\n"
     )
     body = "".join(
-        f"| {r.site} | {r.scenario} | {r.degradation} | {r.method} | {r.n_pairs} "
+        f"| {r.site} | {r.scenario} | {r.degradation} | {r.method} | {r.device} "
+        f"| {r.n_pairs} "
         f"| {percent(r.cloud_fraction)} | {pixels(r.mean_epe)} "
         f"| {percent(r.share_below_0_1)} | {percent(r.share_below_0_5)} "
         f"| {percent(r.failure_rate)} | {cost(r.time_ms)} | {cost(r.peak_mib)} |\n"
         for r in rows
     )
     return header + body
+
+
+def memory_note(meters: dict[str, str]) -> str:
+    """Say how the memory column was read, naming methods read another way.
+
+    Args:
+        meters: Meter name of each method, in table order.
+
+    Returns:
+        A clause for the table's footnote, e.g. ``"memory is the peak traced by
+        tracemalloc, which misses native allocations"``.
+    """
+    by_meter: dict[str, list[str]] = {}
+    for method, meter in meters.items():
+        by_meter.setdefault(meter, []).append(method)
+    if len(by_meter) == 1:
+        return f"memory is {MEMORY_READINGS[next(iter(by_meter))]}"
+    return "memory is " + "; ".join(
+        f"{MEMORY_READINGS[meter]} for {', '.join(methods)}"
+        for meter, methods in by_meter.items()
+    )

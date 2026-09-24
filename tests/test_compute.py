@@ -3,8 +3,10 @@ import dataclasses
 import gc
 import json
 import math
+import subprocess
 import sys
 import tracemalloc
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -12,9 +14,10 @@ from test_cli import PRESETS
 
 from satreg import compute
 from satreg.benchmark import BenchmarkConfig, run_benchmark
-from satreg.cli import main, memory_note
+from satreg.cli import main
 from satreg.compute import (
     MEMORY_READINGS,
+    code_version,
     describe,
     environment,
     measure,
@@ -22,7 +25,7 @@ from satreg.compute import (
 )
 from satreg.displacement import Translation
 from satreg.methods import RegistrationFailure
-from satreg.report import summarize, to_markdown, write_csv
+from satreg.report import memory_note, summarize, to_markdown, write_csv
 from satreg.texture import fractal_texture
 
 CONFIG = BenchmarkConfig(
@@ -226,6 +229,69 @@ def test_environment_names_the_machine_threads_and_libraries():
     assert f"{context['threads']['usable_cpus']} CPUs" in describe(context)
 
 
+def test_environment_names_the_commit_of_the_code():
+    # The tests run on a checkout of the repository, installed in place.
+    assert len(environment()["code"]["commit"]) == 40
+
+
+def git(directory, *args):
+    identity = ["-c", "user.name=test", "-c", "user.email=test@example.com"]
+    subprocess.run(
+        ["git", "-C", str(directory), *identity, *args],
+        check=True,
+        capture_output=True,
+    )
+
+
+def test_code_version_says_whether_tracked_files_were_modified(tmp_path):
+    git(tmp_path, "init", "--quiet")
+    (tmp_path / "method.py").write_text("x = 1\n")
+    git(tmp_path, "add", "method.py")
+    git(tmp_path, "commit", "--quiet", "-m", "first")
+    (tmp_path / "notes.txt").write_text("untracked files do not count\n")
+
+    clean = code_version(tmp_path)
+    (tmp_path / "method.py").write_text("x = 2\n")
+    modified = code_version(tmp_path)
+
+    assert len(clean["commit"]) == 40
+    assert clean["dirty"] is False
+    assert modified == {"commit": clean["commit"], "dirty": True}
+
+
+def test_code_version_is_none_outside_a_repository(tmp_path):
+    assert code_version(tmp_path) is None
+
+
+def test_environment_describes_the_cuda_device_a_method_used(monkeypatch):
+    properties = SimpleNamespace(name="Tesla T4", total_memory=15 * 2**30)
+    cuda = SimpleNamespace(
+        is_available=lambda: True,
+        get_device_properties=lambda index: properties,
+        get_device_capability=lambda index: (7, 5),
+        device_count=lambda: 2,
+    )
+    torch = SimpleNamespace(
+        cuda=cuda,
+        version=SimpleNamespace(cuda="12.4"),
+        backends=SimpleNamespace(cudnn=SimpleNamespace(version=lambda: 90100)),
+        get_num_threads=lambda: 4,
+    )
+    monkeypatch.setitem(sys.modules, "torch", torch)
+
+    context = environment()
+
+    assert context["gpu"] == {
+        "name": "Tesla T4",
+        "memory_gib": 15.0,
+        "count": 2,
+        "capability": "7.5",
+        "cuda": "12.4",
+        "cudnn": 90100,
+    }
+    assert describe(context).endswith("; GPU Tesla T4, 15 GiB, CUDA 12.4")
+
+
 def test_benchmark_writes_the_context_next_to_the_tables(tmp_path, capsys):
     main(
         [
@@ -254,6 +320,7 @@ def test_benchmark_writes_the_context_next_to_the_tables(tmp_path, capsys):
     assert context["cost"]["process_peak_rss_mib"] > 0
     assert context["cost"]["memory"] == {"phase_correlation": "tracemalloc"}
     assert context["devices"] == {"phase_correlation": "cpu"}
+    assert context["cost"]["run_seconds"] > 0
     printed = capsys.readouterr().out
     assert f"Measured on {describe(context)}." in printed
 
@@ -334,6 +401,7 @@ def test_the_environment_does_not_import_torch(monkeypatch):
     context = environment()
 
     assert context["threads"]["torch"] is None
+    assert context["gpu"] is None
     assert "torch" not in sys.modules
 
 

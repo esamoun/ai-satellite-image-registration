@@ -1613,3 +1613,77 @@ half RoMa's (0.23 to 0.26 px against 0.46 to 0.50 px), and RAFT registers every
 pair, in a seventh of the time. `roma_dense` answers half the hard pairs of the
 first two scenarios wrong, by 3 px at the median: the certainty that selects the
 affine fit's matches does not mask the field.
+
+---
+
+## 2026-09-25: `--device` moves every deep-learning method of a run
+
+**Decision.** `satreg benchmark --device cuda` (or `mps`, `cpu`) replaces the
+device of every method that has one, keeping its other parameters; the other
+methods run on the CPU as before. A device the machine lacks stops the run before
+the first pair.
+
+**Why.** The GPU run on Kaggle and its M1 counterpart use the same methods: one
+config, [`configs/gpu.toml`](../configs/gpu.toml), and one option to switch the
+device, rather than a copy of `methods.toml` per machine that could drift. Before
+this, a method configured on a missing device failed on every pair and filled the
+table with failures; checking first gives one clear error instead.
+
+---
+
+## 2026-09-25: Runs from two machines merge into one table, one run per device
+
+**Decision.** Rows carry a `device` column. `satreg merge` reads the tables and
+context of two or more runs, without running anything, and writes one table with
+the rows of a method on each device side by side. It refuses two runs that
+measured the same device, and runs that differ on an option that makes the pairs
+or reads their score or cost (sites, pairs, size, scenarios, presets, seed, motion
+ranges, failure threshold, warm-up, repeats). Rows written before the column
+existed take their device from the run's context, the CPU if it names none.
+
+**Why.** The M1 and a Kaggle GPU cannot run in one process. Comparing their rows
+is only meaningful on the same pairs, scored and timed the same way, so the merge
+checks those options instead of trusting file names. Taking each device from one
+run lets the footnote name, for every row, the machine and commit it came from.
+Methods may differ between the runs, so a method measured on one side only keeps
+a single row.
+
+**Limit.** A run made before an option existed has no value for it and differs
+from a newer run on it, so it is refused rather than guessed. Re-running it is
+the fix.
+
+---
+
+## 2026-09-25: `context.json` records the commit and the GPU
+
+**Decision.** Each run records the commit it was made from and whether tracked
+files were modified, and, when PyTorch is loaded and sees a CUDA device, that
+device (name, memory, count, compute capability) with the CUDA and cuDNN versions
+PyTorch was built with. The footnote names the GPU; the merged footnote also
+names the commit of each device's rows. The benchmark's total time is recorded
+as `cost.run_seconds`.
+
+**Why.** A run on Kaggle happens on a clone, away from the working copy, so the
+commit is the only link back to the code that produced its rows. The GPU model
+and CUDA version decide GPU timings the way the CPU model decides CPU timings.
+Reading the GPU only when PyTorch is already loaded keeps runs of the classic
+methods from importing it.
+
+---
+
+## 2026-09-25: The Kaggle notebook clones with a token from a Kaggle secret
+
+**Decision.** The notebook clones the repository from GitHub with a read-only,
+fine-grained token stored as the Kaggle secret `GITHUB_TOKEN`. The token reaches
+git through an environment variable read by a credential helper passed with
+`-c`, after an empty `credential.helper=` that drops any helper the machine
+configured. The clone is a full one, not a partial one.
+
+**Why.** The repository is private. A token in the URL would be written to the
+clone's `.git/config` and could appear in the saved output; in the environment it
+appears in neither. Git asks its helpers in order, so without the reset a helper
+configured on the machine answered first, with other credentials: checked
+locally, where the Mac's own helper did. A partial clone fetches missing objects
+later, which would need the token again after it is gone. No Kaggle or GitHub
+credential is in the repository; a test checks the Kaggle files for token
+patterns.

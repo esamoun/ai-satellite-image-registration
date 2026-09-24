@@ -5,8 +5,13 @@ import pytest
 from scipy import ndimage
 
 from satreg.degrade import Blur, Clouds, Noise, Preset, Radiometry, load_presets
-from satreg.displacement import Translation
-from satreg.simulate import SimulatedPair, simulate_translation
+from satreg.displacement import Affine, Translation
+from satreg.simulate import (
+    SimulatedPair,
+    SmoothField,
+    simulate_dense,
+    simulate_translation,
+)
 from satreg.texture import fractal_texture
 
 REPO_PRESETS = Path(__file__).parents[1] / "configs" / "degradations.toml"
@@ -23,6 +28,18 @@ EVERY_DEGRADATION = [
 def clean_pair(seed: int = 0, size: int = 160) -> SimulatedPair:
     source = fractal_texture(size + 40, seed=seed)
     return simulate_translation(source, dx=1.3, dy=-0.7, margin=20)
+
+
+SHIFT = Affine.about(
+    (79.5, 79.5), rotation_deg=0.0, scale=1.0, shear=0.0, dx=1.3, dy=-0.7
+)
+# A local field of the benchmark's default size.
+LOCAL = SmoothField.draw(np.random.default_rng(0), 64.0, 0.8, (160, 160))
+
+
+def dense_pair(source: np.ndarray | None = None) -> SimulatedPair:
+    source = fractal_texture(200, seed=0) if source is None else source
+    return simulate_dense(source, SHIFT, LOCAL, margin=20)
 
 
 def flat_pair(moving: np.ndarray) -> SimulatedPair:
@@ -169,15 +186,17 @@ def test_stacked_clouds_combine_their_opacity():
     assert twice.cloud_fraction > once.cloud_fraction
 
 
+@pytest.mark.parametrize("make", [clean_pair, dense_pair], ids=["global", "dense"])
 @pytest.mark.parametrize("degrade", EVERY_DEGRADATION, ids=lambda d: type(d).__name__)
-def test_degradations_never_change_the_geometry(degrade):
-    pair = clean_pair()
+def test_degradations_never_change_the_geometry(degrade, make):
+    pair = make()
     before = (pair.reference.copy(), pair.moving.copy())
+    truth = pair.truth.field(pair.reference.shape)
 
     degraded = degrade(pair, rng())
 
-    assert degraded.truth == pair.truth == Translation(dx=1.3, dy=-0.7)
     assert degraded.reference.shape == degraded.moving.shape == pair.moving.shape
+    np.testing.assert_array_equal(degraded.truth.field(pair.reference.shape), truth)
     # The clean pair is left as it was, so every preset starts from the same one.
     np.testing.assert_array_equal(pair.reference, before[0])
     np.testing.assert_array_equal(pair.moving, before[1])
@@ -198,6 +217,19 @@ def test_blur_moves_no_content():
     ).moving
     # Past 4 sigma from the border, where the blur of the cropped pair and of the
     # full scene see the same pixels. The texture has unit standard deviation.
+    inner = (slice(4, -4), slice(4, -4))
+    assert np.abs(blurred - expected)[inner].max() < 0.03
+
+
+def test_blur_moves_no_content_of_a_dense_pair():
+    # A field that bends the image does not commute with a blur exactly: the blur
+    # of the scene is stretched with it. The stretch of the benchmark's fields is
+    # about 1 %, and the difference measured 0.015 when this test was written.
+    source = fractal_texture(200, seed=0)
+
+    blurred = Blur(1.0)(dense_pair(source), rng()).moving
+
+    expected = dense_pair(ndimage.gaussian_filter(source, 1.0)).moving
     inner = (slice(4, -4), slice(4, -4))
     assert np.abs(blurred - expected)[inner].max() < 0.03
 

@@ -3,10 +3,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from satreg.displacement import Dense
+from satreg.displacement import Affine, Dense
 from satreg.methods import METHODS, cost_meter, deep, load_methods, missing_dependencies
 from satreg.methods.raft import MODELS, Raft, network_input, pad, stretch
-from satreg.simulate import simulate_translation
+from satreg.simulate import SmoothField, simulate_dense, simulate_translation
 from satreg.texture import fractal_texture
 
 REPO_CONFIG = Path(__file__).parents[1] / "configs" / "methods.toml"
@@ -152,3 +152,23 @@ def test_the_flow_is_cropped_back_to_the_reference_grid():
 
     assert isinstance(estimate, Dense)
     assert estimate.shape == (141, 150)
+
+
+@needs_raft
+def test_raft_follows_the_local_part_of_a_dense_field():
+    size, margin = 256, 32
+    transform = Affine.about(
+        ((size - 1) / 2,) * 2, rotation_deg=0.5, scale=1.0, shear=0.0, dx=1.3, dy=-0.7
+    )
+    local = SmoothField.draw(np.random.default_rng(0), 32.0, 1.5, (size, size))
+    pair = simulate_dense(
+        fractal_texture(size + 2 * margin, seed=3), transform, local, margin
+    )
+    truth = pair.truth.field((size, size))
+
+    field = Raft()(pair.reference, pair.moving).field((size, size))
+
+    epe = np.hypot(*(field - truth))[pair.valid].mean()
+    global_part = np.hypot(*(transform.field((size, size)) - truth))[pair.valid].mean()
+    # Measured 0.19 px against 0.49 px for the exact global part alone.
+    assert epe < global_part / 2

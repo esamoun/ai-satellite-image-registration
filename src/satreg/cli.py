@@ -143,6 +143,20 @@ def _parser(run_config: dict[str, object] | None = None) -> argparse.ArgumentPar
         default=defaults.max_shear,
         help="largest affine shear, in px per px",
     )
+    bench.add_argument(
+        "--max-local-shift",
+        type=float,
+        default=defaults.max_local_shift,
+        help="largest magnitude of the local field of a dense pair, in px: "
+        "orthorectification residuals such as relief seen through an elevation "
+        "model error",
+    )
+    bench.add_argument(
+        "--local-length",
+        type=float,
+        default=defaults.local_length,
+        help="correlation length of the local field of a dense pair, in px",
+    )
     bench.add_argument("--seed", type=int, default=defaults.seed)
     bench.add_argument(
         "--failure-threshold",
@@ -382,6 +396,8 @@ def benchmark(args: argparse.Namespace) -> str:
         max_rotation_deg=args.max_rotation,
         max_scale_change=args.max_scale_change,
         max_shear=args.max_shear,
+        max_local_shift=args.max_local_shift,
+        local_length=args.local_length,
         scenarios=tuple(dict.fromkeys(args.scenarios)),
         seed=args.seed,
         failure_threshold=args.failure_threshold,

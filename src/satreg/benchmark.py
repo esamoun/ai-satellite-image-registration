@@ -24,8 +24,10 @@ from .methods import (
 from .metrics import FAILURE_EPE_PX, is_failure, score
 from .simulate import (
     SimulatedPair,
+    SmoothField,
     margin_for,
     simulate_affine,
+    simulate_dense,
     simulate_translation,
 )
 
@@ -35,8 +37,9 @@ DEGRADATIONS: dict[str, Degradation] = {"clean": Preset()}
 
 # Geometric models a pair can be simulated with. An affine pair is its
 # translation twin, same window and same shift of the centre, plus a rotation, a
-# scale and a shear about the centre.
-SCENARIOS = ("translation", "affine")
+# scale and a shear about the centre. A dense pair is its affine twin plus a
+# smooth local field.
+SCENARIOS = ("translation", "affine", "dense")
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,12 @@ class BenchmarkConfig:
         max_rotation_deg: Affine rotations are drawn in ``[-max, max]`` degrees.
         max_scale_change: Affine scales are drawn in ``[1 - max, 1 + max]``.
         max_shear: Affine shears are drawn in ``[-max, max]``.
+        max_local_shift: The local field of a dense pair has its largest
+            magnitude over the pair drawn in ``[0, max]`` px. It stands for the
+            residuals orthorectification leaves locally, mostly relief seen
+            through an elevation model error from two viewing angles.
+        local_length: Correlation length of that field, in px: the distance
+            over which the residuals of one elevation model error stay alike.
         scenarios: Geometric models to simulate, among ``SCENARIOS``.
         seed: Seed for pair geometry and degradations.
         failure_threshold: Mean end-point error above which a pair failed, in px.
@@ -64,6 +73,8 @@ class BenchmarkConfig:
     max_rotation_deg: float = 0.2
     max_scale_change: float = 0.002
     max_shear: float = 0.002
+    max_local_shift: float = 0.8
+    local_length: float = 64.0
     scenarios: tuple[str, ...] = SCENARIOS
     seed: int = 0
     failure_threshold: float = FAILURE_EPE_PX
@@ -76,7 +87,12 @@ class BenchmarkConfig:
                 f"need warmup >= 0 and repeats >= 1, got {self.warmup} and "
                 f"{self.repeats}"
             )
-        ranges = (self.max_shift, self.max_rotation_deg, self.max_shear)
+        ranges = (
+            self.max_shift,
+            self.max_rotation_deg,
+            self.max_shear,
+            self.max_local_shift,
+        )
         if min(ranges) < 0:
             raise ValueError(f"displacement ranges must be non-negative, got {ranges}")
         unknown = [s for s in self.scenarios if s not in SCENARIOS]
@@ -84,6 +100,8 @@ class BenchmarkConfig:
             raise ValueError(
                 f"scenarios must be among {', '.join(SCENARIOS)}, got {self.scenarios}"
             )
+        if self.local_length <= 0:
+            raise ValueError(f"local_length must be positive, got {self.local_length}")
         if not 0 <= self.max_scale_change < 1:
             raise ValueError(
                 f"max_scale_change must be in [0, 1), got {self.max_scale_change}"
@@ -151,6 +169,8 @@ def max_reach(config: BenchmarkConfig) -> float:
     |s - 1| + s |h|``. The displacement of a point ``r`` from the centre is at most
     ``e |r| + |t|``, and that of the inverse map, which the warp samples, at most
     ``(e |r| + |t|) / (1 - e)``. Over a pair, ``|r|`` is at most half a diagonal.
+    The local field of a dense pair adds at most its peak ``l`` to the first
+    bound, hence ``(e |r| + |t| + l) / (1 - e)`` for the inverse map.
 
     Args:
         config: Run parameters.
@@ -166,7 +186,7 @@ def max_reach(config: BenchmarkConfig) -> float:
     shift = math.sqrt(2) * config.max_shift
     if e >= 1:
         raise ValueError("affine ranges too large: the warp could fold the image")
-    return (e * half_diagonal + shift) / (1 - e)
+    return (e * half_diagonal + shift + config.max_local_shift) / (1 - e)
 
 
 def draw_pair(
@@ -181,8 +201,9 @@ def draw_pair(
     The window, the shift and the affine parameters are drawn in the same order
     whatever the scenario, so a generator seeded the same way gives an affine
     pair and a translation pair with the same reference image and the same
-    displacement at the centre. The margin covers every scenario of the run, for
-    the same reason.
+    displacement at the centre. A dense pair draws its local field after them,
+    so it adds that field to its affine twin's truth. The margin covers every
+    scenario, whether the run has it or not, for the same reason.
 
     Args:
         image: 2-D site image.
@@ -216,19 +237,24 @@ def draw_pair(
     scale = 1 + rng.uniform(-config.max_scale_change, config.max_scale_change)
     shear = rng.uniform(-config.max_shear, config.max_shear)
     source = image[top : top + window, left : left + window]
+    centre = (config.size - 1) / 2
+    affine = Affine.about(
+        (centre, centre),
+        rotation_deg=float(rotation),
+        scale=float(scale),
+        shear=float(shear),
+        dx=float(dx),
+        dy=float(dy),
+    )
     if scenario == "translation":
         pair = simulate_translation(source, dx=float(dx), dy=float(dy), margin=margin)
+    elif scenario == "affine":
+        pair = simulate_affine(source, affine, margin)
     else:
-        centre = (config.size - 1) / 2
-        truth = Affine.about(
-            (centre, centre),
-            rotation_deg=float(rotation),
-            scale=float(scale),
-            shear=float(shear),
-            dx=float(dx),
-            dy=float(dy),
-        )
-        pair = simulate_affine(source, truth, margin)
+        peak = rng.uniform(0, config.max_local_shift)
+        shape = (config.size, config.size)
+        local = SmoothField.draw(rng, config.local_length, float(peak), shape)
+        pair = simulate_dense(source, affine, local, margin)
     if georef is None:
         return pair
     # The pair is the window cropped by the margin on each side.

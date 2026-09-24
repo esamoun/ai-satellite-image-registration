@@ -1134,3 +1134,134 @@ change to torchvision's code. Two things N3 should know:
 the default (slower to export and cannot target opset 17; kept as the fallback).
 Rewriting the correlation lookup without `grid_sample` (opset 16 came with ONNX
 1.11 in early 2022, so no runtime N3 targets lacks it).
+
+---
+
+## 2026-09-24: Dense pairs: a smooth random field on top of the affine twin, warped by Fourier oversampling
+
+*My call*: the local peak (up to 0.8 px, drawn uniformly), the correlation length
+(64 px), the opaque-cloud threshold (0.9) and the ×4 cubic warp over ×2 quintic.
+
+**Decision.** A third scenario, `dense`. Its truth is the affine motion of its twin
+plus a smooth local field `l(p)`: `d(p) = A p + o - p + l(p)`. The local field is
+a stationary Gaussian random field with correlation `exp(-h² / 2L²)`, built from
+64 random Fourier features. Its frequencies are drawn from N(0, 1/L²) and its
+phases uniformly. It is then scaled so that its largest magnitude over the pair
+is a peak drawn uniformly in `[0, max_local_shift]`. Two run options set it:
+
+| option | default | what it is |
+|---|---:|---|
+| `max_local_shift` | 0.8 px (8 m) | largest local displacement of a pair |
+| `local_length` | 64 px (640 m) | correlation length |
+
+At the full peak the field's largest gradient is 0.026 px per px (0.014 median
+over 200 draws), so it stretches the image by under 3 %.
+
+The field stands for orthorectification residuals: relief seen from two viewing
+angles through an elevation model that is wrong by some metres. The parallax is
+`Δh · (tan θ₁ - tan θ₂)`. Sentinel-2 views up to about 10° off nadir, so an error
+of 20 m seen from opposite edges of two swaths moves the ground by about 7 m,
+0.7 px. The error follows the relief, over hundreds of metres. These are judgement
+calls in the same spirit as the affine ranges, not measurements: real pairs
+(ticket 08) are what checks them. Attitude jitter is not modelled. On Sentinel-2
+it is a high-frequency, along-track effect that a Gaussian field of this length
+does not describe.
+
+For a given seed, site and pair, the dense pair draws its peak and its field after
+everything its twins draw. It therefore has their window, their shift and their
+affine part, and the three rows of a method compare pair by pair. The margin
+bound gains `max_local_shift` (7.1 + 0.8 = 7.9 px by default), which still gives
+24 px. N1's pairs are unchanged: all 400 clean truths of `outputs/n1/pairs.csv`
+are drawn again identically.
+
+**The inverse mapping.** The field is defined on the reference grid, so the
+moving image needs, for each moving pixel `q`, the source `p` with
+`p + d(p) = q`. It is found by fixed-point iteration, `p ← p - (p + d(p) - q)`.
+Each step gains a factor of the field's largest gradient, a few hundredths here.
+It stops at a residual of 1e-8 px and refuses the map if 50 steps do not get
+there. On the benchmark's fields that takes 3 to 5 steps (30 draws), and a test field
+reaches 1e-13 px. Random Fourier features were chosen because they can be
+evaluated exactly anywhere. A field sampled on a grid would have to be
+interpolated at the off-grid points of the iteration, and the truth would carry
+that interpolation error.
+
+**The warp.** Fourier oversampling, then a spline. The window is mirrored, then
+upsampled ×4 along each axis by zero-padding its spectrum (`scipy.signal.resample`).
+The moving image is read from it at the sources with a cubic spline
+(`map_coordinates`, order 3). Oversampling puts the scene far below the new
+Nyquist frequency, where a cubic spline no longer low-passes. N1's two-pass
+Fourier warp only exists for affine maps, so it cannot do this.
+
+Measured on a 128 px pair with a strong field (0.8 px local peak, L = 64, and
+N1's strongest affine), against the band-limited interpolant of the same mirrored
+window evaluated exactly at the sources. The error is in image standard
+deviations:
+
+| warp | MTF texture, max | Beauce, max | Toulouse, max |
+|---|---:|---:|---:|
+| cubic spline | 0.18 | 0.096 | 0.44 |
+| quintic spline | 0.12 | 0.075 | 0.26 |
+| ×2, cubic | 4.5e-3 | 4.3e-3 | 1.3e-2 |
+| ×2, quintic | 3.3e-4 | 3.0e-4 | 7.9e-4 |
+| ×4, linear | 3.9e-2 | 2.5e-2 | 9.9e-2 |
+| **×4, cubic** | **2.6e-4** (rms 4.3e-5) | **1.6e-4** (rms 1.3e-5) | **6.2e-4** (rms 7.6e-5) |
+| ×4, quintic | 3.4e-5 | 2.5e-6 | 6.7e-5 |
+| ×8, cubic | 4.3e-5 | 1.1e-5 | 8.3e-5 |
+
+Against the exact scene (a periodic MTF texture, known everywhere), every
+oversampled warp sits at 0.021 max (rms 0.004). That floor is the mirroring at
+the window's edges, the same effect as the translation warp's 0.03 in N1, so
+×4 cubic is 30 times below what the simulator already accepts. With no local
+field, a dense pair differs from its affine twin by 0.021 max on the texture and
+0.012 on Beauce, which is the two warps' edge effects. The tests bound three
+errors:
+- against the exact periodic scene: 0.05 max and 0.01 rms, measured 0.021 and
+  0.0034;
+- against an analytic rendering of Gaussian spots: 1e-4, measured 1.5e-5;
+- against the affine twin: 0.05 max, measured 0.032.
+
+A 256 px dense pair takes about 0.4 s to simulate on the M1: 0.3 s to invert,
+0.06 s to warp.
+
+**Clouds.** As the clouds entry planned: for a dense truth, a reference pixel is
+also invalid when the cloud opacity at its displaced position, read by linear
+interpolation, is at least 0.9. At that opacity a tenth of the ground's contrast
+gets through at most. Global truths are still scored everywhere, because their
+displacement under the cloud is the one beside it. A dense truth has no such
+link, and a pixel whose ground is hidden has no displacement a method could
+observe. The threshold sits well above the 0.5 that defines a pixel as "under
+cloud" in the cloud fraction, so thin edges and haze stay in the metric, where
+methods break. On 20 dense pairs per site the mask removes 2.5 % of the valid
+pixels under `mild` (5 % of the image at least half cloud) and 23.7 % under
+`hard` (30 %).
+
+**First run.** 20 pairs per site, N1's ranges and presets, clean pairs, mean EPE
+in px. Each method's global model is compared with the best that model can do on
+the true field over valid pixels. For a translation that is the componentwise
+median. For an affine model it is the least-squares fit, which is close to the
+EPE optimum but not equal to it.
+
+| | phase correlation | SIFT + RANSAC | AROSICS | RAFT | best translation | best affine |
+|---|---:|---:|---:|---:|---:|---:|
+| Beauce | 0.302 | 0.139 | 0.307 | **0.092** | 0.294 | 0.126 |
+| Toulouse | 0.274 | 0.121 | 0.273 (10 %) | **0.100** | 0.273 | 0.121 |
+
+The global methods run unchanged and land on the floor of their model. RAFT is
+the only one below the affine floor. Its margin is small: the mean local
+displacement is 0.19 and 0.17 px, since the peak is drawn anywhere up to 0.8 px, and
+RAFT's own error on clean translations is 0.04 to 0.05 px. Under `hard`, RAFT
+scores 0.260 and 0.188 px and fails no pair, against 0.49 and 0.30 px for phase
+correlation. Running the three scenarios with four methods on 2 × 20 pairs and
+three presets took 6.5 min on the M1.
+
+**Rejected.**
+- A plain cubic or quintic spline: numbers above, the low-pass N1 rejected.
+- ×2 quintic: about as accurate as ×4 cubic, a quarter of the memory, three
+  times faster (15 ms against 46 ms at 256 px). It was not kept because ×4 cubic
+  is simpler to argue for and its cost is small next to the inversion.
+- A field sampled on a coarse grid and interpolated: the truth would be only as
+  exact as that interpolation.
+- Inverting by building the inverse field on the grid (scattered interpolation):
+  the error lands in the moving image, where nothing measures it.
+- Scoring pixels under any cloud (opacity ≥ 0.5): that would drop the thin edges
+  the degradation exists to test.

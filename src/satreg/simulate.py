@@ -1,22 +1,34 @@
 """Simulated image pairs with an exactly known displacement.
 
 Every warp is band-limited interpolation: a Fourier phase ramp for a translation,
-and the same interpolation applied in two one-dimensional passes for an affine
-transform. See docs/decisions.md.
+the same interpolation applied in two one-dimensional passes for an affine
+transform, and a cubic spline read on a Fourier-oversampled scene for a dense
+field. See docs/decisions.md.
 """
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
-from scipy import ndimage
+from scipy import ndimage, signal
 
-from .displacement import Affine, Displacement, Translation
+from .displacement import Affine, Dense, Displacement, Translation
 from .georef import Georef
 
 # Border discarded after a Fourier shift. The shift treats the window as periodic,
 # which rings at its edges; the ringing decays inwards and is negligible past this.
 RINGING_BORDER_PX = 16
+
+# A dense warp oversamples the scene this many times by Fourier zero-padding, then
+# reads it with a cubic spline, which no longer low-passes content that sits at a
+# quarter of the new Nyquist frequency or below. See docs/decisions.md.
+OVERSAMPLING = 4
+
+# Cloud opacity from which a moving-image pixel shows no usable ground: a tenth of
+# the ground's contrast at most gets through. Only dense truths drop these pixels
+# from the metrics. See docs/decisions.md.
+OPAQUE_CLOUD = 0.9
 
 
 @dataclass(frozen=True)
@@ -47,21 +59,29 @@ class SimulatedPair:
 
     @property
     def valid(self) -> np.ndarray:
-        """Reference pixels whose content is still inside the moving image.
+        """Reference pixels whose displacement can be observed in the moving image.
 
         A reference pixel is valid if its displaced position lies within the
         pixel centres of the moving image. Near the borders, content leaves the
-        moving image, and the displacement there cannot be observed.
+        moving image, and the displacement there cannot be observed. For a dense
+        truth, a pixel whose displaced position lies under opaque cloud is not
+        valid either: its displacement is its own, and the ground it would be
+        read from is hidden. A global truth is the same under the cloud as beside
+        it, so its pixels stay valid there.
         """
         shape = self.reference.shape
         target = np.indices(shape, dtype=float) + self.truth.field(shape)
         rows, cols = shape
-        return (
+        inside = (
             (target[0] >= 0)
             & (target[0] <= rows - 1)
             & (target[1] >= 0)
             & (target[1] <= cols - 1)
         )
+        if self.cloud is None or not isinstance(self.truth, Dense):
+            return inside
+        opacity = ndimage.map_coordinates(self.cloud, target, order=1, mode="nearest")
+        return inside & (opacity < OPAQUE_CLOUD)
 
 
 def margin_for(max_shift: float) -> int:
@@ -279,4 +299,194 @@ def simulate_affine(
         reference=source[crop],
         moving=fourier_affine(source, in_source)[crop],
         truth=transform,
+    )
+
+
+@dataclass(frozen=True, eq=False)
+class SmoothField:
+    """A smooth random displacement that can be evaluated at any position.
+
+    Each component is a sum of cosines with random frequencies and phases
+    (random Fourier features). With frequencies drawn from a normal distribution
+    of standard deviation ``1 / length``, the sum approximates a Gaussian random
+    field whose correlation falls as ``exp(-h**2 / (2 * length**2))`` with the
+    distance ``h``. Being a formula, it is exact wherever it is evaluated, which
+    the inverse mapping of a dense warp needs.
+
+    Attributes:
+        frequencies: ``(modes, 2)`` angular frequencies along rows and columns,
+            in radians per pixel.
+        weights: ``(2, 2 * modes)`` coefficients of each mode's cosine, then its
+            sine, for ``dy`` then ``dx``, in pixels.
+    """
+
+    frequencies: np.ndarray
+    weights: np.ndarray
+
+    @classmethod
+    def draw(
+        cls,
+        rng: np.random.Generator,
+        length: float,
+        peak: float,
+        shape: tuple[int, int],
+        modes: int = 64,
+    ) -> "SmoothField":
+        """Draw a field and scale it to a given largest magnitude on a grid.
+
+        Args:
+            rng: Generator for the frequencies and phases.
+            length: Correlation length, in pixels, positive.
+            peak: Largest magnitude of the field over the ``shape`` grid, in
+                pixels, non-negative.
+            shape: ``(rows, cols)`` of the grid the peak is taken over.
+            modes: Number of cosines per component.
+
+        Returns:
+            The field. Frequencies and phases are drawn whatever ``peak`` is, so
+            the generator ends in the same state.
+
+        Raises:
+            ValueError: If ``length`` is not positive or ``peak`` is negative.
+        """
+        if length <= 0 or peak < 0:
+            raise ValueError(f"need length > 0 and peak >= 0, got {length} and {peak}")
+        frequencies = rng.normal(0.0, 1 / length, size=(modes, 2))
+        phases = rng.uniform(0.0, 2 * np.pi, size=(2, modes))
+        # cos(w.p + phi) = cos(phi) cos(w.p) - sin(phi) sin(w.p)
+        unit = cls(frequencies, np.concatenate([np.cos(phases), -np.sin(phases)], 1))
+        largest = float(np.hypot(*unit(np.indices(shape, dtype=float))).max())
+        return cls(frequencies, unit.weights * (peak / largest))
+
+    def __call__(self, points: np.ndarray) -> np.ndarray:
+        """Evaluate the field.
+
+        Args:
+            points: Array of shape ``(2, ...)``: rows then columns.
+
+        Returns:
+            Array of the same shape: ``dy`` then ``dx`` at each point, in pixels.
+        """
+        phase = np.tensordot(self.frequencies, points, axes=1)
+        basis = np.concatenate([np.cos(phase), np.sin(phase)])
+        return np.tensordot(self.weights, basis, axes=1)
+
+
+def invert(
+    forward: Callable[[np.ndarray], np.ndarray],
+    targets: np.ndarray,
+    tolerance: float = 1e-8,
+    max_iter: int = 50,
+) -> np.ndarray:
+    """Find the points a map sends to given targets, by fixed-point iteration.
+
+    With ``forward(p) = p + d(p)``, the source of ``q`` solves ``p = q - d(p)``.
+    Iterating that equation converges when ``d`` changes by less than one pixel
+    per pixel, and gains a factor of its largest gradient at each step: a few
+    hundredths for the benchmark's fields.
+
+    Args:
+        forward: Map from ``(2, ...)`` positions to ``(2, ...)`` positions.
+        targets: ``(2, ...)`` positions to invert.
+        tolerance: Largest remaining ``|forward(p) - q|`` accepted, in pixels.
+        max_iter: Iterations before giving up.
+
+    Returns:
+        The sources, same shape as ``targets``.
+
+    Raises:
+        ValueError: If the iteration does not reach the tolerance, which means
+            the map is too far from a small displacement to invert this way.
+    """
+    sources = targets
+    for _ in range(max_iter):
+        residual = forward(sources) - targets
+        if np.abs(residual).max() <= tolerance:
+            return sources
+        sources = sources - residual
+    raise ValueError(f"inverse map did not converge in {max_iter} iterations")
+
+
+def oversampled_sample(
+    image: np.ndarray, positions: np.ndarray, factor: int = OVERSAMPLING
+) -> np.ndarray:
+    """Read an image at arbitrary positions, close to band-limited interpolation.
+
+    The image is mirrored like ``fourier_shift`` does, oversampled ``factor``
+    times by Fourier zero-padding, which is exact band-limited interpolation onto
+    a finer grid, then read by a cubic spline on that grid. The spline's low-pass
+    effect falls with the oversampling: see docs/decisions.md for how close to
+    the exact interpolation this gets.
+
+    Args:
+        image: 2-D image.
+        positions: ``(2, ...)`` positions to read, rows then columns, in the
+            image's pixel coordinates. Positions outside the image read its
+            mirror image.
+        factor: Oversampling factor, at least 1.
+
+    Returns:
+        Values at the positions, of shape ``positions.shape[1:]``.
+    """
+    # How far the positions reach past the image, which the mirror must cover.
+    last = np.reshape(np.subtract(image.shape, 1), (2,) + (1,) * (positions.ndim - 1))
+    pad = margin_for(max(0.0, float(-positions.min()), float((positions - last).max())))
+    fine = np.pad(image.astype(float), pad, mode="symmetric")
+    for axis in (0, 1):
+        # Sample j of the result sits at j / factor on the padded grid.
+        fine = signal.resample(fine, fine.shape[axis] * factor, axis=axis)
+    return ndimage.map_coordinates(
+        fine, factor * (positions + pad), order=3, mode="mirror"
+    )
+
+
+def simulate_dense(
+    source: np.ndarray, transform: Affine, local: SmoothField, margin: int
+) -> SimulatedPair:
+    """Build a pair whose moving image follows an affine map plus a local field.
+
+    Reference pixel ``p`` is found at ``transform.apply(p) + local(p)`` in the
+    moving image, in the pixel coordinates of the cropped pair. Each moving pixel
+    ``q`` therefore shows the scene at the source of ``q`` under that map, found
+    by ``invert`` and read by ``oversampled_sample`` from the whole ``source``
+    window, which is then cropped like the other scenarios.
+
+    Args:
+        source: 2-D window larger than the wanted pair by the margin on each side.
+        transform: Global part of the truth, in the pixel coordinates of the pair.
+        local: Local part of the truth, in the same coordinates.
+        margin: Pixels cropped on each side, at least ``margin_for`` the largest
+            distance between a moving pixel and the source it reads.
+
+    Returns:
+        The simulated pair, with the ``Dense`` field of the map as its truth.
+
+    Raises:
+        ValueError: If ``source`` is not 2-D or too small for the margin, the
+            margin is too small for the map, or the map cannot be inverted.
+    """
+    if source.ndim != 2:
+        raise ValueError(f"source must be 2-D, got shape {source.shape}")
+    if min(source.shape) <= 2 * margin:
+        raise ValueError(
+            f"source {source.shape} is too small for a {margin} px margin per side"
+        )
+    rows, cols = source.shape
+    shape = (rows - 2 * margin, cols - 2 * margin)
+    grid = np.indices(shape, dtype=float)
+
+    def forward(points: np.ndarray) -> np.ndarray:
+        return transform.apply(points) + local(points)
+
+    sources = invert(forward, grid)
+    needed = margin_for(float(np.abs(sources - grid).max()))
+    if margin < needed:
+        raise ValueError(f"margin {margin} px is below the {needed} px needed")
+
+    source = source.astype(float)
+    crop = (slice(margin, -margin), slice(margin, -margin))
+    return SimulatedPair(
+        reference=source[crop],
+        moving=oversampled_sample(source, sources + margin),
+        truth=Dense(forward(grid) - grid),
     )

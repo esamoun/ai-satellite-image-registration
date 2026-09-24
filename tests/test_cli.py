@@ -122,6 +122,24 @@ def test_benchmark_runs_only_the_requested_scenarios(tmp_path, capsys):
     assert "translation" not in printed
 
 
+def test_benchmark_runs_the_dense_scenario(tmp_path, capsys):
+    main(
+        ["benchmark", "--pairs", "2", "--size", "64", "--out", str(tmp_path)]
+        + ["--degradations", "clean", "--scenarios", "dense"]
+        + ["--methods", "phase_correlation"]
+        + ["--max-local-shift", "1.5", "--local-length", "32"]
+        + PRESETS
+    )
+
+    printed = capsys.readouterr().out
+    assert "| synthetic | dense | clean | phase_correlation | 2 |" in printed
+    assert "| affine |" not in printed
+    rows = (tmp_path / "pairs.csv").read_text().splitlines()
+    assert all(",dense," in row for row in rows[1:])
+    run = json.loads((tmp_path / "context.json").read_text())["run"]
+    assert (run["max_local_shift"], run["local_length"]) == (1.5, 32.0)
+
+
 def test_unknown_preset_is_reported_with_the_configured_ones(tmp_path):
     with pytest.raises(SystemExit, match="unknown degradation preset 'foggy'.*mild"):
         main(["benchmark", "--degradations", "foggy"] + PRESETS)

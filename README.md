@@ -14,7 +14,8 @@ pipeline runs end to end with the three classic methods (phase correlation, SIFT
 RANSAC and AROSICS), on a synthetic texture or on a real Sentinel-2 chip, under
 increasingly degraded conditions, for translations and small affine motions. N2
 has started: RAFT, a pretrained optical-flow network, runs in the same benchmark
-and returns a displacement for every pixel.
+and returns a displacement for every pixel, and a third scenario simulates a
+displacement that varies across the pair.
 
 **First results:** [the N1 table](docs/evaluation.md), 1,200 simulated pairs on two
 Sentinel-2 sites. Phase correlation is the most robust under clouds and blur, SIFT
@@ -91,18 +92,21 @@ repository. Each method runs on the device set in `configs/methods.toml` (`cpu` 
 default, or `mps` or `cuda`); nothing picks one for you. The test suite runs
 without the extra and skips the RAFT tests, saying why.
 
-### Translation and affine motion
+### Translation, affine and dense motion
 
-Each pair is simulated twice: shifted, and under a small affine motion (rotation,
-scale change and shear about the pair's centre, on top of the same shift). Both
-versions share the reference image and the displacement at the centre, so the
-difference between the two rows of a method is the cost of its motion model.
-The default ranges (±0.2°, ±0.2 % scale, ±0.002 shear) are sized around the
-Sentinel-2 co-registration requirement of 0.3 px. `--scenarios affine` runs one
-scenario, and `--max-rotation`, `--max-scale-change` and `--max-shear` change the
-ranges. Both scenarios are warped with the same band-limited interpolation, and
-pixels whose displaced position leaves the moving image are left out of the
-metrics.
+Each pair is simulated three times: shifted, under a small affine motion (rotation,
+scale change and shear about the pair's centre, on top of the same shift), and
+under a dense field (the same affine motion plus a smooth local displacement that
+varies across the pair). All three versions share the reference image and the
+global motion, so the difference between the rows of a method is the cost of its
+motion model. The default affine ranges (±0.2°, ±0.2 % scale, ±0.002 shear) are
+sized around the Sentinel-2 co-registration requirement of 0.3 px. The local field
+stands for orthorectification residuals over relief: up to 0.8 px, correlated over
+about 64 px (640 m). `--scenarios affine` runs one scenario, and `--max-rotation`,
+`--max-scale-change`, `--max-shear`, `--max-local-shift` and `--local-length`
+change the ranges. Every scenario is warped without the low-pass of a plain
+spline. Pixels whose displaced position leaves the moving image are left out of
+the metrics, and so are pixels of a dense pair that sit under opaque cloud.
 
 ### On Sentinel-2 imagery
 

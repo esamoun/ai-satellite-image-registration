@@ -4,14 +4,19 @@ import numpy as np
 import pytest
 from scipy import ndimage
 
-from satreg.displacement import Affine, Translation
+from satreg.displacement import Affine, Dense, Translation
 from satreg.simulate import (
+    OPAQUE_CLOUD,
     RINGING_BORDER_PX,
+    SimulatedPair,
+    SmoothField,
     affine_reach,
     fourier_affine,
     fourier_shift,
+    invert,
     margin_for,
     simulate_affine,
+    simulate_dense,
     simulate_translation,
 )
 from satreg.texture import fractal_texture
@@ -222,3 +227,192 @@ def test_valid_pixels_of_a_zoom_exclude_the_border():
     valid = pair.valid
     assert valid[30, 30] and valid[30, 3] and not valid[30, 2]
     assert not valid[0, 0]
+
+
+def test_smooth_field_peaks_at_the_requested_magnitude():
+    field = SmoothField.draw(np.random.default_rng(0), 32.0, 0.8, (96, 96))
+
+    values = field(np.indices((96, 96), dtype=float))
+
+    assert np.hypot(*values).max() == pytest.approx(0.8)
+
+
+def test_smooth_field_correlation_falls_as_a_gaussian_of_its_length():
+    # Averaged over draws, the correlation at a lag h is exp(-h^2 / (2 L^2)).
+    length = 20.0
+    rng = np.random.default_rng(1)
+    points = rng.uniform(0, 500, size=(2, 400))
+    lags = {0.5: [], 1.0: [], 2.0: []}
+    for _ in range(300):
+        field = SmoothField.draw(rng, length, 1.0, (4, 4))
+        here = field(points)[1]
+        for lag, products in lags.items():
+            there = field(points + np.array([[0.0], [lag * length]]))[1]
+            products.append((np.mean(here * there), np.mean(here * here)))
+
+    for lag, products in lags.items():
+        covariance, variance = np.mean(products, axis=0)
+        assert covariance / variance == pytest.approx(math.exp(-(lag**2) / 2), abs=0.05)
+
+
+def test_zero_peak_gives_a_zero_field_and_the_same_generator_state():
+    a, b = np.random.default_rng(2), np.random.default_rng(2)
+
+    field = SmoothField.draw(a, 32.0, 0.0, (16, 16))
+    SmoothField.draw(b, 32.0, 0.5, (16, 16))
+
+    assert not field(np.indices((16, 16), dtype=float)).any()
+    assert a.random() == b.random()
+
+
+def test_inverse_map_finds_the_sources_of_the_targets():
+    field = SmoothField.draw(np.random.default_rng(3), 16.0, 3.0, (64, 64))
+    targets = np.indices((64, 64), dtype=float)
+
+    def forward(points):
+        return points + field(points)
+
+    sources = invert(forward, targets)
+
+    assert np.abs(forward(sources) - targets).max() <= 1e-8
+
+
+def test_inverse_map_refuses_a_map_that_folds():
+    with pytest.raises(ValueError, match="converge"):
+        invert(lambda p: -p, np.indices((4, 4), dtype=float) + 1.0)
+
+
+# Far larger than the benchmark's local fields, so that a wrong sign shows.
+STRONG_LOCAL = {"length": 24.0, "peak": 2.5}
+
+
+def strong_dense(size, seed=0):
+    centre = ((size - 1) / 2,) * 2
+    transform = Affine.about(centre, **STRONG_AFFINE)
+    local = SmoothField.draw(
+        np.random.default_rng(seed), shape=(size, size), **STRONG_LOCAL
+    )
+    return transform, local
+
+
+def sources_of(transform, local, shape):
+    grid = np.indices(shape, dtype=float)
+    return invert(lambda p: transform.apply(p) + local(p), grid)
+
+
+def test_dense_truth_is_the_affine_part_plus_the_local_field():
+    size, margin = 96, 30
+    transform, local = strong_dense(size)
+
+    pair = simulate_dense(
+        fractal_texture(size + 2 * margin, seed=0), transform, local, margin
+    )
+
+    grid = np.indices((size, size), dtype=float)
+    assert isinstance(pair.truth, Dense)
+    np.testing.assert_allclose(
+        pair.truth.field((size, size)), transform.field((size, size)) + local(grid)
+    )
+
+
+def test_dense_warp_matches_an_analytic_rendering():
+    # Moving pixel q shows the scene at its source g(q). Spots are a formula, so
+    # the scene is known there exactly, and only interpolation error is left.
+    # The spots stay clear of the edges, where the mirrored window rings.
+    size, margin = 96, 30
+    transform, local = strong_dense(size, seed=4)
+    centres = [(r, c) for r in range(50, 111, 12) for c in range(50, 111, 12)]
+    source = blobs((size + 2 * margin,) * 2, centres)
+
+    pair = simulate_dense(source, transform, local, margin)
+
+    g = sources_of(transform, local, (size, size)) + margin
+    exact = sum(
+        np.exp(-((g[0] - r) ** 2 + (g[1] - c) ** 2) / (2 * 1.5**2)) for r, c in centres
+    )
+    # Measured 1.5e-5 when this test was written.
+    np.testing.assert_allclose(pair.moving, exact, atol=1e-4)
+
+
+def trig_interpolant(image, rows, cols):
+    """Evaluate the band-limited periodic interpolant of an image at any points."""
+    n0, n1 = image.shape
+    spectrum = np.fft.fft2(image) / image.size
+    along_rows = np.exp(
+        2j * np.pi * np.outer(rows.ravel(), np.fft.fftfreq(n0, 1 / n0)) / n0
+    )
+    along_cols = np.exp(
+        2j * np.pi * np.outer(cols.ravel(), np.fft.fftfreq(n1, 1 / n1)) / n1
+    )
+    values = np.einsum("nk,nk->n", along_rows @ spectrum, along_cols).real
+    return values.reshape(rows.shape)
+
+
+def test_dense_warp_error_is_bounded_against_the_exact_warp():
+    # A window cut from a periodic texture: its band-limited interpolant is the
+    # exact scene everywhere, so the exact moving image is known. What is left
+    # is the edge effect of the mirrored window, as for the other scenarios.
+    period, size, margin = 96, 96, 24
+    tile = fractal_texture(period, seed=5)
+    window = np.tile(tile, (2, 2))[: size + 2 * margin, : size + 2 * margin]
+    transform, local = strong_dense(size, seed=5)
+
+    pair = simulate_dense(window, transform, local, margin)
+
+    g = sources_of(transform, local, (size, size)) + margin
+    error = np.abs(pair.moving - trig_interpolant(tile, g[0] % period, g[1] % period))
+    # The texture has unit standard deviation. Measured 0.021 max and 0.0034 rms
+    # when this test was written, the floor of the mirrored window.
+    assert error.max() < 0.05
+    assert np.sqrt(np.mean(error**2)) < 0.01
+
+
+def test_dense_pair_without_local_field_is_its_affine_twin():
+    size, margin = 96, 30
+    source = fractal_texture(size + 2 * margin, seed=6)
+    transform = Affine.about(((size - 1) / 2,) * 2, **STRONG_AFFINE)
+    flat = SmoothField.draw(np.random.default_rng(0), 32.0, 0.0, (size, size))
+
+    dense = simulate_dense(source, transform, flat, margin)
+    affine = simulate_affine(source, transform, margin)
+
+    np.testing.assert_array_equal(dense.reference, affine.reference)
+    # Two warps, two edge effects: measured 0.032 max and 0.0076 rms.
+    error = np.abs(dense.moving - affine.moving)
+    assert error.max() < 0.05
+    assert np.sqrt(np.mean(error**2)) < 0.01
+
+
+def test_dense_margin_is_checked_against_the_sources():
+    transform, local = strong_dense(96)
+
+    with pytest.raises(ValueError, match="margin"):
+        simulate_dense(fractal_texture(96 + 2 * 18, seed=0), transform, local, 18)
+
+
+def cloudy(truth, size=40):
+    cloud = np.zeros((size, size))
+    cloud[10:20, 10:20] = 1.0
+    cloud[25:35, 25:35] = OPAQUE_CLOUD - 0.1
+    texture = fractal_texture(size, seed=0)
+    return SimulatedPair(texture, texture, truth, cloud=cloud)
+
+
+def test_opaque_cloud_is_left_out_of_the_valid_pixels_of_a_dense_truth():
+    shift = Translation(dx=2.0, dy=0.0)
+
+    valid = cloudy(Dense(shift.field((40, 40)))).valid
+
+    # Reference pixel (r, c) is read from (r, c + 2) of the cloudy moving image.
+    assert not valid[10:20, 8:18].any()
+    assert valid[10:20, 18].all() and valid[10:20, 7].all()
+    # Thinner cloud still shows the ground.
+    assert valid[25:35, 23:33].all()
+
+
+def test_opaque_cloud_stays_valid_for_a_global_truth():
+    shift = Translation(dx=2.0, dy=0.0)
+    clear = SimulatedPair(cloudy(shift).reference, cloudy(shift).moving, shift)
+
+    np.testing.assert_array_equal(cloudy(shift).valid, clear.valid)
+    assert cloudy(shift).valid[10:20, 8:18].all()

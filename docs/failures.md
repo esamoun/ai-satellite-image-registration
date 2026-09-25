@@ -147,3 +147,26 @@ closer look inside AROSICS the reason stays unknown.
 as a failure like any other. It is logged because a classic method declining a
 clean, textured pair is not what one expects, and a later level that runs AROSICS
 on more pairs should check whether it recurs.
+
+---
+
+## 2026-09-25: The first Kaggle run stopped before its first pair
+
+**Attempted.** The first run of `configs/gpu.toml` on a Kaggle GPU, from the
+notebook in `kaggle/`.
+
+**What happened.** The clone, the install and the weights went through; the
+benchmark stopped while reading the first chip, with `TypeError: unsupported
+operand type(s) for @: 'Affine' and 'tuple'`. The notebook showed only that the
+command had failed: the error itself was in Kaggle's Logs tab.
+
+**Why.** Georeferencing maps a point with `transform @ (x, y)`, an operator that
+the `affine` library added in 3.0. The M1 had 3.0.1, installed with rasterio;
+Kaggle's image ships affine 2.x, which rasterio accepts, and nothing in
+`pyproject.toml` asked for more. Every test ran on the M1, so none could see it.
+The notebook's commands wrote to the kernel's own streams, which Kaggle does not
+show in the cell.
+
+**What was done instead.** `pyproject.toml` requires `affine>=3.0`, so the
+install upgrades it. The notebook reads each command's output and prints it in
+the cell, so the next failure shows its message where it happened.

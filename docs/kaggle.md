@@ -91,10 +91,11 @@ notebook fetches them in their own cell, before the benchmark, and prints how lo
 each step took.
 Set `WITH_ROMA = False` to skip RoMa (and its weights) for a quicker check.
 
-How long a full run takes on a T4 is not measured yet: it goes here after the
-first run, from `cost.run_seconds`. On the M1's CPU, from the per-call times of
-the N2 runs, `configs/gpu.toml` takes about an hour, RoMa's two rows most of it
-(about 3 s a call, four calls a pair).
+The first full run of `configs/gpu.toml` (commit `0f96aa7`, `cost.run_seconds`)
+took 4.6 min on a T4, weights excluded, and 63 min on the M1's CPU. RoMa's two
+rows take most of the M1 run: about 2.5 s a call, four calls a pair, against
+0.15 s on the T4. On the 8 GiB M1, RoMa does not fit in memory next to the other
+methods and the run swaps, so close other applications while it runs.
 
 ## Known risks
 

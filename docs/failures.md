@@ -170,3 +170,42 @@ show in the cell.
 **What was done instead.** `pyproject.toml` requires `affine>=3.0`, so the
 install upgrades it. The notebook reads each command's output and prints it in
 the cell, so the next failure shows its message where it happened.
+
+---
+
+## 2026-09-25: A device gap that was RANSAC's noise
+
+**What was attempted.** `configs/gpu.toml` was run on the M1's CPU and on a
+Kaggle T4, at the same commit, and the two runs merged by device, to compare
+the learned methods' cost and check that their accuracy does not depend on the
+device.
+
+**What happened.** RAFT and RAFT small gave the same error on both devices, to
+1e-5 px on every pair, and every method agreed on `clean` pairs. On `hard`
+pairs, LightGlue and RoMa did not: 7 of the 60 `hard` pairs switched between
+success and failure for LightGlue on ALIKED, 29 for LightGlue on DISK, and
+`lightglue` on hard translations failed 50 % of the pairs on the CPU against
+65 % on the GPU.
+
+**Why.** Two effects add up. The networks do not compute the same thing on both
+devices: kornia's LightGlue prunes keypoints layer by layer on the CPU but, on
+CUDA, only above 1536 keypoints (the pairs have about 800), and runs attention
+in float16 on CUDA; romatch runs RoMa under float16 autocast on CUDA and in
+float32 on the CPU. RAFT does neither, hence its identical rows. The keypoints
+were identical, but 1 to 4 % of the matches changed. RANSAC then turns that into
+a different model: on `hard` pairs only a fifth to a third of the matches are
+inliers, and which ones its samples draw depends on the order and number of the
+matches. Handing the same matches to RANSAC in five shuffled orders, on the same
+CPU, switched 7 to 15 pairs out of 60 for `lightglue` and 25 to 29 for
+`lightglue_disk`, as many as the change of device. `lightglue_disk`'s failure
+rate on `hard` pairs ranged from 30 to 45 % across those orders; the GPU's 37 %
+is inside that range. Rerunning with the original order reproduced the CPU run
+exactly.
+
+**What was done instead.** Nothing in the code: the rows are right, they are
+noisier than one run shows. The device comparison is read for time and memory
+only, and the `hard` rows of the RANSAC-fitted methods (LightGlue, RoMa's affine
+fit, and likely SIFT, which shares the fit) carry roughly 5 to 15 points of
+failure-rate spread from RANSAC alone. RoMa and SIFT were not rerun with shuffled
+matches. Whether to reduce that spread, or report it, is left to the N2 results
+table (ticket 12).

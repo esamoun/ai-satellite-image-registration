@@ -1,4 +1,4 @@
-.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 real-pairs check-presets cycle clean
+.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 real-pairs check-presets cycle false-change clean
 
 install:
 	pip install -e ".[dev]"
@@ -55,6 +55,9 @@ check-presets:
 
 cycle:
 	satreg cycle
+
+false-change:
+	satreg false-change
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

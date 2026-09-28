@@ -2302,3 +2302,196 @@ large local motion. The true EPE of those triplets is 0.36 to 7.7 px, so this is
 image only. Real pairs here are clear by construction, so this does not change
 the real table. It matters for ticket 12's reading of RAFT's robustness, and for
 an N3 fine-tuning set, which should have clouds on both sides.
+
+---
+
+## 2026-09-28: False changes are counted by one fixed detector, at 3 sigma of the noise
+
+*My call*: a threshold at 3 times the noise of the difference, rather than a
+fixed number of digital numbers or a percentile of the difference; one gain and
+offset per pair, shared by every method, rather than one per method or none.
+
+**Decision.** `satreg false-change` flags a pixel as changed where
+`|reference − corrected| > 3 · sqrt(σ_ref² + σ_mov²)`. Each σ is Immerkær's
+noise estimate of one image (`appearance.noise_sigma`), taken on the uncorrected
+pair. Before that, the moving image gets the reference's mean and standard
+deviation over the pair's clear pixels. The gain and offset are computed once
+per pair (per window for real pairs), before any correction, and every method
+and "no correction" use them.
+
+**Why.** The ticket asks what a residual costs a change detector, so the
+detector must not change with the method. If each method got its own gain,
+offset or threshold, part of the difference between methods would come from the
+detector. 3 σ flags 0.27 % of pixels on pure Gaussian noise, a floor low enough
+to see a 0.1 px residual on a sharp edge, and it scales with each pair's noise.
+The level is matched by moments rather than by least squares of one image on
+the other. A misregistered pair has a weaker correlation, and least squares
+would shrink the gain toward zero (regression dilution). Moments do not depend
+on the alignment. The choice between moments and least squares was mine,
+inside the user's choice of a shared gain and offset.
+
+**Limits.** Immerkær reads fine texture as noise, so on a sharp scene the
+threshold is higher than the true noise: the detector is conservative there. On
+real pairs the difference between dates holds more than noise (sun angle,
+shadows, phenology on the ground next door), so part of what the detector flags
+on stable ground is not caused by misregistration. The "none" row and the pair
+a few days apart show how large that part is.
+
+**Rejected.** A fixed threshold in digital numbers: meaningless across presets
+and sites whose noise differs by a factor of ten. A percentile of the
+difference: it flags a fixed share of pixels whatever the registration, which
+hides exactly the effect measured. A gain fitted after each method's correction:
+the better-registered pair would get a different level, and the detector would
+no longer be the same.
+
+---
+
+## 2026-09-28: Stable ground on real pairs: WorldCover built-up and bare ground
+
+*My call*: ESA WorldCover 2021 classes built-up (50) and bare / sparse
+vegetation (60), rather than the whole chip on the pair a few days apart,
+pixels unchanged on a third date, or pixels with the same scene class on every
+date.
+
+**Decision.** `landcover.py` reads the WorldCover 2021 v200 map (ESA's public
+COGs, no account) onto each chip's own grid by nearest neighbour, and caches it
+under `data/landcover/`. Classes 50 and 60 are stable ground. The mask is eroded
+by 1 px (3 × 3), except at the image border, so a pixel next to another class,
+where the 10 m map and the 10 m chip do not share a grid, is left out. Real
+counts are made on stable pixels clear on both dates, cloud and shadow mask
+grown by 2 px.
+
+**Why.** Where the ground has not changed, every detected change is false; the
+experiment needs such pixels without asking any of the compared methods. A land
+cover map made independently of these images favours no method. Built-up and
+bare surfaces do not follow the crop calendar or the canopy, so a season or a
+year apart they change least.
+
+**Limits.** Stable ground in this sense still changes: shadows move with the sun
+between seasons, roofs and car parks change, a 2021 map is five years old.
+Those changes are counted as false, for every method alike, so they add a floor
+without changing the ranking. The share of stable ground is very uneven: 40.6 %
+of the Toulouse chip, 8.8 % of Marseille, 0.6 % of Beauce and 0.1 % of Vosges.
+The last two give only a few thousand pixels, so their rows are noisy.
+
+**Rejected.** The whole chip on the pair a few days apart: fields and trees
+change within days (harvest, irrigation), and one pair out of six is too few.
+Pixels unchanged on a third date: "unchanged" would be decided by a difference
+of images, which favours no correction, the reference of that difference. The
+same scene class on every date: the scene classification is 20 m and knows
+vegetation, not stability.
+
+---
+
+## 2026-09-28: Every correction goes through the simulator's interpolation
+
+*My call*: the simulator's resampling (Fourier ×4 then cubic spline) for every
+method and for "no correction", rather than bilinear or each method's own warp.
+
+**Decision.** `falsechange.correct(moving, displacement)` reads the moving image
+at `p + d(p)` for every reference pixel `p`, for any displacement type, with
+`simulate.oversampled_sample`'s interpolation. `Resampler` does the
+oversampling and the spline prefilter once per image, so one pair can be read
+under dozens of displacements; a test checks it matches
+`oversampled_sample`. "No correction" is the identity displacement read the
+same way, which at whole pixels returns the image itself.
+
+**Why.** A bilinear read smooths the image at half a pixel and not at a whole
+one. Its noise then depends on the residual's fractional part, and so does the
+false-change rate, which would be mixed with the misregistration. The
+simulator's interpolation is close to band-limited, and it made the simulated
+pairs, so with the true displacement it gives back the reference up to noise:
+the curve starts at the floor that degradations leave, not at an interpolation
+artefact. The same resampler for every method keeps the interpolation out of
+the comparison.
+
+**Rejected.** Each method's own warp: AROSICS, RAFT and the matchers do not
+expose one, and it would put a second difference between methods. Bilinear:
+see above.
+
+---
+
+## 2026-09-28: What a residual costs a change detector
+
+**Finding.** `satreg false-change`, 20 pairs per site, scenario and preset, the
+detector of the entry "False changes are counted by one fixed detector". On
+simulated pairs the ground never changes, so every flagged pixel is false. The
+reference curve corrects translation pairs with their truth shifted by a
+controlled residual. Mean share of clear pixels flagged:
+
+| site | preset | 0 px | 0.1 px | 0.2 px | 0.3 px | 0.5 px | 1.0 px |
+|---|---|---:|---:|---:|---:|---:|---:|
+| beauce | clean | 0.00 % | 0.45 % | 3.19 % | 6.04 % | 11.17 % | 21.46 % |
+| toulouse | clean | 0.00 % | 0.03 % | 0.40 % | 1.42 % | 6.12 % | 22.26 % |
+| vosges | clean | 0.04 % | 0.15 % | 0.91 % | 2.13 % | 5.18 % | 13.72 % |
+| marseille | clean | 0.00 % | 0.05 % | 0.55 % | 1.89 % | 6.96 % | 20.17 % |
+| beauce | hard | 1.08 % | 1.08 % | 1.09 % | 1.13 % | 1.26 % | 1.87 % |
+| toulouse | hard | 1.81 % | 1.83 % | 1.90 % | 2.00 % | 2.36 % | 3.87 % |
+
+`mild` sits close to `clean` with a floor of 0.1 to 0.8 %. Placed on the
+curve:
+
+- **No correction** leaves the benchmark's 2.7 to 3.2 px and flags 26 to 41 %
+  of pixels.
+- **On translation pairs** every method lands under 0.1 px and adds at most
+  0.5 point to the floor (AROSICS on `clean` Beauce: 0.51 % at 0.065 px).
+- **On affine pairs** the translation-only methods, phase correlation and
+  AROSICS, leave 0.21 to 0.23 px and flag 0.9 to 3.6 % (`clean`). The
+  affine-capable ones, SIFT + RANSAC, RAFT and LightGlue, stay under 0.07 %.
+  A residual that varies across the image flags more than a uniform one of the
+  same mean: 1.07 % against the curve's 0.59 % in Toulouse.
+- **On `hard`** the floor of 1.1 to 1.9 % is set by the noise and hides the
+  residual: the curve rises by under a point up to 0.5 px. Methods differ there
+  by failures, not by false change.
+
+On real pairs, over windows of Toulouse and Marseille and stable pixels clear on
+both dates, no correction against the best method:
+
+| pair | none | best | AROSICS |
+|---|---:|---:|---:|
+| anchor, days | 3.04 % | 2.87 % (RAFT, SIFT) | 4.73 % |
+| anchor, year | 7.28 % | 7.06 % (phase correlation) | 7.92 % |
+| days, year | 10.63 % | 10.06 % (phase correlation) | 11.27 % |
+| anchor, season | 18.35 % | 14.57 % (phase correlation) | 14.99 % |
+| days, season | 17.09 % | 12.91 % (phase correlation) | 13.29 % |
+| season, year | 23.01 % | 18.82 % (phase correlation) | 19.56 % |
+
+**Reading.**
+
+- **The curve is steep below half a pixel.** From 0.1 to 0.3 px, the
+  co-registration requirement, false change goes from a few hundredths of a
+  percent to 1.4 to 6 % on a sharp scene. Beauce's straight field edges are the
+  most sensitive. A 0.1 px target is where the detector stops seeing the
+  misregistration at all.
+- **Motion the method does not model is what costs.** A translation-only method
+  on an affine pair leaves 0.2 px that costs 1 to 3.6 % of false changes,
+  against under 0.07 % for an affine-capable method on the same pairs.
+- **On real pairs, appearance change dominates.** Registration removes 0.2 to
+  0.6 point on pairs whose dates are close in season, and 4 points on pairs a
+  season apart, out of 3 to 23 %. The rest is not geometric: sun angle,
+  shadows, roofs. AROSICS is worse than no correction on the close pairs (4.73
+  against 3.04 %), consistent with its 0.2 px artefact at whole-pixel shifts
+  (entry "AROSICS is 0.2 px off when the true shift is a whole pixel"): the
+  pairs are already co-registered to within 0.1 px, and a method that adds 0.2 px
+  makes them worse.
+
+**Sites left out of the table by pair.** A site enters it only if stable ground
+covers at least 5 % of its chip (`MIN_STABLE_SHARE`). Beauce (0.6 %) and Vosges
+(0.1 %) flag 85 to 89 % of their stable pixels whatever the method. Their stable
+ground is a few farm buildings and roads among fields. The gain and offset are
+fitted on the whole window, which is fields, so they do not fit the roofs. The
+noise, measured on the whole window, gives a threshold of 45 to 90 DN against 240 to 330
+in the cities. The detector saturates. Those two sites stay in the per-site
+table of `summary.md`, but they measure the detector, not the registration. The
+5 % was set after seeing that, and any value between 1 and 8 % gives the same
+split.
+
+**Draft reading for `evaluation.md` (ticket 12).** On simulated pairs where
+nothing changes, a residual of 0.5 px makes a difference detector at 3 σ flag
+5 to 11 % of pixels on clean images, and 0.2 px still flags 0.4 to 3 %.
+Correcting only the translation of a pair that also rotates or scales leaves
+about 0.2 px, which costs 1 to 3.6 % of pixels. On real pairs of one Sentinel-2
+tile, already co-registered to about 0.1 px, registration removes at most 4
+points of false change on stable ground, out of 3 to 23 %. Appearance change
+between dates is the larger part, and a method that adds 0.2 px of error
+(AROSICS on these pairs) makes the result worse than no correction.

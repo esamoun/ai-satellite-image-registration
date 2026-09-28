@@ -1,5 +1,6 @@
 """Command-line entry point: ``satreg fetch``, ``satreg benchmark``, ``satreg
-merge``, ``satreg real-pairs``, ``satreg check-presets`` and ``satreg cycle``."""
+merge``, ``satreg real-pairs``, ``satreg check-presets``, ``satreg cycle`` and
+``satreg false-change``."""
 
 import argparse
 import dataclasses
@@ -12,12 +13,13 @@ from time import perf_counter
 
 import numpy as np
 
-from . import cycle
+from . import cycle, falsechange
 from .benchmark import SCENARIOS, BenchmarkConfig, method_device, run_benchmark
 from .compute import describe, environment, process_peak_rss_mib
 from .degrade import Preset, load_presets
 from .georef import NOMINAL, Georef
 from .ingest import fetch_chip, read_chip, read_georef
+from .landcover import EROSION_PX, fetch_landcover, read_landcover, stable_ground
 from .merge import MergeError, merge
 from .methods import (
     METHODS,
@@ -348,6 +350,84 @@ def _parser(run_config: dict[str, object] | None = None) -> argparse.ArgumentPar
         help="timed calls of a method on each pair, whose median is reported",
     )
     closing.add_argument("--out", type=Path, default=Path("outputs/cycle"))
+
+    changes = commands.add_parser(
+        "false-change",
+        help="count the false changes each method's residual misregistration "
+        "leaves for a change detector, on simulated pairs and on the stable "
+        "ground of real ones",
+    )
+    _add_series_arguments(changes)
+    changes.add_argument(
+        "--allow-held-out",
+        action="store_true",
+        help="run on sites the sites config holds out (default: left out)",
+    )
+    changes.add_argument(
+        "--methods",
+        nargs="+",
+        metavar="METHOD",
+        default=default_methods(),
+        help="methods to run (default: as for benchmark)",
+    )
+    changes.add_argument(
+        "--methods-config",
+        type=Path,
+        default=DEFAULT_METHODS_CONFIG,
+        help="TOML file setting the methods' parameters",
+    )
+    changes.add_argument(
+        "--device",
+        choices=DEVICES,
+        help="device every deep-learning method runs on (default: as configured)",
+    )
+    changes.add_argument(
+        "--pairs",
+        type=int,
+        default=defaults.n_pairs,
+        help="simulated pairs per site, scenario and preset, cut from the site's "
+        "anchor chip (0: none)",
+    )
+    changes.add_argument(
+        "--scenarios",
+        nargs="+",
+        choices=SCENARIOS,
+        default=list(falsechange.SCENARIOS),
+        help="geometric models of the simulated pairs; the reference curve is "
+        "drawn on translation pairs (default: translation and affine)",
+    )
+    changes.add_argument(
+        "--degradations",
+        nargs="+",
+        metavar="PRESET",
+        help="degradation presets of the simulated pairs (default: all)",
+    )
+    changes.add_argument(
+        "--degradations-config",
+        type=Path,
+        default=DEFAULT_DEGRADATIONS_CONFIG,
+        help="TOML file declaring the degradation presets",
+    )
+    changes.add_argument("--seed", type=int, default=defaults.seed)
+    changes.add_argument(
+        "--failure-threshold",
+        type=float,
+        default=FAILURE_EPE_PX,
+        help="mean end-point error above which a simulated pair failed, in px",
+    )
+    changes.add_argument(
+        "--warmup",
+        type=int,
+        default=defaults.warmup,
+        help="untimed calls of each method before timing it",
+    )
+    changes.add_argument(
+        "--repeats",
+        type=int,
+        default=1,
+        help="timed calls of a method on each pair, whose median is reported",
+    )
+    changes.add_argument("--out", type=Path, default=Path("outputs/false-change"))
     return parser
 
 
@@ -885,6 +965,146 @@ def cycle_consistency(args: argparse.Namespace) -> str:
     return table
 
 
+def false_change(args: argparse.Namespace) -> str:
+    """Count false changes after each method's correction, simulated and real.
+
+    Args:
+        args: Parsed ``false-change`` arguments.
+
+    Returns:
+        The summary tables as markdown.
+
+    Raises:
+        SystemExit: As ``check-presets`` does for held-out sites, or if a method
+            or preset is unknown.
+    """
+    sites, series, names = _series(args)
+    names, held_out = _open_sites(args, sites, names)
+    methods = configured_methods(args)
+    degradations = degradation_presets(args) if args.pairs else {}
+    config = BenchmarkConfig(
+        n_pairs=args.pairs,
+        scenarios=tuple(dict.fromkeys(args.scenarios)),
+        seed=args.seed,
+        failure_threshold=args.failure_threshold,
+        warmup=args.warmup,
+        repeats=args.repeats,
+    )
+
+    started = perf_counter()
+    curve, simulated, real = [], [], []
+    stable_share = {}
+    warmed: set[str] = set()
+    for name in names:
+        site = sites.sites[name]
+        acquisitions = load_series(site, sites.catalogue, series, args.data_dir)
+        anchor = next(a for a in acquisitions if a.role == ANCHOR)
+        cover = fetch_landcover(name, anchor.georef, anchor.image.shape, args.data_dir)
+        stable = stable_ground(read_landcover(cover))
+        stable_share[name] = float(stable.mean())
+        real += falsechange.run_real(
+            name, acquisitions, stable, methods, config, warmed
+        )
+        if not degradations:
+            continue
+        more_curve, more_rows = falsechange.run_simulated(
+            name,
+            anchor.image.astype(float),
+            methods,
+            config,
+            degradations,
+            anchor.georef,
+            warmed=warmed,
+        )
+        curve += more_curve
+        simulated += more_rows
+    run_seconds = perf_counter() - started
+
+    points = falsechange.curve_summary(curve)
+    sim_summary = falsechange.simulated_summary(simulated, points)
+    by_site = falsechange.real_summary(real, "site")
+    usable = [k for k, v in stable_share.items() if v >= falsechange.MIN_STABLE_SHARE]
+    by_pair = falsechange.real_summary(
+        [r for r in real if r.site in usable],
+        "pair",
+        role_order(list(series.dates)),
+    )
+    context = environment()
+    meters = {name: cost_meter(method).name for name, method in methods.items()}
+    context["cost"] = {
+        "warmup": config.warmup,
+        "repeats": config.repeats,
+        "process_peak_rss_mib": process_peak_rss_mib(),
+        "memory": meters,
+        "run_seconds": run_seconds,
+    }
+    context["devices"] = {name: method_device(m) for name, m in methods.items()}
+    context["held_out_sites"] = held_out
+    context["stable_share"] = stable_share
+    context["run"] = {k: v for k, v in sorted(vars(args).items()) if k != "command"}
+
+    detector = (
+        "A pixel has changed where the moving image, matched to the reference's "
+        "mean and standard deviation and resampled onto its grid, differs from "
+        f"it by more than {falsechange.K_SIGMA:g} times the noise of the "
+        "difference (Immerkær's estimator on each image). Every correction, "
+        "no correction included, goes through the same resampling (Fourier x4 "
+        "then cubic spline) and the same threshold."
+    )
+    shares = ", ".join(f"{k} {100 * v:.1f} %" for k, v in stable_share.items())
+    table = ""
+    if sim_summary:
+        table += (
+            "## Simulated pairs\n\n"
+            + falsechange.simulated_markdown(sim_summary)
+            + "\nFalse change is the share of the pair's clear pixels flagged "
+            "as changed: on a simulated pair the ground never changes. Residual "
+            "is the mean end-point error of the method's estimate; the reference "
+            "curve corrects each translation pair with its truth shifted by that "
+            "much, and *curve at residual* is what it gives there. *Curve at 0* "
+            "is the floor that blur, noise and radiometry leave with a perfect "
+            f"registration. Means over non-failed pairs (end-point error over "
+            f"{config.failure_threshold} px, or an error); *none* is never "
+            "failed. Figure: `false_change.png`.\n\n"
+        )
+    if by_site:
+        table += (
+            "## Real pairs, stable ground\n\n"
+            + falsechange.real_markdown(by_site)
+            + "\n"
+            + falsechange.real_markdown(by_pair)
+            + f"\nStable ground is ESA WorldCover 2021 built-up and bare / sparse "
+            f"vegetation, eroded by {EROSION_PX} px; share of each chip: {shares}. "
+            "The table by pair pools the sites where it is at least "
+            f"{100 * falsechange.MIN_STABLE_SHARE:.0f} % of the chip "
+            f"({', '.join(usable) or 'none'}): elsewhere it is a few roads and "
+            "villages, which a level matched on the fields around them does not "
+            "level. "
+            f"Windows of {falsechange.WINDOW_PX} px hidden at most "
+            f"{100 * falsechange.MAX_WINDOW_CLOUD:.0f} % on both dates, hidden "
+            f"pixels grown by {falsechange.CLOUD_DILATION_PX} px and a "
+            f"{falsechange.BORDER_PX} px border left out. Counts are pooled over "
+            "windows before dividing. *Other ground* mixes true and false "
+            "changes, for scale.\n\n"
+        )
+    table += detector + f" Measured on {describe(context)}.\n" + held_out_note(held_out)
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    if curve:
+        write_csv(curve, args.out / "curve.csv")
+        write_csv(points, args.out / "curve_summary.csv")
+        write_csv(simulated, args.out / "simulated.csv")
+        write_csv(sim_summary, args.out / "simulated_summary.csv")
+        falsechange.plot(points, sim_summary, args.out / "false_change.png")
+    if real:
+        write_csv(real, args.out / "real.csv")
+        write_csv(by_site + by_pair, args.out / "real_summary.csv")
+    (args.out / "summary.md").write_text(table)
+    context_json = json.dumps(context, indent=2, default=str)
+    (args.out / "context.json").write_text(context_json + "\n")
+    return table
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Parse arguments and run the requested command."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -907,3 +1127,5 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(check_presets(args), end="")
     elif args.command == "cycle":
         print(cycle_consistency(args), end="")
+    elif args.command == "false-change":
+        print(false_change(args), end="")

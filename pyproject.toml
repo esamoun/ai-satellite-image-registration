@@ -15,6 +15,8 @@ dependencies = [
     # Georeferencing maps points with the @ operator, which affine 3.0 introduced;
     # rasterio accepts any affine, and images such as Kaggle's ship 2.x.
     "affine>=3.0",
+    # Figures of the false-change experiment.
+    "matplotlib",
     "numpy",
     "opencv-python-headless>=4.5",
     "pystac-client",

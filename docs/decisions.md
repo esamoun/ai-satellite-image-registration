@@ -1955,3 +1955,350 @@ Retuning them would also change the N1 table, which stays comparable as
 long as they do not move. Ground change is what the presets lack, and real pairs
 measure it directly: cycle consistency (ticket 09) and the false-change
 experiment (ticket 11) run on them, not on a simulated imitation.
+
+---
+
+## 2026-09-28: Cycle consistency closes A to B then B to C on A to C
+
+*My call*: of the loops a triplet allows, the one that registers A to B, B to C
+and A to C, rather than A to B, B to C and C to A.
+
+**Decision.** For three dates A < B < C of a site, each method makes three
+registrations, the earlier date the reference each time, as for every real
+pair. The closure residual at a pixel `p` of A is `compose(d_AB, d_BC)(p) −
+d_AC(p)`, and its norm is scored as an end-point error: mean, and share of
+pixels under 0.1 and 0.5 px. Four dates give four triplets per window. They
+need six pairs, each registered once per window and shared by the triplets
+that use it.
+
+**Why.** Every leg is then a registration the real-pairs table also makes, with
+the older image as reference, so a leg's behaviour does not depend on which
+triplet asks for it. The residual compares two displacements on the same grid,
+A's, and no leg has to be inverted, which for a dense field would add an error
+of its own. The six pairs of four dates are what the real-pairs ticket already
+defined, so the loop costs no registration beyond them.
+
+**Rejected.** A → B → C → A, the loop the ticket first described: its third leg
+runs backwards in time with the newer image as reference, a registration
+nothing else in the project makes, and comparing it to zero needs a
+three-way composition, one more interpolation for dense fields. Registering
+each pair both ways and checking `d_AB ∘ d_BA`: it measures symmetry, which a
+method can have while being wrong, and doubles the cost.
+
+---
+
+## 2026-09-28: Real triplets are scored on 256 px windows clear on all three dates
+
+*My call*: 256 px windows, rather than the whole 512 px chip, kept only if at
+most 1 % of the window is hidden on the union of the three dates.
+
+**Decision.** Each real triplet is registered on the 256 px windows
+`check-presets` measures (`appearance.windows`), and a window is kept only if
+at most 1 % of it is hidden by cloud, shadow or no data on any of the three
+dates (the same `MAX_WINDOW_CLOUD`). The closure is averaged over the pixels
+clear on all three dates, whose position in B and in C lies on the grid.
+
+**Why.** 256 px is the benchmark's pair size, so methods run on real triplets
+at the size they were scored at on simulated pairs, with the same parameters
+and the same cost. The same windows as `check-presets` let a closure row be
+read next to that pair's appearance measurements. A window clear on all three
+dates means the closure measures registration, not what a cloud did to one
+leg.
+
+**Rejected.** The whole chip: the benchmark never ran methods at 512 px, and
+RoMa's grid, SIFT's feature budget and AROSICS' window would not be those of the
+simulated table. Masking clouds per leg only: a leg with a cloud the other two
+do not have would count in the closure as a registration error.
+
+---
+
+## 2026-09-28: A triplet fails if a leg fails, or if its closure exceeds 1 px
+
+*My call*: failure = a leg that declines or crashes, or a mean closure above
+`--failure-threshold` (1 px), rather than a failed leg only.
+
+**Decision.** A triplet fails for a method if one of its three registrations
+raises (a decline or a crash) or returns a non-finite field, or if its mean
+closure exceeds `--failure-threshold`, 1 px by default, as the benchmark's
+failure rule does for EPE. The error column names the first failed leg (`B-C:
+…`), or says the mask kept no pixel. The closure columns average the triplets
+that did not fail.
+
+**Why.** It is the benchmark's rule with closure in place of EPE, so failure
+rates read the same way in both tables. A closure above 1 px means at least
+one leg is off by about half a pixel or more, out of the sub-pixel regime the
+benchmark is about. As in the benchmark, one such triplet would dominate a mean
+over the others.
+
+**Rejected.** Failed legs only: a leg locked on the wrong peak would stay in the
+mean closure, which then says nothing about sub-pixel accuracy.
+
+---
+
+## 2026-09-28: Composition is exact for global models, bilinear for dense fields
+
+**Decision.** `compose(first, second)` chains two displacements: `d_AC(p) =
+d_AB(p) + d_BC(p + d_AB(p))`. Two translations give their sum; any other two
+global displacements an affine one, `M = M₂ M₁`, `o = M₂ o₁ + o₂`, both exact.
+With a dense displacement on either side the result is dense, on the dense
+field's grid. A global `second` is then evaluated exactly at the displaced
+points. A dense `second` is read there by `scipy.ndimage.map_coordinates` with
+a spline of order 1 (bilinear, `COMPOSE_ORDER`), and at the nearest border pixel
+where the point leaves the grid. The closure ignores those pixels: it keeps only
+pixels whose position in B and in C lies on the grid.
+
+**Why.** Composing true dense fields of the benchmark leaves an interpolation
+error that the closure would count as a registration error, so it was measured.
+On 50 dense triplets drawn from the benchmark ranges (256 px, interior pixels),
+the residual of composing the true A-to-B and B-to-C fields against the true
+A-to-C field is:
+
+| spline order | mean (px) | max (px) |
+|---:|---:|---:|
+| 0 (nearest) | 2.1e-3 | 1.3e-2 |
+| 1 (bilinear) | 1.7e-5 | 1.0e-4 |
+| 3 (cubic) | 3.5e-6 | 1.8e-3 |
+| 5 | 5e-6 | 1.9e-3 |
+
+Bilinear is four orders of magnitude below the 0.1 px target, which is
+all the closure needs. It is bounded by the four neighbouring values, so it
+cannot overshoot on a rough estimated field, and its worst case is the smallest.
+The cubic spline is better on average, but its worst case is 18 times larger. On
+RAFT's estimated fields for clean and `hard` Beauce pairs, the two orders differ
+by at most 7e-5 px and 4.5e-3 px, so the choice does not move a table cell. The
+simulated table reports the closure of the true legs next to each row (`truth
+closure`), so this floor stays visible.
+
+**Rejected.** Cubic, the order the simulator warps with: a smaller mean, but a
+larger worst case, and overshoot on estimates that are not smooth. Nearest
+neighbour: 2e-3 px on average, visible next to the best methods' closure.
+
+---
+
+## 2026-09-28: Simulated triplets degrade each image once
+
+**Decision.** A simulated triplet takes one random window of a site's anchor
+chip and draws two displacements from A, each as the benchmark draws a pair's.
+The B-to-C truth follows: the difference of the shifts for translations,
+`T₂ ∘ T₁⁻¹` for affine ones, and `F₂(F₁⁻¹(q)) − q` for dense fields, with `F₁⁻¹`
+the simulator's fixed-point inversion. A degradation preset is then applied
+twice, to (A, B) and to (A, C), with one generator: B and C each get their own
+radiometry, clouds and blur as a moving image, and A the noise of the first call.
+Each image is then the same in every leg it takes part in, as a real date is.
+Pixels of A whose true position is under opaque cloud (≥ 0.9) in B or in C are
+left out of both the closure and the true EPE. Every scenario draws the same
+windows, shifts and local fields, so the translation, affine and dense rows of a
+site differ only in the motion.
+
+**Why.** Degrading each leg as its own pair would give A three different noise
+draws and B two different appearances, so the three legs would not share
+images, which is what makes errors cancel or add in the closure of a real
+triplet. The B-to-C leg is the harder one: two moving images, both degraded,
+with clouds on both sides, and a displacement up to twice the benchmark ranges.
+
+**Rejected.** A third, independent degradation of the B-to-C pair: B would not be
+the same image in its two legs.
+
+---
+
+## 2026-09-28: What the closure cannot see
+
+**Decision.** The closure is reported as a consistency measure, never as an
+accuracy. On simulated triplets, the table puts each method's true end-point
+error (mean over its three legs) next to its closure, and reading a real
+closure goes through that comparison.
+
+**Why.** An error cancels out of `d_AB ∘ d_BC − d_AC` whenever the three legs
+make it in the right proportions:
+
+- **A per-date error.** If a method places date B wrong by `e` in every pair it
+  appears in, A to B carries `+e`, B to C carries `−e`, and they cancel. Such an
+  error is indistinguishable from true motion of that date.
+- **An error proportional to the motion.** A model that cannot follow part of the
+  motion misses it in each leg in proportion to that leg's motion, and the
+  misses add up along the loop as the motions do. A translation-only method on
+  affine triplets is the case.
+- **A constant bias per call** does not cancel: A to B, B to C and A to C each
+  carry it, and the closure shows it once, not three times.
+
+Independent errors in the three legs, on the other hand, add up: for three legs of
+error `e` in random directions, the closure is about `√3 e`.
+
+The run on 5 simulated triplets per site, scenario and preset (four sites, 20
+triplets per cell, `outputs/cycle/summary.md`) shows both cases, as the ratio of
+closure to true EPE over the triplets that did not fail:
+
+| scenario, preset | phase correlation | SIFT | LightGlue | RAFT |
+|---|---:|---:|---:|---:|
+| translation, clean | 0.019 / 0.013 (1.5) | 0.019 / 0.013 (1.4) | 0.033 / 0.035 (0.9) | 0.055 / 0.045 (1.2) |
+| translation, hard | 0.281 / 0.166 (1.7) | 0.496 / 0.264 (1.9) | 0.593 / 0.369 (1.6) | 0.347 / 0.200 (1.7) |
+| affine, clean | 0.023 / 0.230 (0.10) | 0.017 / 0.014 (1.2) | 0.031 / 0.039 (0.8) | 0.060 / 0.052 (1.2) |
+| dense, clean | 0.056 / 0.329 (0.17) | 0.033 / 0.169 (0.19) | 0.088 / 0.181 (0.49) | 0.079 / 0.101 (0.8) |
+
+Cells are closure / true EPE in px, and their ratio. On `hard`, SIFT and
+LightGlue keep only 6 and 10 of the 20 triplets. Where a method's model
+covers the motion, its errors are noise, and the closure is 1 to 2 times the
+EPE. Where it does not, the missing motion is linear for affine triplets, or
+nearly so for dense ones. Its error then cancels along the loop, and the closure
+drops to a tenth of the EPE. Phase correlation closes affine triplets at 0.023
+px while it is 0.23 px off. The closure of the true legs, which is what
+composing alone leaves, averages below 2e-5 px in every cell.
+
+On real pairs, then, a low closure means that the method is either accurate or
+wrong in a way the loop cannot see, and a high closure that at least one leg is
+wrong. The motion summary (entry below) bounds the second case: the less
+non-translation motion real pairs have, the less there is for a model to miss.
+
+**Rejected.** Scaling the closure by `1/√3` into an "estimated EPE": it holds
+only for independent errors, and the table shows it undercounts by up to ten
+times when they are not.
+
+---
+
+## 2026-09-28: What cycle consistency shows on real triplets, first measurement on the M1
+
+**Finding.** `satreg cycle` on Beauce, Toulouse, Vosges and Marseille, with the
+default methods (RoMa is opt-in), took 25 min on the M1 CPU. Each site's chip
+has 16 windows of 256 px, all clear on the four dates, so there are 64 triplets
+per site and method. Each cell is the failure rate, then the mean closure of
+the triplets that did not fail, in px (`outputs/cycle/summary.md`, grouped here
+per site):
+
+| method | Beauce (fields) | Toulouse (city) | Vosges (forest) | Marseille (coast) | all |
+|---|---:|---:|---:|---:|---:|
+| phase correlation | 0 % · 0.087 | 0 % · 0.084 | 0 % · 0.091 | 0 % · 0.058 | 0 % · 0.080 |
+| AROSICS | 0 % · 0.252 | 0 % · 0.217 | 0 % · 0.276 | 0 % · 0.175 | 0 % · 0.230 |
+| SIFT + RANSAC | 67 % · 0.562 | 0 % · 0.125 | 73 % · 0.147 | 13 % · 0.120 | 38 % · 0.184 |
+| LightGlue | 63 % · 0.551 | 0 % · 0.185 | 61 % · 0.282 | 11 % · 0.200 | 34 % · 0.256 |
+| RAFT | 95 % · 0.678 | 3 % · 0.088 | 13 % · 0.327 | 25 % · 0.040 | 34 % · 0.164 |
+
+**Reading.**
+
+- **Toulouse is the control.** The city does not change between dates, and every
+  method closes, at 0.08 to 0.22 px, with almost no failure. Every method is
+  at or below 0.13 px except AROSICS (0.22, entry below) and LightGlue (0.19).
+- **RAFT follows ground change.** On Beauce the fields change crop between a
+  season and a year, and RAFT's field there has a non-translation part of
+  5 to 44 px (median p95 over the windows). Between the chip's date and a few days
+  earlier, where the fields did not change, it is 0.09 px. Optical flow reports
+  where similar-looking content went. A field that turned from bare soil to
+  crop is no longer similar-looking content, so the flow reports motion where
+  there is none. 95 % of Beauce triplets fail on that alone.
+- **Water has nothing to follow.** On Marseille, RAFT fails every triplet of the
+  chip's bottom row of windows, mostly sea, and none elsewhere. SIFT and
+  LightGlue fail some triplets there too.
+- **Snow breaks the local features.** Vosges' season date is in November, with a
+  low sun and some snow. SIFT declines every pair that includes it, and LightGlue
+  finds more than 1 px of non-translation motion on 13 or 14 of the 16 windows.
+- **Phase correlation closes best everywhere,** at 0.06 to 0.09 px, with no
+  failure. It uses the whole window, so ground change and water shift its peak
+  less than they move local matches. And real pairs have little
+  non-translation motion to miss (entry below), so its low closure is not the
+  affine blind spot of the previous entry.
+
+The simulated table does not predict this ranking. RAFT fails 25 to 30 % of
+`hard` simulated triplets, 95 % of Beauce's real ones and 3 % of Toulouse's. The presets change appearance and not the
+ground (entry "The presets stay as they are"), and on real pairs ground change
+drives the failures. It is what ticket 11 (false change) measures.
+
+**Consequences for the N2 table (ticket 12).** Report real closure per site,
+not only pooled: a mean over four sites hides a 95 % failure rate on one. Read
+RAFT's real results as those of a flow method that follows appearance, not
+ground; fine-tuning it (N3) on pairs with ground change is a lead, not a
+conclusion.
+
+---
+
+## 2026-09-28: AROSICS is 0.2 px off when the true shift is a whole pixel
+
+**Finding.** On real pairs AROSICS reports shifts of 0.15 to 0.2 px per
+component, with a sign that changes from window to window. Phase correlation
+puts the same pairs within 0.03 px of each other. Each leg carries its own
+error, so they add up in the closure (0.23 px, against 0.08 for phase
+correlation). `scripts/arosics_integer_check.py` registers `mild` Beauce
+translation pairs of known shift, the same along both axes. Mean end-point
+error over 4 windows, in px:
+
+| true shift (px) | 0 | 0.1 | 0.25 | 0.5 | 1.0 | 1.25 | 2.0 | 2.5 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| AROSICS | 0.201 | 0.146 | 0.069 | 0.077 | 0.183 | 0.060 | 0.192 | 0.114 |
+| phase correlation | 0.003 | 0.023 | 0.060 | 0.104 | 0.068 | 0.024 | 0.025 | 0.012 |
+
+AROSICS is worst on whole-pixel shifts and best between them. On a clean pair
+at zero shift it is exact. Add `mild`'s noise and blur, and it moves to
+(±0.10–0.15, ±0.14–0.17), and under `hard` to ±0.3–0.4 per component.
+Its sub-pixel estimator avoids the pixel it should land on, once the peak is no
+longer perfectly sharp. That is consistent with its N1 error on clean
+translations (0.059 px, worse than phase correlation). This entry adds where
+on the pixel it happens.
+
+**Why it matters.** Pairs of one tile and orbit are within a fraction of a pixel
+of each other (entry below), the worst case for AROSICS. The benchmark draws
+shifts uniformly over ±4 px, so it averages the artefact with the fractional
+shifts where AROSICS does well, and underrates how far off it is on real
+Sentinel-2 pairs. No change to AROSICS here: it is used as its authors ship it.
+The N2 table (ticket 12) states the artefact next to AROSICS' rows, and the
+benchmark could add a scenario of near-integer shifts.
+
+---
+
+## 2026-09-28: Real pairs move less than the N1 affine ranges assume
+
+**Finding.** The displacements the methods find between real dates, over the
+four sites and 16 windows, next to the truths of the simulated legs from A, which
+are drawn from the benchmark ranges. Translation is the median of the field over
+the window. Non-translation is the 95th percentile of what is left, the
+statistic that reads a corner of the window, as N1's "worst corner" figure does.
+Median over the registrations that did not fail:
+
+| pairs | method | translation (px) | non-translation, p95 (px) |
+|---|---|---:|---:|
+| simulated, from the benchmark ranges | truth (affine) | 3.26 | 0.34 (max 0.72) |
+| simulated, from the benchmark ranges | truth (dense) | 3.42 | 0.49 (max 1.16) |
+| real, a few days or a year apart | phase correlation | 0.09 | (translation only) |
+| real, a few days or a year apart | SIFT + RANSAC | 0.11 | 0.08 |
+| real, a season apart | phase correlation | 0.19 | (translation only) |
+| real, a season apart | SIFT + RANSAC | 0.33 | 0.19 |
+
+SIFT's non-translation part on simulated translation pairs, whose truth has none,
+is 0.015 px (`clean`) and 0.023 px (`mild`): that is its noise floor, so the
+real values are mostly motion or ground change, not SIFT noise.
+
+**Reading.**
+
+- **Translation.** Pairs of one tile and orbit are within 0.1 px of each other
+  a few days or a year apart, and within 0.2 to 0.3 px a season apart. That is well
+  inside the 0.3 px co-registration requirement, and about 35 times smaller
+  than the benchmark's typical ±4 px shift. The benchmark's translation range
+  stands for pairs that are not co-registered (other orbits, other sensors,
+  before orthorectification), not for L2A pairs of one tile.
+- **Non-translation.** Pairs a few days or a year apart show 0.08 px at the
+  p95, a quarter of the affine truths' 0.34. Their non-translation part is at
+  the bottom of the N1 ranges, where "a pair within spec" was placed (entry
+  "Affine motion in physical units"). Season pairs reach 0.19 px, but there
+  ground change shifts matches, so it is an upper bound on the true motion.
+- **The N1 ranges stay.** They were chosen to cross the 0.1 px target and
+  separate methods that model the motion from those that do not, which real
+  pairs of one tile would not do. The real pairs confirm the entry's lower
+  half, and give no evidence for its upper half, which stays a stress case for
+  pairs outside the spec.
+
+---
+
+## 2026-09-28: RAFT fails when both images of a pair have clouds
+
+**Finding.** On simulated triplets RAFT fails 20 to 30 % of `mild` and `hard`
+triplets, against no failure on the benchmark's `hard` pairs. It fails on the
+B-to-C leg: 6 of its 60 `hard` B-to-C legs are off by more than 0.5 px in
+translation, against 1 of 120 A-to-B and A-to-C legs. On `mild` B-to-C legs the
+non-translation part is more than 10 px away from the truth in one leg out of
+ten, and never more than 0.53 px on the legs from A. What sets B to C apart is
+that its reference, B, carries clouds. In the benchmark only the moving image
+does. The likely cause, not checked pixel by pixel, is semi-transparent cloud
+(opacity under 0.9, which the mask keeps) on the reference, where RAFT reports
+large local motion. The true EPE of those triplets is 0.36 to 7.7 px, so this is a real error of the method, not an artefact of the closure.
+
+**Consequences.** The benchmark's `hard` row for RAFT holds for clouds on one
+image only. Real pairs here are clear by construction, so this does not change
+the real table. It matters for ticket 12's reading of RAFT's robustness, and for
+an N3 fine-tuning set, which should have clouds on both sides.

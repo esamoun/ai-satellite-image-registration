@@ -1,5 +1,5 @@
 """Command-line entry point: ``satreg fetch``, ``satreg benchmark``, ``satreg
-merge``, ``satreg real-pairs`` and ``satreg check-presets``."""
+merge``, ``satreg real-pairs``, ``satreg check-presets`` and ``satreg cycle``."""
 
 import argparse
 import dataclasses
@@ -12,6 +12,7 @@ from time import perf_counter
 
 import numpy as np
 
+from . import cycle
 from .benchmark import SCENARIOS, BenchmarkConfig, method_device, run_benchmark
 from .compute import describe, environment, process_peak_rss_mib
 from .degrade import Preset, load_presets
@@ -269,6 +270,84 @@ def _parser(run_config: dict[str, object] | None = None) -> argparse.ArgumentPar
     )
     check.add_argument("--seed", type=int, default=0, help="seed of the preset noise")
     check.add_argument("--out", type=Path, default=Path("outputs/presets-check"))
+
+    closing = commands.add_parser(
+        "cycle",
+        help="register the real triplets of each site and score how well each "
+        "method's displacements close, next to simulated triplets",
+    )
+    _add_series_arguments(closing)
+    closing.add_argument(
+        "--allow-held-out",
+        action="store_true",
+        help="run on sites the sites config holds out; by default they are left "
+        "out, and a table that has them says so",
+    )
+    closing.add_argument(
+        "--methods",
+        nargs="+",
+        metavar="METHOD",
+        default=default_methods(),
+        help="methods to run (default: as for benchmark)",
+    )
+    closing.add_argument(
+        "--methods-config",
+        type=Path,
+        default=DEFAULT_METHODS_CONFIG,
+        help="TOML file setting the methods' parameters",
+    )
+    closing.add_argument(
+        "--device",
+        choices=DEVICES,
+        help="device every deep-learning method runs on (default: as configured)",
+    )
+    closing.add_argument(
+        "--simulated-triplets",
+        type=int,
+        default=5,
+        help="simulated triplets per site, scenario and preset, cut from the "
+        "site's anchor chip, whose closure is shown next to their true error "
+        "(0: none)",
+    )
+    closing.add_argument(
+        "--scenarios",
+        nargs="+",
+        choices=SCENARIOS,
+        default=list(SCENARIOS),
+        help="geometric models of the simulated triplets (default: all)",
+    )
+    closing.add_argument(
+        "--degradations",
+        nargs="+",
+        metavar="PRESET",
+        help="degradation presets of the simulated triplets (default: all)",
+    )
+    closing.add_argument(
+        "--degradations-config",
+        type=Path,
+        default=DEFAULT_DEGRADATIONS_CONFIG,
+        help="TOML file declaring the degradation presets",
+    )
+    closing.add_argument("--seed", type=int, default=defaults.seed)
+    closing.add_argument(
+        "--failure-threshold",
+        type=float,
+        default=FAILURE_EPE_PX,
+        help="mean closure residual above which a triplet failed, in px",
+    )
+    closing.add_argument(
+        "--warmup",
+        type=int,
+        default=defaults.warmup,
+        help="untimed calls of each method before timing it",
+    )
+    closing.add_argument(
+        "--repeats",
+        type=int,
+        default=1,
+        help="timed calls of a method on each pair, whose median is reported",
+    )
+    closing.add_argument("--out", type=Path, default=Path("outputs/cycle"))
     return parser
 
 
@@ -616,6 +695,41 @@ def real_pairs(args: argparse.Namespace) -> str:
     return "\n".join(lines) + "\n\nTriplets: " + ", ".join(counts) + ".\n"
 
 
+def _open_sites(
+    args: argparse.Namespace, sites: SitesConfig, names: list[str]
+) -> tuple[list[str], list[str]]:
+    """Leave held-out sites out of a series command, unless it may use them.
+
+    Args:
+        args: Parsed arguments, with ``sites``, ``sites_config`` and
+            ``allow_held_out``.
+        sites: The sites configuration.
+        names: The series' sites the command would use.
+
+    Returns:
+        The sites to use, and the held-out ones among them.
+
+    Raises:
+        SystemExit: If a site named on the command line is held out and
+            ``--allow-held-out`` is not given, or no site is left.
+    """
+    held_out = [name for name in names if sites.sites[name].held_out]
+    if args.sites and held_out and not args.allow_held_out:
+        raise SystemExit(
+            f"satreg: site {held_out[0]!r} is held out for the final evaluation "
+            f"({args.sites_config}); pass --allow-held-out to measure it"
+        )
+    if not args.allow_held_out:
+        names = [name for name in names if name not in held_out]
+        held_out = []
+    if not names:
+        raise SystemExit(
+            "satreg: every site of the series is held out; pass --allow-held-out "
+            "to measure them"
+        )
+    return names, held_out
+
+
 def check_presets(args: argparse.Namespace) -> str:
     """Measure the real pairs and the presets, and write them side by side.
 
@@ -633,20 +747,7 @@ def check_presets(args: argparse.Namespace) -> str:
             ``--allow-held-out`` is not given.
     """
     sites, series, names = _series(args)
-    held_out = [name for name in names if sites.sites[name].held_out]
-    if args.sites and held_out and not args.allow_held_out:
-        raise SystemExit(
-            f"satreg: site {held_out[0]!r} is held out for the final evaluation "
-            f"({args.sites_config}); pass --allow-held-out to measure it"
-        )
-    if not args.allow_held_out:
-        names = [name for name in names if name not in held_out]
-        held_out = []
-    if not names:
-        raise SystemExit(
-            "satreg: every site of the series is held out; pass --allow-held-out "
-            "to measure them"
-        )
+    names, held_out = _open_sites(args, sites, names)
     try:
         presets = load_presets(args.degradations_config)
     except FileNotFoundError:
@@ -679,6 +780,111 @@ def check_presets(args: argparse.Namespace) -> str:
     return table
 
 
+def cycle_consistency(args: argparse.Namespace) -> str:
+    """Score the closure of each site's real triplets, and of simulated ones.
+
+    Args:
+        args: Parsed ``cycle`` arguments.
+
+    Returns:
+        The closure tables and the displacements table, as markdown.
+
+    Raises:
+        SystemExit: As ``check-presets`` does for held-out sites, or if a method
+            or preset is unknown.
+    """
+    sites, series, names = _series(args)
+    names, held_out = _open_sites(args, sites, names)
+    methods = configured_methods(args)
+    degradations = degradation_presets(args) if args.simulated_triplets else {}
+    config = BenchmarkConfig(
+        n_pairs=args.simulated_triplets,
+        size=cycle.WINDOW_PX,
+        scenarios=tuple(dict.fromkeys(args.scenarios)),
+        seed=args.seed,
+        failure_threshold=args.failure_threshold,
+        warmup=args.warmup,
+        repeats=args.repeats,
+    )
+
+    started = perf_counter()
+    legs, rows = [], []
+    warmed: set[str] = set()
+    for name in names:
+        site = sites.sites[name]
+        acquisitions = load_series(site, sites.catalogue, series, args.data_dir)
+        more_legs, more_rows = cycle.run_real(
+            name, acquisitions, methods, config, warmed
+        )
+        legs += more_legs
+        rows += more_rows
+        if not degradations:
+            continue
+        anchor = next(a for a in acquisitions if a.role == ANCHOR)
+        more_legs, more_rows = cycle.run_simulated(
+            name,
+            anchor.image.astype(float),
+            methods,
+            config,
+            degradations,
+            anchor.georef,
+            warmed,
+        )
+        legs += more_legs
+        rows += more_rows
+    run_seconds = perf_counter() - started
+    if not rows:
+        raise SystemExit(
+            f"satreg: no {cycle.WINDOW_PX} px window of any triplet is clear on "
+            "its three dates"
+        )
+
+    summary = cycle.summarize(rows)
+    motion = cycle.motion_summary(legs, role_order(list(series.dates)))
+    context = environment()
+    meters = {name: cost_meter(method).name for name, method in methods.items()}
+    context["cost"] = {
+        "warmup": config.warmup,
+        "repeats": config.repeats,
+        "process_peak_rss_mib": process_peak_rss_mib(),
+        "memory": meters,
+        "run_seconds": run_seconds,
+    }
+    context["devices"] = {name: method_device(m) for name, m in methods.items()}
+    context["held_out_sites"] = held_out
+    context["run"] = {k: v for k, v in sorted(vars(args).items()) if k != "command"}
+    table = (
+        cycle.to_markdown(summary)
+        + f"\nSites: {', '.join(names)}. Each triplet of dates A < B < C is "
+        f"registered A to B, B to C and A to C on each {cycle.WINDOW_PX} px window "
+        f"hidden at most {100 * cycle.MAX_WINDOW_CLOUD:.0f} % on its three dates; "
+        "the closure is the distance between A to B then B to C, and A to C, "
+        "over pixels clear on all three. A triplet fails if a leg does, or if its "
+        f"mean closure exceeds {config.failure_threshold} px; closure columns "
+        "average the others. Simulated triplets show the true end-point error of "
+        "their legs, and the closure of their true legs, which is what composing "
+        f"alone leaves. Time is the median of {config.repeats} call(s) per pair, "
+        f"after {config.warmup} warm-up call(s) per method; "
+        f"{memory_note(meters)}. Measured on {describe(context)}.\n"
+        + held_out_note(held_out)
+        + "\n"
+        + cycle.motion_markdown(motion)
+        + "\nDisplacements the methods find between real dates, across sites and "
+        "windows, next to the truths of the simulated pairs from A (the benchmark "
+        "ranges). Translation is the median of the displacement over the window; "
+        f"the non-translation part is the {cycle.NON_TRANSLATION_PERCENTILE}th "
+        "percentile of what is left. Median (max) over registrations.\n"
+    )
+
+    write_csv(legs, args.out / "legs.csv")
+    write_csv(rows, args.out / "triplets.csv")
+    write_csv(summary, args.out / "summary.csv")
+    (args.out / "summary.md").write_text(table)
+    context_json = json.dumps(context, indent=2, default=str)
+    (args.out / "context.json").write_text(context_json + "\n")
+    return table
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Parse arguments and run the requested command."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -699,3 +905,5 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(real_pairs(args), end="")
     elif args.command == "check-presets":
         print(check_presets(args), end="")
+    elif args.command == "cycle":
+        print(cycle_consistency(args), end="")

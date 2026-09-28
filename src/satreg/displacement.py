@@ -15,6 +15,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import numpy as np
+from scipy import ndimage
+
+# Order of the spline a dense displacement is read with between pixels when two
+# displacements are composed. See docs/decisions.md.
+COMPOSE_ORDER = 1
 
 
 class Displacement(ABC):
@@ -178,3 +183,75 @@ class Dense(Displacement):
         # table.
         dy, dx = self.values.reshape(2, -1).mean(axis=1)
         return f"Dense(shape={self.shape}, mean_dx={dx:.6g}, mean_dy={dy:.6g})"
+
+
+def as_affine(displacement: Translation | Affine) -> Affine:
+    """Write a global displacement as an affine one.
+
+    Args:
+        displacement: A translation or an affine displacement.
+
+    Returns:
+        The same displacement, as an ``Affine``.
+    """
+    if isinstance(displacement, Affine):
+        return displacement
+    return Affine(((1.0, 0.0), (0.0, 1.0)), (displacement.dy, displacement.dx))
+
+
+def compose(
+    first: Displacement, second: Displacement, order: int = COMPOSE_ORDER
+) -> Displacement:
+    """Chain two displacements: ``first`` from A to B, then ``second`` from B to C.
+
+    Content at ``p`` in A is at ``p + first(p)`` in B, hence at ``q +
+    second(q)`` in C with ``q = p + first(p)``: the displacement from A to C is
+    ``first(p) + second(p + first(p))``. Two translations give a translation, and
+    any other two global displacements an affine one, both exactly. A dense
+    displacement gives a dense one on its grid. There ``second`` is read at the
+    displaced points ``q``: exactly if it is global, and by spline interpolation
+    of order ``order`` if it is dense, which adds an error of its own (measured
+    in docs/decisions.md). Where ``q`` leaves the grid, a dense ``second`` is read
+    at the nearest border pixel, so those pixels are not a composition.
+
+    Args:
+        first: Displacement from A to B, on A's grid.
+        second: Displacement from B to C, on B's grid.
+        order: Order of the spline a dense ``second`` is read with, 0 to 5.
+
+    Returns:
+        The displacement from A to C, on A's grid.
+
+    Raises:
+        ValueError: If both are dense on different grids.
+    """
+    if isinstance(first, Translation) and isinstance(second, Translation):
+        return Translation(dx=first.dx + second.dx, dy=first.dy + second.dy)
+    if not isinstance(first, Dense) and not isinstance(second, Dense):
+        a, b = as_affine(first), as_affine(second)
+        m1, m2 = np.asarray(a.matrix), np.asarray(b.matrix)
+        matrix = m2 @ m1
+        offset = m2 @ np.asarray(a.offset) + np.asarray(b.offset)
+        return Affine(
+            matrix=(
+                (float(matrix[0, 0]), float(matrix[0, 1])),
+                (float(matrix[1, 0]), float(matrix[1, 1])),
+            ),
+            offset=(float(offset[0]), float(offset[1])),
+        )
+
+    shape = first.shape if isinstance(first, Dense) else second.shape
+    if isinstance(second, Dense) and second.shape != shape:
+        raise ValueError(f"cannot compose fields on {shape} and on {second.shape}")
+    d1 = first.field(shape)
+    q = np.indices(shape, dtype=float) + d1
+    if isinstance(second, Dense):
+        d2 = np.stack(
+            [
+                ndimage.map_coordinates(c, q, order=order, mode="nearest")
+                for c in second.values
+            ]
+        )
+    else:
+        d2 = as_affine(second).apply(q) - q
+    return Dense(d1 + d2)

@@ -559,3 +559,37 @@ def test_missing_series_config_is_reported(cached_site, tmp_path):
 
     with pytest.raises(SystemExit, match="no series configuration"):
         main(["real-pairs"] + cached_site + missing)
+
+
+def test_cycle_scores_the_real_triplets_and_writes_its_tables(
+    tmp_path, capsys, cached_series
+):
+    out = tmp_path / "out"
+
+    main(
+        ["cycle", "--methods", "phase_correlation", "--simulated-triplets", "0"]
+        + ["--out", str(out)]
+        + PRESETS
+        + cached_series
+    )
+
+    printed = capsys.readouterr().out
+    assert (out / "summary.md").read_text() == printed
+    # Three dates, one triplet, one 256 px window: three pairs registered once.
+    assert "| beauce | days-anchor-season | phase_correlation | cpu | 1 |" in printed
+    assert "| days-anchor | phase_correlation | 1 |" not in printed
+    assert "| anchor-days | phase_correlation | 1 |" in printed
+    assert "true EPE" not in printed
+    assert len((out / "legs.csv").read_text().splitlines()) == 1 + 3
+    assert len((out / "triplets.csv").read_text().splitlines()) == 1 + 1
+    context = json.loads((out / "context.json").read_text())
+    assert context["held_out_sites"] == []
+    assert context["run"]["simulated_triplets"] == 0
+
+
+def test_cycle_refuses_a_held_out_site_named_on_the_command_line(tmp_path):
+    held_out = _cached_series(tmp_path, "held_out = true\n")
+
+    with pytest.raises(SystemExit, match="'beauce' is held out.*--allow-held-out"):
+        main(["cycle", "--site", "beauce", "--out", str(tmp_path / "out")] + held_out)
+    assert not (tmp_path / "out").exists()

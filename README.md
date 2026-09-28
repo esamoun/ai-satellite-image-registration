@@ -171,6 +171,27 @@ correlation on real pairs and on the presets, without registering them, and
 writes the comparison to `outputs/presets-check/`. Held-out sites are fetched
 but not measured.
 
+```bash
+satreg cycle                      # closure of each method on the real triplets
+```
+
+A real pair has no truth to score a method against, but three dates do check
+each other. For dates A < B < C, `satreg cycle` registers A to B, B to C and A
+to C, each on the 256 px windows clear on all three dates. Chained, the first
+two legs should give the third. The distance between them, the closure, is
+reported per site, triplet and method like the benchmark's error. It has the
+same columns: mean, share of pixels under 0.1 and 0.5 px, failures and cost. A
+triplet fails if a leg declines or crashes, or if its mean closure exceeds 1 px.
+The closure is not the error. An error that belongs to one date, or that
+grows with the displacement, cancels out of it. So the same command also runs
+simulated triplets, cut from each site's chip under every scenario and preset,
+and shows their closure next to their true error. A second table sizes the
+displacements the methods find between real dates, next to the simulated
+ranges. Output goes to `outputs/cycle/`, with one row per registration in
+`legs.csv` and one per triplet in `triplets.csv`. `--simulated-triplets 0`
+skips the simulated triplets. Held-out sites are left out unless
+`--allow-held-out` is given.
+
 ### Under degraded conditions
 
 Each pair is run clean and under named degradation presets, declared in

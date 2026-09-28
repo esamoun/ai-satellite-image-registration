@@ -1,5 +1,5 @@
-"""Command-line entry point: ``satreg fetch``, ``satreg benchmark`` and
-``satreg merge``."""
+"""Command-line entry point: ``satreg fetch``, ``satreg benchmark``, ``satreg
+merge``, ``satreg real-pairs`` and ``satreg check-presets``."""
 
 import argparse
 import dataclasses
@@ -29,6 +29,19 @@ from .methods import (
 )
 from .methods.deep import DEVICES, check_available
 from .metrics import FAILURE_EPE_PX
+from .presetcheck import preset_row, real_row, role_order
+from .presetcheck import summarize as summarize_appearance
+from .presetcheck import to_markdown as appearance_markdown
+from .real import (
+    ANCHOR,
+    SeriesConfig,
+    fetch_series,
+    load_series,
+    load_series_config,
+    pairs,
+    read_acquisition,
+    triplets,
+)
 from .report import held_out_note, memory_note, summarize, to_markdown, write_csv
 from .sites import SitesConfig, load_sites
 from .texture import fractal_texture
@@ -43,6 +56,7 @@ DEFAULT_SITES_CONFIG = Path("configs/sites.toml")
 DEFAULT_DEGRADATIONS_CONFIG = Path("configs/degradations.toml")
 DEFAULT_METHODS_CONFIG = Path("configs/methods.toml")
 DEFAULT_DATA_DIR = Path("data")
+DEFAULT_SERIES_CONFIG = Path("configs/real.toml")
 
 
 def _add_data_arguments(parser: argparse.ArgumentParser) -> None:
@@ -228,7 +242,52 @@ def _parser(run_config: dict[str, object] | None = None) -> argparse.ArgumentPar
         help="directory a benchmark run wrote (its --out), at least two",
     )
     merging.add_argument("--out", type=Path, default=Path("outputs/merged"))
+
+    real = commands.add_parser(
+        "real-pairs",
+        help="fetch the dates of each site's series and list its real pairs",
+    )
+    _add_series_arguments(real)
+
+    check = commands.add_parser(
+        "check-presets",
+        help="measure real pairs and the degradation presets the same way, and "
+        "write them side by side",
+    )
+    _add_series_arguments(check)
+    check.add_argument(
+        "--allow-held-out",
+        action="store_true",
+        help="measure sites the sites config holds out; by default they are left "
+        "out, since no preset may be chosen on them",
+    )
+    check.add_argument(
+        "--degradations-config",
+        type=Path,
+        default=DEFAULT_DEGRADATIONS_CONFIG,
+        help="TOML file declaring the degradation presets",
+    )
+    check.add_argument("--seed", type=int, default=0, help="seed of the preset noise")
+    check.add_argument("--out", type=Path, default=Path("outputs/presets-check"))
     return parser
+
+
+def _add_series_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--series-config",
+        type=Path,
+        default=DEFAULT_SERIES_CONFIG,
+        help="TOML file declaring which dates each site's series takes",
+    )
+    parser.add_argument(
+        "--site",
+        action="append",
+        dest="sites",
+        metavar="NAME",
+        help="site of the series, repeatable (default: every site of the series "
+        "config)",
+    )
+    _add_data_arguments(parser)
 
 
 def load_run_config(path: Path) -> dict[str, object]:
@@ -507,6 +566,119 @@ def benchmark(args: argparse.Namespace) -> str:
     return table
 
 
+def _series(args: argparse.Namespace) -> tuple[SitesConfig, SeriesConfig, list[str]]:
+    """Read the configurations of a series command, and check its sites."""
+    sites = load_sites(args.sites_config)
+    try:
+        series = load_series_config(args.series_config)
+    except FileNotFoundError:
+        raise SystemExit(
+            f"satreg: no series configuration at {args.series_config} "
+            "(run from the repository root or pass --series-config)"
+        ) from None
+    names = args.sites or list(series.sites)
+    for name in names:
+        _configured_site(sites, name)
+    return sites, series, names
+
+
+def real_pairs(args: argparse.Namespace) -> str:
+    """Fetch the series of the requested sites and list their pairs.
+
+    Held-out sites are fetched and listed too: this is metadata, which the final
+    evaluation needs. Nothing is measured on them.
+
+    Args:
+        args: Parsed ``real-pairs`` arguments.
+
+    Returns:
+        A markdown table of the pairs, then the number of triplets per site.
+    """
+    sites, series, names = _series(args)
+    lines = [
+        "| site | pair | reference | moving | gap (days) | satellites | clouds |",
+        "|---|---|---|---|---:|---|---:|",
+    ]
+    counts = []
+    for name in names:
+        site = sites.sites[name]
+        paths = fetch_series(site, sites.catalogue, series, args.data_dir)
+        acquisitions = [read_acquisition(path) for path in paths.values()]
+        label = f"{name} (held out)" if site.held_out else name
+        for pair in pairs(acquisitions):
+            lines.append(
+                f"| {label} | {pair.roles[0]}-{pair.roles[1]} "
+                f"| {pair.dates[0].date()} | {pair.dates[1].date()} "
+                f"| {pair.gap_days} | {'/'.join(pair.platforms)} "
+                f"| {100 * pair.cloud_fraction:.2f} % |"
+            )
+        counts.append(f"{label} {len(triplets(acquisitions))}")
+    return "\n".join(lines) + "\n\nTriplets: " + ", ".join(counts) + ".\n"
+
+
+def check_presets(args: argparse.Namespace) -> str:
+    """Measure the real pairs and the presets, and write them side by side.
+
+    Held-out sites of the series config are left out unless
+    ``--allow-held-out`` is given.
+
+    Args:
+        args: Parsed ``check-presets`` arguments.
+
+    Returns:
+        The summary table as markdown.
+
+    Raises:
+        SystemExit: If a site named on the command line is held out and
+            ``--allow-held-out`` is not given.
+    """
+    sites, series, names = _series(args)
+    held_out = [name for name in names if sites.sites[name].held_out]
+    if args.sites and held_out and not args.allow_held_out:
+        raise SystemExit(
+            f"satreg: site {held_out[0]!r} is held out for the final evaluation "
+            f"({args.sites_config}); pass --allow-held-out to measure it"
+        )
+    if not args.allow_held_out:
+        names = [name for name in names if name not in held_out]
+        held_out = []
+    if not names:
+        raise SystemExit(
+            "satreg: every site of the series is held out; pass --allow-held-out "
+            "to measure them"
+        )
+    try:
+        presets = load_presets(args.degradations_config)
+    except FileNotFoundError:
+        raise SystemExit(
+            f"satreg: no degradation presets at {args.degradations_config}"
+        ) from None
+
+    rows = []
+    for name in names:
+        site = sites.sites[name]
+        acquisitions = load_series(site, sites.catalogue, series, args.data_dir)
+        anchor = next(a for a in acquisitions if a.role == ANCHOR)
+        rows += [real_row(name, pair) for pair in pairs(acquisitions)]
+        rows += [
+            preset_row(name, anchor.image, preset_name, preset, args.seed)
+            for preset_name, preset in presets.items()
+        ]
+    summary = summarize_appearance(rows, role_order(list(series.dates)))
+    table = appearance_markdown(summary, presets) + (
+        f"\nSites: {', '.join(names)}. Median [min, max] across sites of each "
+        "pair's median over its clear 256 px windows. Presets are measured on "
+        "zero-shift windows of each anchor chip, without their clouds, whose "
+        "nominal cover is shown instead. SNR is the lower of the two images', by "
+        "Immerkær's estimator, which reads fine texture as noise: a lower bound, "
+        "to compare between rows only. Per-pair rows in `pairs.csv`.\n"
+    )
+    table += held_out_note(held_out)
+    write_csv(rows, args.out / "pairs.csv")
+    (args.out / "summary.md").write_text(table)
+    return table
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Parse arguments and run the requested command."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -523,3 +695,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             print(merge(args.runs, args.out), end="")
         except MergeError as exc:
             raise SystemExit(f"satreg: {exc}") from None
+    elif args.command == "real-pairs":
+        print(real_pairs(args), end="")
+    elif args.command == "check-presets":
+        print(check_presets(args), end="")

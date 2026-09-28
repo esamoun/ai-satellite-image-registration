@@ -97,7 +97,7 @@ def summarize(results: Sequence[PairResult]) -> list[SummaryRow]:
     return rows
 
 
-def write_csv(rows: Sequence[PairResult] | Sequence[SummaryRow], path: Path) -> None:
+def write_csv(rows: Sequence[object], path: Path) -> None:
     """Write dataclass rows to a CSV file with a header.
 
     Args:

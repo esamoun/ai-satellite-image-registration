@@ -1,0 +1,30 @@
+# Real multi-temporal pairs (N2). Each site's series starts from the scene of its
+# benchmark chip, the anchor, and adds one date per rule below: the clear date
+# nearest `offset_days` after the anchor, at most `within_days` from it, on the
+# anchor's MGRS tile and relative orbit, so two dates share their viewing
+# geometry and their tile grid. "Clear" is the chip's own rule from
+# configs/sites.toml: at most `max_chip_cloud` % of cloud and cloud shadow in the
+# scene classification over the chip. Rules are filled in file order and no two
+# roles take the same day. Sentinel-2A, 2B and 2C are mixed on one orbit; each
+# date records its satellite. See docs/decisions.md.
+#
+# Four dates give six pairs and four triplets per site.
+
+[series]
+# Every configured site. Held-out sites (alps, libya4) get their series, since
+# the final evaluation needs them, but `satreg check-presets` leaves them out.
+sites = ["beauce", "toulouse", "alps", "vosges", "libya4", "marseille"]
+# Scenes above this cover are not even looked at; the chip's classification
+# decides. Loose, because a partly cloudy scene can have a clear chip.
+max_scene_cloud = 50.0
+
+[series.dates]
+# The nearest clear date to the anchor, before or after: the smallest change
+# the product offers, residual misregistration between orbits' passes and not
+# much else.
+days = { offset_days = 0, within_days = 15 }
+# About a season later: same crops or canopy at another stage, other sun.
+season = { offset_days = 91, within_days = 30 }
+# About a year later, same season: ground change (works, harvest rotation)
+# without the seasonal change, and often another satellite of the pair.
+year = { offset_days = 365, within_days = 30 }

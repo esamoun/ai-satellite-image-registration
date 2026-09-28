@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import subprocess
 import sys
@@ -5,7 +6,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from test_ingest import CENTRE, site_at, write_cog
+import rasterio
+from test_ingest import CENTRE, CRS, TRANSFORM, site_at, write_cog
 
 from satreg import cli
 from satreg.cli import load_run_config, main, parse_args, site_images
@@ -13,6 +15,7 @@ from satreg.georef import NOMINAL
 from satreg.ingest import cache_path
 from satreg.methods import load_methods, missing_dependencies
 from satreg.methods.arosics import Arosics
+from satreg.real import ANCHOR, load_series_config, series_path
 from satreg.sites import load_sites
 
 CONFIGS = Path(__file__).parents[1] / "configs"
@@ -417,3 +420,142 @@ def test_context_records_every_option_of_the_run(tmp_path):
     assert run["pairs"] == 2
     assert run["out"] == str(tmp_path)
     assert run["config"] is None
+
+
+SERIES_DATES = {
+    ANCHOR: (dt.date(2025, 7, 1), "sentinel-2b"),
+    "days": (dt.date(2025, 6, 26), "sentinel-2c"),
+    "season": (dt.date(2025, 9, 28), "sentinel-2a"),
+}
+
+
+def _cached_series(tmp_path, extra=""):
+    """Configure a site and a series, and put every date of it in the cache."""
+    site = site_at(*CENTRE, chip_px=256)
+    sites_config = tmp_path / "sites.toml"
+    sites_config.write_text(
+        '[stac]\nurl = "https://stac.example"\ncollection = "sentinel-2-c1-l2a"\n'
+        f"[sites.beauce]\nlon = {site.lon}\nlat = {site.lat}\nchip_px = 256\n"
+        "start = 2025-04-01\nend = 2025-09-30\nmax_cloud = 5.0\n" + extra
+    )
+    series_config = tmp_path / "real.toml"
+    series_config.write_text(
+        '[series]\nsites = ["beauce"]\n[series.dates]\n'
+        "days = { offset_days = 0, within_days = 15 }\n"
+        "season = { offset_days = 91, within_days = 30 }\n"
+    )
+    sites = load_sites(sites_config)
+    config = load_series_config(series_config)
+    base = np.random.default_rng(0).integers(1000, 5000, (256, 256), np.uint16)
+    for i, (role, (day, platform)) in enumerate(SERIES_DATES.items()):
+        path = series_path(
+            sites.sites["beauce"], sites.catalogue, config, role, tmp_path / "data"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        scl = np.full((256, 256), 4, np.uint16)
+        scl[0, : 10 * (i + 1)] = 9  # a few cloudy pixels, more each date
+        with rasterio.open(
+            path,
+            "w",
+            driver="GTiff",
+            width=256,
+            height=256,
+            count=2,
+            dtype=np.uint16,
+            crs=CRS,
+            transform=TRANSFORM,
+            nodata=0,
+        ) as dst:
+            dst.write(base + 100 * i, 1)
+            dst.write(scl, 2)
+            dst.update_tags(
+                role=role,
+                item_id=f"S2_{day:%Y%m%d}",
+                datetime=f"{day.isoformat()}T10:56:29+00:00",
+                platform=platform,
+            )
+    return [
+        "--sites-config",
+        str(sites_config),
+        "--series-config",
+        str(series_config),
+        "--data-dir",
+        str(tmp_path / "data"),
+    ]
+
+
+@pytest.fixture
+def cached_series(tmp_path):
+    """A configured site whose series is already in the cache."""
+    return _cached_series(tmp_path)
+
+
+def test_real_pairs_lists_the_cached_pairs_without_any_search(capsys, cached_series):
+    main(["real-pairs"] + cached_series)
+
+    printed = capsys.readouterr().out
+    assert (
+        "| beauce | days-anchor | 2025-06-26 | 2025-07-01 | 5 "
+        "| sentinel-2c/sentinel-2b | 0.03 % |"
+    ) in printed
+    assert "| beauce | anchor-season | 2025-07-01 | 2025-09-28 | 89 |" in printed
+    assert printed.count("| beauce |") == 3
+    assert printed.endswith("Triplets: beauce 1.\n")
+
+
+def test_real_pairs_lists_a_held_out_site_as_such(tmp_path, capsys):
+    main(["real-pairs"] + _cached_series(tmp_path, "held_out = true\n"))
+
+    assert "| beauce (held out) | days-anchor |" in capsys.readouterr().out
+
+
+def test_check_presets_writes_real_pairs_and_presets_side_by_side(
+    tmp_path, capsys, cached_series
+):
+    out = tmp_path / "out"
+
+    main(["check-presets", "--out", str(out)] + PRESETS[:2] + cached_series)
+
+    printed = capsys.readouterr().out
+    assert (out / "summary.md").read_text() == printed
+    assert printed.index("| preset `clean` |") < printed.index("| preset `hard` |")
+    # Role pairs are named in series order, whichever date came first.
+    assert printed.index("| preset `hard` |") < printed.index("| anchor-days | 1 |")
+    assert "| ↳ nominal | | | 15 (added) |" in printed
+    assert "Sites: beauce." in printed
+    assert "Held-out" not in printed
+    csv = (out / "pairs.csv").read_text().splitlines()
+    assert len(csv) == 1 + 3 + 3  # header, three real pairs, three presets
+
+
+def test_check_presets_refuses_a_held_out_site_named_on_the_command_line(tmp_path):
+    held_out = _cached_series(tmp_path, "held_out = true\n")
+
+    with pytest.raises(SystemExit, match="'beauce' is held out.*--allow-held-out"):
+        main(
+            ["check-presets", "--site", "beauce", "--out", str(tmp_path / "out")]
+            + held_out
+        )
+    assert not (tmp_path / "out").exists()
+
+
+def test_check_presets_leaves_held_out_sites_out_unless_allowed(tmp_path, capsys):
+    held_out = _cached_series(tmp_path, "held_out = true\n")
+    out = tmp_path / "out"
+
+    with pytest.raises(SystemExit, match="every site of the series is held out"):
+        main(["check-presets", "--out", str(out)] + held_out)
+
+    main(
+        ["check-presets", "--allow-held-out", "--out", str(out)]
+        + PRESETS[:2]
+        + held_out
+    )
+    assert "Held-out sites in this table: beauce." in capsys.readouterr().out
+
+
+def test_missing_series_config_is_reported(cached_site, tmp_path):
+    missing = ["--series-config", str(tmp_path / "none.toml")]
+
+    with pytest.raises(SystemExit, match="no series configuration"):
+        main(["real-pairs"] + cached_site + missing)

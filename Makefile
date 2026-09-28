@@ -1,4 +1,4 @@
-.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 clean
+.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 real-pairs check-presets clean
 
 install:
 	pip install -e ".[dev]"
@@ -44,6 +44,14 @@ benchmark:
 # The N1 results table, published in docs/evaluation.md.
 n1:
 	satreg benchmark --config configs/n1.toml
+
+# The real multi-temporal pairs of configs/real.toml, and the presets measured
+# next to them (docs/decisions.md).
+real-pairs:
+	satreg real-pairs
+
+check-presets:
+	satreg check-presets
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

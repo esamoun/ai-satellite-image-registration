@@ -1782,3 +1782,176 @@ possible and visible. The only look before N3 is the sanity check of the six-sit
 entry: whether any method fails a clean pair for a reason unrelated to
 registration, which is a check of the data, not of a method. Of that run, only the
 failure column was read (no failure).
+
+---
+
+## 2026-09-28: Real pairs: the chip's date, then a few days, a season and a year later
+
+*My call*: four dates per site (the anchor, then targets 0, 91 and 365 days
+away), rather than three, or dates spread evenly over a year; and Sentinel-2A, 2B
+and 2C mixed freely, with each date's satellite recorded.
+
+**Decision.** A site's series starts from the scene of its benchmark chip, the
+*anchor*. `configs/real.toml` then gives each further role a target offset from
+the anchor and a tolerance: `days` (0 ± 15 days), `season` (91 ± 30) and `year`
+(365 ± 30). A role takes the scene nearest its target that is on the anchor's
+MGRS tile (`grid:code`) and relative orbit (read from `s2:product_uri`, since
+Earth Search's Collection 1 items have no `sat:relative_orbit`), is not on a date
+another role already took, and gives a chip under the site's chip cloud limit.
+Ties go to the earlier date. Every date is the same window of the tile grid as the
+anchor, checked by comparing geotransforms, so two dates share one grid. The
+anchor's own day is excluded, which rules out its duplicate datastrip. Four dates
+give six pairs and four triplets. The earlier date is always the reference.
+`satreg real-pairs` fetches and lists them. Dates are cached under
+`data/real/<site>/`, keyed like N1 chips plus the whole series configuration.
+
+**Why.** Same tile and same orbit means the same viewing geometry, so two dates
+differ by what the product leaves: residual misregistration, season, ground
+change. The three spacings span that range. A few days apart, the ground barely
+changes. A season apart, crops, leaves and sun elevation do. A year apart, the
+season is the same but the ground has had a year to change. Anchoring on the
+chip's own scene keeps the N1 chip in every series. Mixing satellites is what an
+operational pair looks like, and the constellation's inter-satellite
+registration is part of what the methods face. Recording the platform lets a
+later table split on it.
+
+**Series fetched.** All six sites (dates, satellite): Beauce 2025-07-01 2B, 06-21
+2B, 09-19 2B, 2026-06-23 2A. Toulouse 06-28, 06-18, 10-01 2C, 2026-06-23. Vosges
+08-11 2A, 08-14 2B, 11-22 2B (about 3 % snow), 2026-08-14 2C. Marseille 06-29 2A,
+06-27 2C, 10-05 2C, 2026-06-27 2B. The two held-out sites were fetched too, since
+N3 needs them. Their dates are listed by `satreg real-pairs` and measured
+nowhere. Every pair's joint mask hides at most 0.1 % of the chip.
+
+---
+
+## 2026-09-28: A real pair's mask: scene classification on the chip grid, no data hidden like cloud
+
+**Decision.** Each date stores its chip and its SCL, the 20 m classification
+mapped onto the 10 m chip grid by looking up the classification pixel under each
+chip pixel's centre, with no resampling. A pair's `cloud` mask is the union of
+both dates' hidden pixels: cloud (8, 9, 10), cloud shadow (3) and no data. Snow
+is ground, as for chips. A non-anchor date may have a few no-data pixels in its
+band. They are set to SCL class 0 and count against the same 1 % chip limit as
+cloud. The anchor and the N1 chips still refuse any no-data pixel.
+
+**Why.** The mask belongs to the chip grid, where methods and metrics work, and a
+lookup keeps the classes exact. Averaging 20 m classes onto 10 m would invent
+fractional clouds. No data was the Vosges `season` role's only obstacle: its one
+clear date within 30 days (2025-11-22, 0.04 % cloud) had 18 no-data pixels on the
+chip. Those 18 pixels (0.2 %) hide ground exactly as cloud does, so they are
+masked the same way.
+
+**Rejected.** Widening the `season` tolerance until a complete chip turns up. That
+would bend the date rule for one site.
+
+---
+
+## 2026-09-28: A pair's appearance is measured without registering it
+
+**Decision.** `satreg/appearance.py` measures how the moving image of a pair
+differs from its reference. It uses each image's statistics or power spectrum,
+which a shift does not change, so the measurement does not depend on how well the
+pair is registered.
+
+- **Noise.** Immerkær's estimator gives σ, and the SNR is `20 log10(std / σ)`,
+  the definition the `noise` degradation uses.
+- **Blur difference.** Take the log ratio of the two Hann-windowed radial power
+  spectra, and fit it against f² over 0.05 to 0.25 cycles/px. It gives
+  `sign(d) √|d|` with `d = σ_moving² − σ_reference²`, in pixels.
+- **Contrast and level.** Contrast is the ratio of standard deviations. Level is
+  the mean difference in reference standard deviations.
+- **Tone bend.** Take 19 quantiles (5 % to 95 %) of each image. Fit the moving
+  image's quantiles as an affine function of the reference's, and report the RMS
+  residual over the moving image's quantile spread. It is 0 for any gain and
+  offset.
+- **Correlation.** Pearson correlation, pixel by pixel. This is the only
+  measurement that does depend on registration and on ground change.
+
+`satreg check-presets` measures each real pair on its 256 px windows with at most
+1 % hidden pixels, and takes the median. Each preset is measured the same way, on
+zero-shift windows of the same sites' anchor chips, without its clouds, whose
+nominal cover is reported instead.
+
+**Why.** The degradation presets entry asked for this check against real pairs.
+Registration-free estimators compare real and simulated pairs on equal terms,
+with no method's bias in between.
+
+**Findings on the estimators.** They were checked on known degradations.
+
+- **Blur.** The estimator recovers σ = 1.0 and 1.5 within 5 %. `mild`'s σ = 0.4
+  reads 0.28, which is what it really does. A 0.4 px Gaussian sampled on the
+  pixel grid is a kernel whose frequency response matches a 0.28 px Gaussian.
+- **Noise.** Immerkær reads fine texture as noise, so on 10 m chips the SNR is a
+  lower bound: about 18 dB on a clean city, forest or coast chip, 32 dB on
+  Beauce's fields. Only differences between rows mean something.
+- **Tone.** A fitted gamma was tried first and dropped. With the curve's ends
+  normalised by percentiles, a true 1.5 read 1.26. With them normalised by
+  min/max and an affine term, it was exact on synthetic images but read `hard`'s
+  1.5 as 1.07 on Toulouse and 0.23 on Vosges. A few bright pixels stretch a real
+  window's range, so the gamma is not identifiable. The tone bend assumes no
+  curve shape.
+
+---
+
+## 2026-09-28: The presets stay as they are; real pairs cover ground change
+
+*My call*: keep `mild` and `hard` unchanged, rather than tuning them to the real
+pairs' values or adding a preset that imitates ground change.
+
+**Finding.** Beauce, Toulouse, Vosges and Marseille, from
+`outputs/presets-check/summary.md`. Each cell is the median [min, max] across
+sites. Each measurement is its distance from an unchanged pair: |blur|, contrast
+factor max(g, 1/g), |offset|. The SNR is the lower of the two images'.
+
+| pairs | gap (days) | SNR (dB) | blur (px) | contrast × | offset (std) | tone bend | correlation |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| preset `clean` | 0 | 18.5 [17.9, 31.8] | 0 | 1 | 0 | 0 | 1 |
+| preset `mild` | 0 | 18.1 [17.6, 27.3] | 0.27 [0.26, 0.28] | 1.16 [1.12, 1.18] | 0.52 [0.37, 0.61] | 0.008 | 1.00 |
+| preset `hard` | 0 | 7.8 [6.7, 10.7] | 0.58 [0.39, 0.74] | 2.34 [1.68, 2.66] | 1.32 [1.07, 1.57] | 0.028 [0.009, 0.044] | 0.84 [0.81, 0.92] |
+| anchor-days | 6 | 18.5 [17.9, 28.1] | 0.14 [0.05, 0.33] | 1.05 [1.01, 1.28] | 0.32 [0.01, 0.70] | 0.014 [0.002, 0.062] | 0.96 [0.73, 0.99] |
+| anchor-season | 96 | 18.5 [17.2, 28.6] | 0.31 [0.21, 0.50] | 1.33 [1.08, 5.31] | 0.59 [0.28, 2.98] | 0.042 [0.023, 0.078] | 0.65 [0.39, 0.90] |
+| anchor-year | 362 | 18.5 [17.9, 29.5] | 0.12 [0.00, 0.33] | 1.14 [1.02, 1.50] | 0.13 [0.04, 0.52] | 0.015 [0.006, 0.059] | 0.90 [-0.04, 0.98] |
+| days-season | 100 | 18.7 [17.2, 28.1] | 0.25 [0.06, 0.47] | 1.11 [1.04, 5.20] | 0.52 [0.35, 2.21] | 0.034 [0.022, 0.061] | 0.60 [0.35, 0.90] |
+| days-year | 366 | 18.8 [17.9, 28.1] | 0.20 [0.01, 0.31] | 1.09 [1.02, 1.48] | 0.20 [0.03, 0.61] | 0.029 [0.008, 0.062] | 0.88 [0.11, 0.97] |
+| season-year | 265 | 19.9 [17.2, 28.6] | 0.25 [0.17, 0.28] | 1.18 [1.01, 3.43] | 0.46 [0.35, 0.75] | 0.039 [0.025, 0.073] | 0.62 [0.13, 0.89] |
+
+Nominal values are `mild`: 30 dB added, σ 0.4, gain 1.1, offset 0.2, gamma 0.9,
+5 % clouds. `hard`: 15 dB added, σ 1, gain 0.7 (×1.43), offset 0.5, gamma 1.5,
+30 % clouds. Real pairs are clear by construction (at most 0.1 % hidden), so
+their cloud share says nothing about the presets'.
+
+**Reading.**
+
+- **`mild` sits where a real pair a few days apart does.** Its blur, contrast
+  and tone bend are within the range of the `days` pairs. Its offset (0.52) is
+  in the upper half. Its gamma moves the mean, so the measured offset is more
+  than the nominal 0.2. Its added noise is invisible next to the texture the
+  estimator reads.
+- **`hard` is harsher than any clear real pair on noise.** Its median is about
+  10 dB below the real rows, and every site's value is at least 6 dB below any
+  real pair's.
+- **`hard` is harsher than most real pairs on contrast.** Its gamma compresses
+  the moving image's spread on top of the 0.7 gain, so the effective loss is
+  ×2.3, not ×1.43. Only pairs with the Vosges November date go further (up to
+  ×5.3, with a low sun and some snow). Its blur (0.58) is beyond every real
+  pair's (at most 0.50).
+- **No preset models ground change.** Season pairs correlate at 0.60–0.65 and a
+  year apart Beauce falls to −0.04, since the fields changed crop. `hard` keeps
+  0.84 and `mild` 1.00: the presets change appearance, the ground stays the
+  same. That is what the real pairs add, and what tickets 09 and 11 measure on
+  them.
+
+**Decision.** `mild` and `hard` stay as `configs/degradations.toml` has them. Their
+nominal values keep describing what the code applies. The measured values above
+say what that means on real chips: `mild`'s blur acts like 0.28 px, and `hard`'s
+gamma makes its contrast loss about ×2.3.
+
+**Why.** The presets vary one thing, how the moving acquisition looks, while the
+ground and the truth stay fixed. That is what makes a failure on `hard` readable
+as sensitivity to noise, blur or radiometry. `mild` already sits where a pair a few
+days apart does. `hard` is a stress case beyond clear real pairs, which a
+robustness test needs; on contrast, only the Vosges November pairs go further.
+Retuning them would also change the N1 table, which stays comparable as
+long as they do not move. Ground change is what the presets lack, and real pairs
+measure it directly: cycle consistency (ticket 09) and the false-change
+experiment (ticket 11) run on them, not on a simulated imitation.

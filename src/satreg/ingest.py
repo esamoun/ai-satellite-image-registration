@@ -8,10 +8,12 @@ its scene classification (SCL) shows the chip window clear enough of cloud and
 cloud shadow. See docs/decisions.md.
 """
 
+import datetime as dt
 import hashlib
 import json
 import logging
 import math
+import re
 import warnings
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
@@ -70,6 +72,11 @@ class Scene:
         cloud_cover: Scene cloud cover, in percent.
         datetime: Acquisition time, ISO 8601.
         scl_href: URL or path of the scene classification COG.
+        platform: Satellite, e.g. ``sentinel-2b``; empty if the catalogue does
+            not say.
+        tile: MGRS tile as the catalogue's ``grid:code`` gives it, e.g.
+            ``MGRS-31UCP``; empty if it does not say.
+        relative_orbit: Relative orbit number, 0 if unknown.
     """
 
     item_id: str
@@ -77,6 +84,14 @@ class Scene:
     cloud_cover: float
     datetime: str
     scl_href: str
+    platform: str = ""
+    tile: str = ""
+    relative_orbit: int = 0
+
+    @property
+    def date(self) -> dt.date:
+        """Acquisition date, in UTC."""
+        return dt.date.fromisoformat(self.datetime[:10])
 
 
 Search = Callable[[Site, Catalogue], list[Scene]]
@@ -127,22 +142,54 @@ def scl_href(assets: Mapping[str, pystac.Asset]) -> str:
     return assets["scl"].href
 
 
-def stac_search(site: Site, catalogue: Catalogue) -> list[Scene]:
+def relative_orbit(properties: Mapping) -> int:
+    """Relative orbit of a Sentinel-2 item, 0 if its properties do not give it.
+
+    Earth Search's Collection 1 items have no ``sat:relative_orbit``, but the
+    orbit is in the product name, e.g. ``S2B_MSIL2A_..._R094_T31UCP_...``.
+
+    Args:
+        properties: Properties of a STAC item.
+
+    Returns:
+        The relative orbit number.
+    """
+    if "sat:relative_orbit" in properties:
+        return int(properties["sat:relative_orbit"])
+    found = re.search(r"_R(\d{3})_", properties.get("s2:product_uri", ""))
+    return int(found.group(1)) if found else 0
+
+
+def stac_scenes(
+    site: Site,
+    catalogue: Catalogue,
+    start: dt.date,
+    end: dt.date,
+    max_cloud: float,
+    tile: str | None = None,
+) -> list[Scene]:
     """Search the catalogue for scenes covering the site centre.
 
     Args:
         site: Site to search for.
         catalogue: STAC API and collection.
+        start: First acquisition date, inclusive.
+        end: Last acquisition date, inclusive.
+        max_cloud: Highest scene cloud cover, in percent.
+        tile: Only scenes of this ``grid:code``, e.g. ``MGRS-31UCP``, if given.
 
     Returns:
-        Scenes under the site's cloud limit, least cloudy first, ties broken by
-        item id so the choice does not depend on the order the API returns.
+        Scenes under the cloud limit, least cloudy first, ties broken by item id
+        so the order does not depend on the order the API returns.
     """
+    query: dict[str, dict] = {"eo:cloud_cover": {"lte": max_cloud}}
+    if tile is not None:
+        query["grid:code"] = {"eq": tile}
     search = Client.open(catalogue.url).search(
         collections=[catalogue.collection],
         intersects={"type": "Point", "coordinates": [site.lon, site.lat]},
-        datetime=f"{site.start.isoformat()}/{site.end.isoformat()}",
-        query={"eo:cloud_cover": {"lte": site.max_cloud}},
+        datetime=f"{start.isoformat()}/{end.isoformat()}",
+        query=query,
         max_items=MAX_ITEMS,
     )
     with warnings.catch_warnings():
@@ -157,13 +204,32 @@ def stac_search(site: Site, catalogue: Catalogue) -> list[Scene]:
             cloud_cover=float(item.properties["eo:cloud_cover"]),
             datetime=item.datetime.isoformat(),
             scl_href=scl_href(item.assets),
+            platform=item.properties.get("platform", ""),
+            tile=item.properties.get("grid:code", ""),
+            relative_orbit=relative_orbit(item.properties),
         )
         for item in items
     ]
     return sorted(scenes, key=lambda s: (s.cloud_cover, s.item_id))
 
 
-def read_window(href: str, site: Site) -> tuple[np.ndarray, dict]:
+def stac_search(site: Site, catalogue: Catalogue) -> list[Scene]:
+    """Search the catalogue for scenes covering the site centre.
+
+    Args:
+        site: Site to search for.
+        catalogue: STAC API and collection.
+
+    Returns:
+        Scenes of the site's date range under its cloud limit, least cloudy
+        first, ties broken by item id.
+    """
+    return stac_scenes(site, catalogue, site.start, site.end, site.max_cloud)
+
+
+def read_window(
+    href: str, site: Site, allow_nodata: bool = False
+) -> tuple[np.ndarray, dict]:
     """Read the chip of a site from one COG, on the COG's own pixel grid.
 
     The site centre is projected into the COG's CRS to find the pixel it falls
@@ -173,13 +239,16 @@ def read_window(href: str, site: Site) -> tuple[np.ndarray, dict]:
     Args:
         href: URL or path of a single-band COG.
         site: Site whose chip to read.
+        allow_nodata: Return a chip with no-data pixels instead of refusing it,
+            for a caller that masks them.
 
     Returns:
         The chip, and a GeoTIFF profile carrying the source CRS, the chip's
         geotransform, dtype and no-data value.
 
     Raises:
-        ChipUnavailable: If the chip leaves the raster or contains no-data pixels.
+        ChipUnavailable: If the chip leaves the raster, or contains no-data
+            pixels and ``allow_nodata`` is false.
     """
     with rasterio.Env(**GDAL_HTTP_OPTIONS), rasterio.open(href) as src:
         xs, ys = transform_coords("EPSG:4326", src.crs, [site.lon], [site.lat])
@@ -196,7 +265,11 @@ def read_window(href: str, site: Site) -> tuple[np.ndarray, dict]:
 
         window = Window(left, top, site.chip_px, site.chip_px)
         data = src.read(1, window=window)
-        if src.nodata is not None and (missing := int(np.sum(data == src.nodata))):
+        if (
+            not allow_nodata
+            and src.nodata is not None
+            and (missing := int(np.sum(data == src.nodata)))
+        ):
             raise ChipUnavailable(f"the chip has {missing} no-data pixels")
 
         profile = {
@@ -249,6 +322,42 @@ def chip_cover(href: str, profile: Mapping) -> dict[str, float]:
         name: 100 * float(np.isin(scl, classes).mean())
         for name, classes in SCL_CLASSES.items()
     }
+
+
+def read_scl(href: str, profile: Mapping) -> np.ndarray:
+    """The scene classification on the chip's own grid.
+
+    Each chip pixel takes the class of the classification pixel its centre falls
+    in. On a Sentinel-2 tile the 20 m grid is made of whole pairs of 10 m pixels,
+    so this is an exact lookup, never an interpolation between classes.
+
+    Args:
+        href: URL or path of the scene classification COG.
+        profile: GeoTIFF profile of the chip, as ``read_window`` returns it.
+
+    Returns:
+        Class codes, of the chip's shape, as ``uint8``.
+
+    Raises:
+        ChipUnavailable: If the classification is not on the chip's CRS or does
+            not cover the chip.
+    """
+    rows, cols = profile["height"], profile["width"]
+    centres = profile["transform"] @ (
+        np.arange(cols)[None, :] + 0.5,
+        np.arange(rows)[:, None] + 0.5,
+    )
+    with rasterio.Env(**GDAL_HTTP_OPTIONS), rasterio.open(href) as src:
+        if src.crs != profile["crs"]:
+            raise ChipUnavailable(f"the classification is in {src.crs}")
+        col, row = ~src.transform @ centres
+        col, row = np.floor(col).astype(int), np.floor(row).astype(int)
+        left, top = int(col.min()), int(row.min())
+        right, bottom = int(col.max()) + 1, int(row.max()) + 1
+        if left < 0 or top < 0 or right > src.width or bottom > src.height:
+            raise ChipUnavailable("the classification does not cover the chip")
+        scl = src.read(1, window=Window(left, top, right - left, bottom - top))
+    return scl[row - top, col - left].astype(np.uint8)
 
 
 def cache_path(site: Site, catalogue: Catalogue, data_dir: Path) -> Path:

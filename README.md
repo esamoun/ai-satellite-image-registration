@@ -152,6 +152,25 @@ Vosges (forest), Libya-4 (desert) and Marseille (coast). The Alps and Libya-4 ar
 held out for the final evaluation: the benchmark refuses them unless given
 `--allow-held-out`, and a table that includes them says so.
 
+### Real multi-temporal pairs
+
+```bash
+satreg real-pairs                 # fetch each site's dates and list its pairs
+satreg check-presets              # measure real pairs next to the presets
+```
+
+Each site also gets a series of real dates, set in
+[`configs/real.toml`](configs/real.toml). The series starts from the chip's own
+scene and adds the clear dates nearest a few days, a season and a year later. All
+dates are on the same tile and relative orbit, and are cut from the same window
+of the grid. The four dates give six pairs and four triplets per site. A real
+pair has no ground truth. It carries both dates, their scenes and satellites, and
+a joint cloud and shadow mask from the SCL. Dates are cached in `data/real/`.
+`satreg check-presets` measures noise, blur difference, contrast, tone and
+correlation on real pairs and on the presets, without registering them, and
+writes the comparison to `outputs/presets-check/`. Held-out sites are fetched
+but not measured.
+
 ### Under degraded conditions
 
 Each pair is run clean and under named degradation presets, declared in

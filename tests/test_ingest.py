@@ -18,8 +18,11 @@ from satreg.ingest import (
     fetch_chip,
     read_chip,
     read_georef,
+    read_scl,
     read_window,
+    relative_orbit,
     scl_href,
+    stac_scenes,
     stac_search,
 )
 from satreg.sites import Catalogue, Site
@@ -154,6 +157,18 @@ def test_chip_with_no_data_pixels_is_unavailable(tmp_path):
         read_window(href, site_at(*CENTRE))
 
 
+def test_a_chip_with_no_data_pixels_is_read_when_the_caller_masks_them(tmp_path):
+    data = np.ones(SHAPE, dtype=np.uint16)
+    data[:, :190] = 0
+    href = write_cog(tmp_path / "edge.tif", data)
+
+    chip, profile = read_window(href, site_at(*CENTRE), allow_nodata=True)
+
+    # The chip starts on column 168, so its first 22 columns have no data.
+    assert (chip[:, :22] == 0).all() and (chip[:, 22:] == 1).all()
+    assert profile["nodata"] == 0
+
+
 def test_fetched_chip_keeps_crs_geotransform_and_its_scene(source, tmp_path):
     href, data = source
     site = site_at(*CENTRE)
@@ -236,13 +251,13 @@ def test_band_asset_is_the_single_band_one_not_the_colour_composite():
         band_href(assets, "B12")
 
 
-def item(item_id, cloud_cover):
+def item(item_id, cloud_cover, **properties):
     stac_item = pystac.Item(
         id=item_id,
         geometry=None,
         bbox=None,
         datetime=dt.datetime(2025, 7, 1, tzinfo=dt.UTC),
-        properties={"eo:cloud_cover": cloud_cover},
+        properties={"eo:cloud_cover": cloud_cover, **properties},
     )
     stac_item.add_asset("red", asset(f"{item_id}/B04.tif", "B04"))
     stac_item.add_asset("scl", pystac.Asset(f"{item_id}/SCL.tif"))
@@ -276,6 +291,67 @@ def test_search_asks_for_the_site_and_sorts_least_cloudy_first(monkeypatch):
     assert params["intersects"]["coordinates"] == [site.lon, site.lat]
     assert params["datetime"] == "2025-04-01/2025-09-30"
     assert params["query"] == {"eo:cloud_cover": {"lte": 5.0}}
+
+
+def test_a_search_on_one_tile_asks_for_it_and_records_satellite_tile_and_orbit(
+    monkeypatch,
+):
+    requests = []
+    found = item(
+        "a",
+        1.0,
+        platform="sentinel-2c",
+        **{
+            "grid:code": "MGRS-31UCP",
+            "s2:product_uri": "S2C_MSIL2A_20250701T105041_N0511_R051_T31UCP_2025.SAFE",
+        },
+    )
+
+    class FakeClient:
+        @staticmethod
+        def open(url):
+            return FakeClient()
+
+        def search(self, **params):
+            requests.append(params)
+            return type("Search", (), {"items": lambda self: iter([found])})()
+
+    monkeypatch.setattr(ingest, "Client", FakeClient)
+
+    (scene,) = stac_scenes(
+        site_at(*CENTRE),
+        CATALOGUE,
+        dt.date(2025, 6, 1),
+        dt.date(2025, 6, 30),
+        50.0,
+        tile="MGRS-31UCP",
+    )
+
+    (params,) = requests
+    assert params["datetime"] == "2025-06-01/2025-06-30"
+    assert params["query"] == {
+        "eo:cloud_cover": {"lte": 50.0},
+        "grid:code": {"eq": "MGRS-31UCP"},
+    }
+    assert (scene.platform, scene.tile, scene.relative_orbit) == (
+        "sentinel-2c",
+        "MGRS-31UCP",
+        51,
+    )
+    assert scene.date == dt.date(2025, 7, 1)
+
+
+@pytest.mark.parametrize(
+    ("properties", "orbit"),
+    [
+        ({"s2:product_uri": "S2B_MSIL2A_20250701T105619_N0511_R094_T31UCP"}, 94),
+        ({"sat:relative_orbit": 8, "s2:product_uri": "S2B_R094_T31UCP"}, 8),
+        ({"s2:product_uri": "S2B_MSIL2A_20250701"}, 0),
+        ({}, 0),
+    ],
+)
+def test_relative_orbit_is_read_from_the_item_or_its_product_name(properties, orbit):
+    assert relative_orbit(properties) == orbit
 
 
 def test_scene_classification_asset_is_found_by_its_key():
@@ -330,6 +406,39 @@ def test_a_chip_on_an_odd_pixel_counts_every_20_m_pixel_it_touches(source, tmp_p
     cover = chip_cover(scl, profile)
 
     assert cover["cloud"] == pytest.approx(100 / 33)
+
+
+def test_each_chip_pixel_takes_the_class_of_the_20_m_pixel_under_its_centre(
+    source, tmp_path
+):
+    href, _ = source
+    # The chip starts on 10 m pixel (119, 169), halfway through a 20 m pixel.
+    _, profile = read_window(href, site_at(CENTRE[0] + 1, CENTRE[1] + 1))
+    rows, cols = SHAPE[0] // 2, SHAPE[1] // 2
+    codes = ((np.arange(rows)[:, None] * 7 + np.arange(cols)[None, :]) % 251).astype(
+        np.uint8
+    )
+    scl = write_cog(
+        tmp_path / "SCL.tif", codes, transform=TRANSFORM @ TRANSFORM.scale(2)
+    )
+
+    chip_scl = read_scl(scl, profile)
+
+    row, col = np.arange(64)[:, None] + 119, np.arange(64)[None, :] + 169
+    np.testing.assert_array_equal(chip_scl, codes[row // 2, col // 2])
+    assert chip_scl.dtype == np.uint8
+
+
+def test_classification_not_covering_the_chip_is_unavailable(source, tmp_path):
+    href, _ = source
+    _, profile = read_window(href, site_at(*CENTRE))
+    small = np.full((60, 90), VEGETATION, np.uint8)
+    scl = write_cog(
+        tmp_path / "SCL.tif", small, transform=TRANSFORM @ TRANSFORM.scale(2)
+    )
+
+    with pytest.raises(ChipUnavailable, match="does not cover"):
+        read_scl(scl, profile)
 
 
 def test_classification_on_another_grid_is_unavailable(source, tmp_path):

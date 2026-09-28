@@ -15,7 +15,7 @@ import logging
 import math
 import re
 import warnings
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -96,6 +96,13 @@ class Scene:
 
 Search = Callable[[Site, Catalogue], list[Scene]]
 """Finds the candidate scenes of a site, least cloudy first."""
+
+BandHrefs = Callable[[str, Catalogue, Sequence[str]], dict[str, str]]
+"""Finds the single-band COG of each named band in one item, by item id."""
+
+# Bands a multi-band chip may hold: the 10 m bands, which share the grid of the
+# site's chip, so none is resampled. See docs/decisions.md.
+TEN_METRE_BANDS = ("B02", "B03", "B04", "B08")
 
 
 class ChipUnavailable(Exception):
@@ -225,6 +232,34 @@ def stac_search(site: Site, catalogue: Catalogue) -> list[Scene]:
         first, ties broken by item id.
     """
     return stac_scenes(site, catalogue, site.start, site.end, site.max_cloud)
+
+
+def stac_band_hrefs(
+    item_id: str, catalogue: Catalogue, bands: Sequence[str]
+) -> dict[str, str]:
+    """Find the single-band COG of each band in one item of the catalogue.
+
+    Args:
+        item_id: STAC item id, as a chip's ``item_id`` tag records it.
+        catalogue: STAC API and collection.
+        bands: Band names, e.g. ``("B04", "B08")``.
+
+    Returns:
+        Band name to the href of its COG.
+
+    Raises:
+        LookupError: If the collection has no item of that id.
+        ValueError: If the item has no single-band asset for a band.
+    """
+    search = Client.open(catalogue.url).search(
+        collections=[catalogue.collection], ids=[item_id], max_items=1
+    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", "Could not parse bucket", UserWarning)
+        items = list(search.items())
+    if not items:
+        raise LookupError(f"no item {item_id} in {catalogue.collection}")
+    return {band: band_href(items[0].assets, band) for band in bands}
 
 
 def read_window(
@@ -375,10 +410,33 @@ def cache_path(site: Site, catalogue: Catalogue, data_dir: Path) -> Path:
     Returns:
         ``data_dir/chips/<site>/<band>_<hash>.tif``.
     """
-    params = {**asdict(site), **asdict(catalogue)}
+    return data_dir / "chips" / site.name / f"{site.band}_{_key(site, catalogue)}.tif"
+
+
+def _key(site: Site, catalogue: Catalogue, **extra: object) -> str:
+    """Hash every parameter that decides which chip is read, and ``extra``."""
+    params = {**asdict(site), **asdict(catalogue), **extra}
     del params["held_out"]
-    key = hashlib.sha256(json.dumps(params, default=str).encode()).hexdigest()[:12]
-    return data_dir / "chips" / site.name / f"{site.band}_{key}.tif"
+    return hashlib.sha256(json.dumps(params, default=str).encode()).hexdigest()[:12]
+
+
+def bands_cache_path(
+    site: Site, catalogue: Catalogue, data_dir: Path, bands: Sequence[str]
+) -> Path:
+    """Where the multi-band chip of a site is cached.
+
+    Args:
+        site: Site of the chip.
+        catalogue: Catalogue the chip comes from.
+        data_dir: Root of downloaded data.
+        bands: Bands of the chip, in the order it stores them.
+
+    Returns:
+        ``data_dir/chips/<site>/<band>-<band>..._<hash>.tif``, the hash covering
+        the band list as well as the site's own chip parameters.
+    """
+    key = _key(site, catalogue, bands=list(bands))
+    return data_dir / "chips" / site.name / f"{'-'.join(bands)}_{key}.tif"
 
 
 def fetch_chip(
@@ -477,3 +535,110 @@ def read_georef(path: Path) -> Georef:
     """
     with rasterio.open(path) as src:
         return Georef(src.crs, src.transform)
+
+
+def check_bands(bands: Sequence[str]) -> None:
+    """Refuse a band list a multi-band chip cannot hold.
+
+    Args:
+        bands: Band names.
+
+    Raises:
+        ValueError: If the list is empty, repeats a band, or names a band outside
+            ``TEN_METRE_BANDS``.
+    """
+    if not bands:
+        raise ValueError("a multi-band chip needs at least one band")
+    if len(set(bands)) != len(bands):
+        raise ValueError(f"bands repeat: {list(bands)}")
+    if unknown := [band for band in bands if band not in TEN_METRE_BANDS]:
+        raise ValueError(
+            f"band {unknown[0]} is not a 10 m band ({', '.join(TEN_METRE_BANDS)}): "
+            "it would need resampling onto the chip's grid"
+        )
+
+
+def fetch_bands(
+    site: Site,
+    catalogue: Catalogue,
+    data_dir: Path,
+    bands: Sequence[str],
+    search: Search = stac_search,
+    hrefs: BandHrefs = stac_band_hrefs,
+) -> Path:
+    """Return the cached multi-band chip of a site, fetching it first if needed.
+
+    The bands are read from the scene of the site's own chip (``fetch_chip``,
+    which chooses it by cloud), over the same window, so each band of the chip
+    covers the same ground on the same grid, and the site's own band is the
+    single-band chip to the digital number.
+
+    Args:
+        site: Site of the chip.
+        catalogue: Catalogue to search.
+        data_dir: Root of downloaded data.
+        bands: Bands to hold, among ``TEN_METRE_BANDS``, in the order stored.
+        search: Scene search for the site's own chip, replaced in tests.
+        hrefs: Band lookup in the chosen item, replaced in tests.
+
+    Returns:
+        Path of the chip GeoTIFF, one band per name, each band described by it.
+
+    Raises:
+        ValueError: If the band list is invalid, see ``check_bands``.
+        ChipUnavailable: If a band's window is not on the grid of the site's
+            chip or has no-data pixels.
+    """
+    check_bands(bands)
+    path = bands_cache_path(site, catalogue, data_dir, bands)
+    if path.exists():
+        logger.info("%s: cached chip %s", site.name, path)
+        return path
+
+    chip = fetch_chip(site, catalogue, data_dir, search)
+    with rasterio.open(chip) as src:
+        item_id = src.tags()["item_id"]
+        grid = (src.crs, src.transform)
+    sources = hrefs(item_id, catalogue, bands)
+    layers = []
+    for band in bands:
+        data, band_profile = read_window(sources[band], site)
+        if (band_profile["crs"], band_profile["transform"]) != grid:
+            raise ChipUnavailable(
+                f"{band} of {item_id} is not on the grid of the {site.band} chip"
+            )
+        layers.append(data)
+    # The profile of a window read, as ``fetch_chip`` writes it, not the chip's
+    # own, whose block layout does not apply to an untiled file.
+    profile = band_profile
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial = path.with_suffix(".partial")
+    profile.update(count=len(bands), dtype=layers[0].dtype, compress="deflate")
+    with rasterio.open(partial, "w", **profile) as dst:
+        for index, (band, data) in enumerate(zip(bands, layers, strict=True), 1):
+            dst.write(data, index)
+            dst.set_band_description(index, band)
+        dst.update_tags(
+            site=site.name,
+            bands=",".join(bands),
+            item_id=item_id,
+            chip=chip.name,
+            sources=json.dumps(sources),
+        )
+    partial.replace(path)
+    logger.info("%s: fetched %s from %s", site.name, path, item_id)
+    return path
+
+
+def read_bands(path: Path) -> dict[str, np.ndarray]:
+    """Load a multi-band chip as one 2-D array per band.
+
+    Args:
+        path: Chip GeoTIFF written by ``fetch_bands``.
+
+    Returns:
+        Band name to its stored digital numbers, in the order stored.
+    """
+    with rasterio.open(path) as src:
+        return {band: src.read(index) for index, band in enumerate(src.descriptions, 1)}

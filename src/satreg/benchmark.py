@@ -61,6 +61,10 @@ class BenchmarkConfig:
         local_length: Correlation length of that field, in px: the distance
             over which the residuals of one elevation model error stay alike.
         scenarios: Geometric models to simulate, among ``SCENARIOS``.
+        band_pairs: Inter-band pairs to simulate, as ``(reference band, moving
+            band)``: the reference image is cut from the first band and the
+            moving image from the second, over the same window. Empty for
+            single-band pairs, cut from each site's one image.
         seed: Seed for pair geometry and degradations.
         failure_threshold: Mean end-point error above which a pair failed, in px.
         warmup: Untimed calls of each method before its first timed one.
@@ -76,6 +80,7 @@ class BenchmarkConfig:
     max_local_shift: float = 0.8
     local_length: float = 64.0
     scenarios: tuple[str, ...] = SCENARIOS
+    band_pairs: tuple[tuple[str, str], ...] = ()
     seed: int = 0
     failure_threshold: float = FAILURE_EPE_PX
     warmup: int = 1
@@ -100,6 +105,10 @@ class BenchmarkConfig:
             raise ValueError(
                 f"scenarios must be among {', '.join(SCENARIOS)}, got {self.scenarios}"
             )
+        if any(len(pair) != 2 for pair in self.band_pairs):
+            raise ValueError(
+                f"band pairs must be (reference, moving), got {self.band_pairs}"
+            )
         if self.local_length <= 0:
             raise ValueError(f"local_length must be positive, got {self.local_length}")
         if not 0 <= self.max_scale_change < 1:
@@ -114,6 +123,8 @@ class PairResult:
 
     Attributes:
         site: Site the pair was cut from.
+        bands: Band pair the pair was cut from, as ``reference/moving``, e.g.
+            ``B04/B08``; empty for a single-band pair.
         scenario: Geometric model the pair was simulated with.
         degradation: Name of the degradation applied to the pair.
         method: Name of the method.
@@ -137,6 +148,7 @@ class PairResult:
     """
 
     site: str
+    bands: str
     scenario: str
     degradation: str
     method: str
@@ -197,6 +209,7 @@ def draw_pair(
     rng: np.random.Generator,
     scenario: str = "translation",
     georef: Georef | None = None,
+    reference: np.ndarray | None = None,
 ) -> SimulatedPair:
     """Cut a random window from a site image and simulate a random displacement.
 
@@ -207,23 +220,35 @@ def draw_pair(
     so it adds that field to its affine twin's truth. The margin covers every
     scenario, whether the run has it or not, for the same reason.
 
+    An inter-band pair warps the window of ``image``, one band, into the moving
+    image, and takes the reference image from the same window of ``reference``,
+    another band of the same scene and grid. It is the single-band pair of
+    ``image`` drawn with the same generator, with the reference swapped.
+
     Args:
-        image: 2-D site image.
+        image: 2-D site image, the moving band of an inter-band pair.
         config: Run parameters.
         rng: Generator for the window position and the displacement.
         scenario: One of ``SCENARIOS``.
         georef: Map grid of the site image, if it has one.
+        reference: Reference band of an inter-band pair, same shape and grid
+            as ``image``; ``None`` for a single-band pair.
 
     Returns:
         A clean simulated pair of ``config.size`` px, on the grid of the window
         it covers when the site image has one.
 
     Raises:
-        ValueError: If the image is too small for the window and its margin, or
-            the scenario is unknown.
+        ValueError: If the image is too small for the window and its margin,
+            the scenario is unknown, or the reference band is not the image's
+            shape.
     """
     if scenario not in SCENARIOS:
         raise ValueError(f"unknown scenario {scenario!r}")
+    if reference is not None and reference.shape != image.shape:
+        raise ValueError(
+            f"reference band {reference.shape} is not the shape of {image.shape}"
+        )
     margin = margin_for(max_reach(config))
     window = config.size + 2 * margin
     rows, cols = image.shape
@@ -257,10 +282,74 @@ def draw_pair(
         shape = (config.size, config.size)
         local = SmoothField.draw(rng, config.local_length, float(peak), shape)
         pair = simulate_dense(source, affine, local, margin)
+    if reference is not None:
+        # The window of the reference band, cropped by the margin like the pair.
+        rows = slice(top + margin, top + margin + config.size)
+        cols = slice(left + margin, left + margin + config.size)
+        pair = dataclasses.replace(pair, reference=reference[rows, cols].astype(float))
     if georef is None:
         return pair
     # The pair is the window cropped by the margin on each side.
     return dataclasses.replace(pair, georef=georef.window(top + margin, left + margin))
+
+
+def in_units_of(image: np.ndarray, reference: np.ndarray) -> np.ndarray:
+    """Map a band linearly onto the mean and standard deviation of another.
+
+    The degradations measure their levels in the reference image's statistics
+    (cloud brightness, level offset, noise). Mapped this way, a moving band keeps
+    every contrast it has, inversions included, but a cloud laid over it is as
+    bright in its own units as over the reference, and the noise has the same
+    SNR on both images. Every method stretches each image by its own statistics,
+    so none sees the change. See docs/decisions.md.
+
+    Args:
+        image: 2-D band, the moving band of an inter-band pair.
+        reference: 2-D band it is paired with.
+
+    Returns:
+        ``image`` as floats, with the mean and standard deviation of
+        ``reference`` over the whole array.
+
+    Raises:
+        ValueError: If ``image`` is constant.
+    """
+    spread = float(image.std())
+    if spread == 0:
+        raise ValueError("a constant band cannot be mapped onto another")
+    scaled = (image - image.mean()) * (reference.std() / spread)
+    return reference.mean() + scaled
+
+
+def _pair_sources(
+    site: str,
+    image: np.ndarray,
+    config: BenchmarkConfig,
+    bands: Mapping[str, Mapping[str, np.ndarray]],
+) -> list[tuple[str, np.ndarray, np.ndarray | None]]:
+    """List what a site's pairs are cut from: ``(bands label, moving, reference)``.
+
+    A single-band run cuts both images from ``image``. An inter-band run cuts
+    each band pair from the site's bands, the moving band in the reference
+    band's units, except when both are the same band, which is left as stored
+    so the pair is its single-band twin exactly.
+    """
+    if not config.band_pairs:
+        return [("", image, None)]
+    if site not in bands:
+        raise ValueError(f"band pairs need the bands of site {site!r}")
+    sources = []
+    for reference_band, moving_band in config.band_pairs:
+        missing = {reference_band, moving_band} - set(bands[site])
+        if missing:
+            raise ValueError(f"site {site!r} has no band {sorted(missing)[0]}")
+        reference = bands[site][reference_band]
+        moving = bands[site][moving_band]
+        if moving_band != reference_band:
+            moving = in_units_of(moving, reference)
+        label = f"{reference_band}/{moving_band}"
+        sources.append((label, moving, reference))
+    return sources
 
 
 def method_device(method: Method) -> str:
@@ -299,8 +388,8 @@ def _run_method(
         method: Method to run.
         pair: Simulated pair.
         config: Run parameters: failure threshold and repeat count.
-        labels: ``site``, ``scenario``, ``degradation``, ``method``, ``device``
-            and ``pair`` of the row.
+        labels: ``site``, ``bands``, ``scenario``, ``degradation``, ``method``,
+            ``device`` and ``pair`` of the row.
         warmup: Untimed calls to make first.
 
     Returns:
@@ -364,13 +453,15 @@ def run_benchmark(
     config: BenchmarkConfig,
     degradations: Mapping[str, Degradation] = DEGRADATIONS,
     georefs: Mapping[str, Georef] | None = None,
+    bands: Mapping[str, Mapping[str, np.ndarray]] | None = None,
 ) -> list[PairResult]:
     """Score every method on every simulated pair.
 
     Pair geometry depends only on the seed, the site name and the pair index, so
-    every scenario, degradation and method sees the same window and the same
-    displacement at the centre. Errors are averaged over the pair's valid pixels.
-    Each method is warmed up on the first pair it gets, then timed on every pair.
+    every band pair, scenario, degradation and method sees the same window and
+    the same displacement at the centre. Errors are averaged over the pair's
+    valid pixels. Each method is warmed up on the first pair it gets, then timed
+    on every pair.
 
     Args:
         sites: Site name to 2-D image to cut pairs from.
@@ -379,12 +470,16 @@ def run_benchmark(
         degradations: Degradation name to degradation.
         georefs: Site name to the map grid of its image, for the sites that
             have one. Georeferenced methods get the grid of each pair.
+        bands: Site name to band name to 2-D band, all on the grid of the
+            site's image, for a run with ``config.band_pairs``. The pairs of
+            such a run are cut from the bands instead of the site's image.
 
     Returns:
-        One result per site, scenario, degradation, method and pair.
+        One result per site, band pair, scenario, degradation, method and pair.
 
     Raises:
-        ValueError: If ``config.n_pairs`` is not positive.
+        ValueError: If ``config.n_pairs`` is not positive, or a band pair names
+            a band a site does not have.
     """
     if config.n_pairs < 1:
         raise ValueError(f"n_pairs must be positive, got {config.n_pairs}")
@@ -393,25 +488,30 @@ def run_benchmark(
     warmed: set[str] = set()
     results = []
     for site, image in sites.items():
-        for index in range(config.n_pairs):
-            for scenario in config.scenarios:
-                geometry = _rng(config.seed, site, index)
-                clean = draw_pair(image, config, geometry, scenario, georefs.get(site))
-                for degradation_name, degrade in degradations.items():
-                    rng = _rng(config.seed, site, index, degradation_name)
-                    pair = degrade(clean, rng)
-                    for method_name, method in methods.items():
-                        labels = {
-                            "site": site,
-                            "scenario": scenario,
-                            "degradation": degradation_name,
-                            "method": method_name,
-                            "device": method_device(method),
-                            "pair": index,
-                        }
-                        warmup = 0 if method_name in warmed else config.warmup
-                        warmed.add(method_name)
-                        results.append(
-                            _run_method(method, pair, config, labels, warmup)
-                        )
+        sources = _pair_sources(site, image, config, bands or {})
+        for band_label, moving, reference in sources:
+            for index in range(config.n_pairs):
+                for scenario in config.scenarios:
+                    geometry = _rng(config.seed, site, index)
+                    clean = draw_pair(
+                        moving, config, geometry, scenario, georefs.get(site), reference
+                    )
+                    for degradation_name, degrade in degradations.items():
+                        rng = _rng(config.seed, site, index, degradation_name)
+                        pair = degrade(clean, rng)
+                        for method_name, method in methods.items():
+                            labels = {
+                                "site": site,
+                                "bands": band_label,
+                                "scenario": scenario,
+                                "degradation": degradation_name,
+                                "method": method_name,
+                                "device": method_device(method),
+                                "pair": index,
+                            }
+                            warmup = 0 if method_name in warmed else config.warmup
+                            warmed.add(method_name)
+                            results.append(
+                                _run_method(method, pair, config, labels, warmup)
+                            )
     return results

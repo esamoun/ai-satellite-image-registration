@@ -8,6 +8,7 @@ from satreg.benchmark import (
     BenchmarkConfig,
     _rng,
     draw_pair,
+    in_units_of,
     max_reach,
     run_benchmark,
 )
@@ -314,3 +315,113 @@ def test_pairs_of_a_site_without_a_grid_have_none():
     run_benchmark(SITES, {"spy": spy}, CONFIG)
 
     assert all(georef is None for _, georef in spy.seen)
+
+
+TEXTURE = SITES["synthetic"]
+INVERTED = {"synthetic": {"B04": TEXTURE, "B08": 5_000 - 3 * TEXTURE}}
+
+
+def inter_band(*pairs):
+    """``CONFIG`` over the given band pairs."""
+    return BenchmarkConfig(
+        n_pairs=4,
+        size=64,
+        max_shift=2.0,
+        seed=0,
+        scenarios=("translation",),
+        band_pairs=pairs,
+    )
+
+
+def test_band_pair_is_a_column_of_the_results_and_the_summary():
+    methods = {"phase_correlation": phase_correlation}
+    config = inter_band(("B04", "B08"), ("B08", "B04"))
+
+    results = run_benchmark(SITES, methods, config, bands=INVERTED)
+
+    assert [r.bands for r in results] == ["B04/B08"] * 4 + ["B08/B04"] * 4
+    assert {row.bands for row in summarize(results)} == {"B04/B08", "B08/B04"}
+    table = to_markdown(summarize(results))
+    assert "| site | bands | scenario |" in table
+    assert "| synthetic | B08/B04 | translation | clean |" in table
+    single = run_benchmark(SITES, methods, CONFIG)
+    assert {r.bands for r in single} == {""}
+    assert "| site | scenario |" in to_markdown(summarize(single))
+
+
+def test_same_band_pair_is_its_single_band_twin():
+    methods = {"phase_correlation": phase_correlation}
+
+    single = run_benchmark(SITES, methods, CONFIG)
+    same = run_benchmark(SITES, methods, inter_band(("B04", "B04")), bands=INVERTED)
+
+    assert [(r.truth, r.estimate) for r in same] == [
+        (r.truth, r.estimate) for r in single
+    ]
+
+
+def test_inter_band_pair_keeps_the_geometry_and_takes_the_reference_band():
+    rng = _rng(0, "synthetic", 1)
+    single = draw_pair(TEXTURE, CONFIG, rng)
+    rng = _rng(0, "synthetic", 1)
+    moving = in_units_of(INVERTED["synthetic"]["B08"], TEXTURE)
+
+    pair = draw_pair(moving, CONFIG, rng, reference=TEXTURE)
+
+    assert pair.truth == single.truth
+    np.testing.assert_array_equal(pair.reference, single.reference)
+    correlation = np.corrcoef(pair.moving.ravel(), single.moving.ravel())[0, 1]
+    assert correlation == pytest.approx(-1.0)
+
+
+def test_reference_band_must_cover_the_moving_band():
+    with pytest.raises(ValueError):
+        draw_pair(TEXTURE, CONFIG, _rng(0, "synthetic", 1), reference=TEXTURE[1:])
+
+
+def test_known_shift_is_recovered_across_a_contrast_inversion():
+    methods = {"phase_correlation": phase_correlation}
+
+    results = run_benchmark(SITES, methods, inter_band(("B04", "B08")), bands=INVERTED)
+
+    assert all(not r.failed and r.mean_epe < 0.1 for r in results)
+
+
+def test_degradations_apply_to_inter_band_pairs():
+    degradations = {"clean": Preset(), "cloudy": Preset(clouds=Clouds(0.25))}
+    methods = {"phase_correlation": phase_correlation}
+
+    results = run_benchmark(
+        SITES, methods, inter_band(("B04", "B08")), degradations, bands=INVERTED
+    )
+
+    fractions = {r.degradation: r.cloud_fraction for r in results}
+    assert fractions["clean"] == 0.0
+    assert fractions["cloudy"] == pytest.approx(0.25, abs=1e-3)
+
+
+@pytest.mark.parametrize(
+    "bands",
+    [{}, {"synthetic": {"B04": TEXTURE}}],
+    ids=["no bands for the site", "missing band"],
+)
+def test_band_pairs_need_both_bands_of_every_site(bands):
+    with pytest.raises(ValueError):
+        run_benchmark(SITES, {}, inter_band(("B04", "B08")), bands=bands)
+
+
+def test_band_pairs_are_pairs():
+    with pytest.raises(ValueError):
+        inter_band(("B04", "B08", "B03"))
+
+
+def test_band_is_mapped_onto_the_other_keeping_its_contrasts():
+    band = 5_000 - 3 * TEXTURE
+
+    mapped = in_units_of(band, TEXTURE)
+
+    assert mapped.mean() == pytest.approx(TEXTURE.mean())
+    assert mapped.std() == pytest.approx(TEXTURE.std())
+    assert np.corrcoef(mapped.ravel(), TEXTURE.ravel())[0, 1] == pytest.approx(-1)
+    with pytest.raises(ValueError):
+        in_units_of(np.ones((4, 4)), TEXTURE)

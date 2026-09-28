@@ -18,7 +18,15 @@ from .benchmark import SCENARIOS, BenchmarkConfig, method_device, run_benchmark
 from .compute import describe, environment, process_peak_rss_mib
 from .degrade import Preset, load_presets
 from .georef import NOMINAL, Georef
-from .ingest import fetch_chip, read_chip, read_georef
+from .ingest import (
+    TEN_METRE_BANDS,
+    check_bands,
+    fetch_bands,
+    fetch_chip,
+    read_bands,
+    read_chip,
+    read_georef,
+)
 from .landcover import EROSION_PX, fetch_landcover, read_landcover, stable_ground
 from .merge import MergeError, merge
 from .methods import (
@@ -148,6 +156,17 @@ def _parser(run_config: dict[str, object] | None = None) -> argparse.ArgumentPar
         choices=SCENARIOS,
         default=list(defaults.scenarios),
         help="geometric models to simulate (default: all)",
+    )
+    bench.add_argument(
+        "--band-pair",
+        action="append",
+        nargs=2,
+        dest="band_pairs",
+        metavar=("REFERENCE", "MOVING"),
+        help="simulate inter-band pairs, the reference image cut from one band "
+        "and the moving image from another of the same scene, repeatable; bands "
+        f"among {', '.join(TEN_METRE_BANDS)} (default: single-band pairs from "
+        "each site's own band)",
     )
     bench.add_argument(
         "--max-shift",
@@ -553,23 +572,55 @@ def held_out_sites(args: argparse.Namespace) -> list[str]:
     return held_out
 
 
-def site_images(
-    args: argparse.Namespace,
-) -> tuple[dict[str, np.ndarray], dict[str, Georef]]:
-    """Load the image and map grid of every site the benchmark runs on.
-
-    Configured sites come from the chip cache, fetched first if not cached, on
-    the chip's own grid. The synthetic site gets a nominal grid. The
-    configuration file is only read when a configured site is requested, so the
-    synthetic site runs anywhere.
+def band_list(args: argparse.Namespace) -> list[str]:
+    """Check the benchmark's band pairs, and list the bands they need.
 
     Args:
         args: Parsed ``benchmark`` arguments.
 
     Returns:
-        Site name to 2-D image, and site name to its map grid.
+        Every band of the band pairs, once, in order of first mention; empty for
+        a single-band run.
+
+    Raises:
+        SystemExit: If a band is not a 10 m band, or band pairs are asked of the
+            synthetic site, which has a single band.
     """
-    images, georefs = {}, {}
+    bands = list(dict.fromkeys(b for pair in args.band_pairs or [] for b in pair))
+    if not bands:
+        return []
+    try:
+        check_bands(bands)
+    except ValueError as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+    if SYNTHETIC_SITE in (args.sites or [SYNTHETIC_SITE]):
+        raise SystemExit(
+            f"satreg: the {SYNTHETIC_SITE} site has no bands; band pairs need "
+            "configured sites"
+        )
+    return bands
+
+
+def site_images(
+    args: argparse.Namespace,
+) -> tuple[dict[str, np.ndarray], dict[str, Georef], dict[str, dict[str, np.ndarray]]]:
+    """Load the image, map grid and bands of every site the benchmark runs on.
+
+    Configured sites come from the chip cache, fetched first if not cached, on
+    the chip's own grid. Their bands, for a run with band pairs, come from a
+    multi-band chip of the same scene and window. The synthetic site gets a
+    nominal grid. The configuration file is only read when a configured site is
+    requested, so the synthetic site runs anywhere.
+
+    Args:
+        args: Parsed ``benchmark`` arguments.
+
+    Returns:
+        Site name to 2-D image, site name to its map grid, and site name to band
+        name to 2-D band (empty for a single-band run).
+    """
+    wanted = band_list(args)
+    images, georefs, bands = {}, {}, {}
     config = None
     for name in args.sites or [SYNTHETIC_SITE]:
         if name == SYNTHETIC_SITE:
@@ -578,10 +629,14 @@ def site_images(
             continue
         config = config or load_sites(args.sites_config)
         _configured_site(config, name)
-        chip = fetch_chip(config.sites[name], config.catalogue, args.data_dir)
+        site = config.sites[name]
+        chip = fetch_chip(site, config.catalogue, args.data_dir)
         images[name] = read_chip(chip)
         georefs[name] = read_georef(chip)
-    return images, georefs
+        if wanted:
+            stack = fetch_bands(site, config.catalogue, args.data_dir, wanted)
+            bands[name] = read_bands(stack)
+    return images, georefs, bands
 
 
 def degradation_presets(args: argparse.Namespace) -> dict[str, Preset]:
@@ -676,6 +731,7 @@ def benchmark(args: argparse.Namespace) -> str:
         max_local_shift=args.max_local_shift,
         local_length=args.local_length,
         scenarios=tuple(dict.fromkeys(args.scenarios)),
+        band_pairs=tuple(dict.fromkeys(tuple(p) for p in args.band_pairs or [])),
         seed=args.seed,
         failure_threshold=args.failure_threshold,
         warmup=args.warmup,
@@ -683,11 +739,11 @@ def benchmark(args: argparse.Namespace) -> str:
     )
     degradations = degradation_presets(args)
     held_out = held_out_sites(args)
-    sites, georefs = site_images(args)
+    sites, georefs, bands = site_images(args)
     methods = configured_methods(args)
 
     started = perf_counter()
-    results = run_benchmark(sites, methods, config, degradations, georefs)
+    results = run_benchmark(sites, methods, config, degradations, georefs, bands)
     run_seconds = perf_counter() - started
     summary = summarize(results)
     context = environment()

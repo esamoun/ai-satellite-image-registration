@@ -13,9 +13,12 @@ from satreg.ingest import (
     ChipUnavailable,
     Scene,
     band_href,
+    bands_cache_path,
     cache_path,
     chip_cover,
+    fetch_bands,
     fetch_chip,
+    read_bands,
     read_chip,
     read_georef,
     read_scl,
@@ -529,3 +532,88 @@ def test_holding_a_site_out_keeps_its_cached_chip():
     assert cache_path(site, CATALOGUE, Path("data")) == cache_path(
         held_out, CATALOGUE, Path("data")
     )
+
+
+@pytest.fixture
+def band_cogs(source, tmp_path):
+    """The fixture scene's B04 and a B08 COG of the same grid, with its lookup."""
+    href, data = source
+    nir = (20_000 - data.astype(int)).astype(np.uint16)
+    hrefs = {"B04": href, "B08": write_cog(tmp_path / "B08.tif", nir)}
+
+    def lookup(item_id, catalogue, bands):
+        lookup.items.append(item_id)
+        return {band: hrefs[band] for band in bands}
+
+    lookup.items = []
+    return lookup, data, nir
+
+
+def test_band_chip_keeps_the_grid_and_scene_of_the_site_chip(
+    source, band_cogs, tmp_path
+):
+    href, _ = source
+    lookup, data, nir = band_cogs
+    site = site_at(*CENTRE)
+    search = searching(scene(href))
+
+    path = fetch_bands(site, CATALOGUE, tmp_path, ["B04", "B08"], search, lookup)
+
+    chip = fetch_chip(site, CATALOGUE, tmp_path, search)
+    assert read_georef(path) == read_georef(chip)
+    assert lookup.items == ["S2B_T31UCP_20250701"]
+    bands = read_bands(path)
+    assert list(bands) == ["B04", "B08"]
+    np.testing.assert_array_equal(bands["B04"], read_chip(chip))
+    np.testing.assert_array_equal(bands["B08"], nir[118:182, 168:232])
+    with rasterio.open(path) as stack:
+        assert stack.tags()["bands"] == "B04,B08"
+        assert stack.tags()["item_id"] == "S2B_T31UCP_20250701"
+
+
+def test_band_chip_is_cached_under_its_band_list(source, band_cogs, tmp_path):
+    href, _ = source
+    lookup, _, _ = band_cogs
+    site = site_at(*CENTRE)
+    search = searching(scene(href))
+
+    path = fetch_bands(site, CATALOGUE, tmp_path, ["B04", "B08"], search, lookup)
+    again = fetch_bands(site, CATALOGUE, tmp_path, ["B04", "B08"], search, lookup)
+
+    assert again == path == bands_cache_path(site, CATALOGUE, tmp_path, ["B04", "B08"])
+    assert search.calls == 1
+    assert lookup.items == ["S2B_T31UCP_20250701"]
+    assert path != bands_cache_path(site, CATALOGUE, tmp_path, ["B08", "B04"])
+    assert path != cache_path(site, CATALOGUE, tmp_path)
+
+
+@pytest.mark.parametrize("bands", [[], ["B04", "B04"], ["B04", "B05"], ["B04", "SCL"]])
+def test_only_distinct_ten_metre_bands_are_fetched(bands, source, tmp_path):
+    href, _ = source
+
+    with pytest.raises(ValueError):
+        fetch_bands(
+            site_at(*CENTRE), CATALOGUE, tmp_path, bands, searching(scene(href))
+        )
+
+
+def test_band_off_the_site_grid_is_refused(source, tmp_path):
+    href, data = source
+    shifted = TRANSFORM @ TRANSFORM.translation(0.5, 0)
+    hrefs = {
+        "B04": href,
+        "B08": write_cog(tmp_path / "B08.tif", data, transform=shifted),
+    }
+
+    with pytest.raises(ChipUnavailable):
+        fetch_bands(
+            site_at(*CENTRE),
+            CATALOGUE,
+            tmp_path,
+            ["B04", "B08"],
+            searching(scene(href)),
+            lambda item_id, catalogue, bands: {b: hrefs[b] for b in bands},
+        )
+    assert not bands_cache_path(
+        site_at(*CENTRE), CATALOGUE, tmp_path, ["B04", "B08"]
+    ).exists()

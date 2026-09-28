@@ -2495,3 +2495,130 @@ tile, already co-registered to about 0.1 px, registration removes at most 4
 points of false change on stable ground, out of 3 to 23 %. Appearance change
 between dates is the larger part, and a method that adds 0.2 px of error
 (AROSICS on these pairs) makes the result worse than no correction.
+
+---
+
+## 2026-09-28: Inter-band pairs come from the scene and window of the site's chip
+
+**Decision.** A run with band pairs (`--band-pair B04 B08`, or
+`band_pairs = [["B04", "B08"]]` in a run config) reads every band it needs from
+the scene of the site's own chip, over the same window. `fetch_bands` asks the
+catalogue for that item's band COGs by item id. It refuses a band whose window
+is not on the chip's grid, and caches the bands as one multi-band GeoTIFF whose
+key includes the band list (`B04-B08_<key>.tif`). Only the 10 m bands (B02, B03,
+B04, B08) are accepted. A band pair is labelled `reference/moving` (`B04/B08`) in
+a `bands` column of `pairs.csv` and the summary. A single-band run leaves that
+column empty and its markdown table without the column. Runs made before the
+column existed read as single-band. Runs on different band pairs do not merge.
+
+**Why.** The same scene and window mean the two images differ only by band. Date,
+cloud and grid are the same as for the single-band pair, so the row for `B04/B04`
+is the single-band row exactly (tested), and any difference in a `B04/B08` row
+comes from the band. The 10 m bands share one grid, so no band is resampled and
+no interpolation error is added to the truth.
+
+---
+
+## 2026-09-28: The moving band is mapped onto the reference band's mean and spread
+
+*My call*: map the moving band onto the reference band, rather than leave it
+in its own digital numbers.
+
+**Decision.** Before a pair is cut, the moving band is mapped linearly onto the
+mean and standard deviation of the reference band over the whole chip
+(`in_units_of`). The sign is kept, so wherever the two bands have opposite
+contrast (vegetation in red against near-infrared), it stays opposite. A pair
+of a band with itself is left as stored.
+
+**Why.** The degradations set their levels from the reference image: cloud
+brightness, level offset and noise sigma. Over vegetation, B08 has two to three
+times the digital numbers of B04. Without the mapping, a cloud laid over the
+B08 image would be darker than the ground around it, and the noise would have a
+different SNR on each image. Mapped, a degradation has the same effect on both
+images. No method sees the change: each one stretches or normalises every image
+by its own statistics (percentiles for SIFT and the networks, a normalised
+cross-power spectrum for phase correlation). The mapping applies to every method
+alike, so no method gets a normalisation the others do not.
+
+---
+
+## 2026-09-28: The inter-band ground truth holds at 0.1 px on the two scenes measured
+
+**Question.** An inter-band pair shifts band B by a known displacement against
+band A. Its truth is exact only if A and B are co-registered in the product.
+Is the residual small enough to ignore at the 0.1 px scale?
+
+**Spec.** Sentinel-2 requires inter-band co-registration better than 0.3 px of
+the coarser band at 3σ
+([SentiWiki, S2 mission](https://sentiwiki.copernicus.eu/web/s2-mission)). The
+first S2 Data Quality Report (S2-PDGS-MPC-DQR, issue 01, 2015-11-30) measured
+0.23 px at 99.73 %. Later reports aim at a mean bias under 0.1 px. So the
+requirement alone does not rule out a residual of 0.1 to 0.3 px, and it has to
+be measured.
+
+**Measurement.** A band offset in the product would show as the same signed
+error in every method that succeeds. Median signed error at the pair centre
+(estimate minus truth, per component, in px) over the pairs each method did not
+fail, 20 clean translation pairs of 256 px per site (`outputs/inter-band-check/`):
+
+| site | pair | phase correlation | AROSICS | RoMa (pairs kept) |
+|---|---|---:|---:|---:|
+| Toulouse | B04/B08 | (−0.19, +0.08) | (−0.04, −0.13) | (0.00, 0.00), 12 |
+| Beauce | B04/B08 | (−0.08, −0.13) | (+0.25, +0.44) | (−0.01, −0.04), 20 |
+| Toulouse | B04/B03 | (+0.01, +0.03) | (+0.02, +0.03) | (+0.01, +0.02), 20 |
+| Beauce | B04/B03 | (−0.01, +0.03) | (−0.02, +0.01) | (−0.02, +0.01), 20 |
+
+The same run at `--max-shift 0` (`outputs/inter-band-zero/`) gives B04/B02
+within 0.02 px for phase correlation, and B04/B04 exactly 0.
+
+**Reading.** The visible bands agree with B04 to about 0.03 px on both sites,
+whatever the method. On B04/B08 the methods disagree. Phase correlation finds
+−0.19 px along x on every Toulouse window (spread 0.1 px), but RoMa, the most
+accurate method on these pairs, finds no offset (spread under 0.1 px), and
+AROSICS finds none along x either. An offset in the product would bias all three
+alike, so the −0.19 px belongs to phase correlation on two bands that do not
+look alike. The Toulouse and Beauce scenes are co-registered between B04 and
+B08 to within about 0.05 px, and the truth holds at the 0.1 px scale there.
+
+**Limits.** Two scenes, one date each. The requirement allows more, so another
+scene could be worse. A site added to an inter-band run is checked the same
+way: a `--max-shift 0` run and RoMa's signed error.
+
+---
+
+## 2026-09-28: What inter-band pairs show, first measurement on the M1
+
+`satreg benchmark --config configs/n1.toml --band-pair B04 B08 --band-pair B04
+B03 --band-pair B04 B04 --pairs 20 --scenarios translation --degradations clean
+hard --methods phase_correlation sift_ransac arosics raft lightglue roma`
+(`outputs/inter-band-check/`). Failure rate, clean, in %:
+
+| site | pair | phase corr. | SIFT | AROSICS | RAFT | LightGlue | RoMa |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Beauce | B04/B04 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Beauce | B04/B03 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Beauce | B04/B08 | 25 | 55 | 70 | 100 | 30 | 0 |
+| Toulouse | B04/B04 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Toulouse | B04/B03 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Toulouse | B04/B08 | 10 | 95 | 45 | 80 | 85 | 40 |
+
+The B04/B04 rows give the errors of the single-band M1 run to the fourth
+decimal (RAFT 0.0432, LightGlue 0.0393, RoMa 0.0405 px on Beauce), as the same
+scene and window should.
+
+- **Red against green is nearly free.** B04/B03 costs every method a few
+  hundredths of a pixel against B04/B04, and no failure.
+- **Red against near-infrared breaks most methods.** RAFT fails every Beauce
+  pair and 16 of 20 in Toulouse, all by an error over 1 px: its flow assumes the
+  brightness is conserved, and the inversion breaks that. SIFT and LightGlue
+  mostly decline, with too few matches, because a gradient that flips sign
+  changes the descriptor.
+- **RoMa is the one method that still works on red against near-infrared, on
+  clean pairs.** It keeps every Beauce pair at 0.08 px. In Toulouse it declines
+  8 pairs out of 20 (its certainty is under the threshold) and is never wrong
+  by more than 1 px on the others.
+- **Under `hard`, nothing survives B04/B08.** Every method fails 95 to 100 %
+  of the pairs on both sites, except RAFT on Beauce (75 %) and phase
+  correlation in Toulouse (50 %).
+
+20 pairs per row: this table sizes the effect, it is not the N2 table (ticket 12).

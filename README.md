@@ -152,6 +152,24 @@ Vosges (forest), Libya-4 (desert) and Marseille (coast). The Alps and Libya-4 ar
 held out for the final evaluation: the benchmark refuses them unless given
 `--allow-held-out`, and a table that includes them says so.
 
+### Across spectral bands
+
+```bash
+satreg benchmark --site toulouse --band-pair B04 B08
+```
+
+`--band-pair REFERENCE MOVING` (or `band_pairs = [["B04", "B08"]]` in a run
+config) cuts the reference image from one band and the moving image from
+another. Both come from the same scene and window as the site's chip, and the
+moving image is then shifted exactly as in a single-band pair. Red against
+near-infrared is the hard case: vegetation is dark in one and bright in the
+other. Only the 10 m bands (B02, B03, B04, B08) are offered, so no band is
+resampled. The bands are cached as one multi-band chip in `data/chips/`. The band
+pair becomes a column of every table, and the option can be repeated. The
+ground truth assumes the bands are co-registered, and ESA only guarantees that
+to about 0.3 px. `--max-shift 0` measures what is left on a site (see
+[`docs/decisions.md`](docs/decisions.md)).
+
 ### Real multi-temporal pairs
 
 ```bash

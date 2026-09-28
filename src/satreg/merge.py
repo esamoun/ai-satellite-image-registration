@@ -22,6 +22,7 @@ from .report import SummaryRow, held_out_note, memory_note, to_markdown, write_c
 # cost is read. Runs that differ on one of them are not merged.
 SHARED_OPTIONS = (
     "sites",
+    "band_pairs",
     "pairs",
     "size",
     "scenarios",
@@ -103,6 +104,8 @@ def read_run(path: Path) -> Run:
         raise MergeError(f"{path} is not a benchmark run: no {exc.filename}") from None
     for row in summary + pairs:
         row["device"] = _device_of(row, context)
+        # Rows written before band pairs existed are single-band.
+        row.setdefault("bands", "")
     return Run(
         path=path,
         summary=[_summary_row(row) for row in summary],
@@ -116,6 +119,14 @@ def _same(a: object, b: object) -> bool:
     if isinstance(a, float) and isinstance(b, float):
         return a == b or (math.isnan(a) and math.isnan(b))
     return a == b
+
+
+def _option(run: Run, option: str) -> object:
+    value = run.context.get("run", {}).get(option)
+    # Runs made before band pairs existed did not record them, and had none.
+    if option == "band_pairs":
+        return value or []
+    return value
 
 
 def check_mergeable(runs: Sequence[Run]) -> None:
@@ -140,8 +151,7 @@ def check_mergeable(runs: Sequence[Run]) -> None:
     first = runs[0]
     for run in runs[1:]:
         for option in SHARED_OPTIONS:
-            ours = first.context.get("run", {}).get(option)
-            theirs = run.context.get("run", {}).get(option)
+            ours, theirs = _option(first, option), _option(run, option)
             if not _same(ours, theirs):
                 raise MergeError(
                     f"{first.path} and {run.path} differ on {option}: "
@@ -213,7 +223,7 @@ def merge(paths: Sequence[Path], out: Path) -> str:
 
     summary = _in_table_order(
         [row for run in runs for row in run.summary],
-        lambda r: (r.site, r.scenario, r.degradation, r.method),
+        lambda r: (r.site, r.bands, r.scenario, r.degradation, r.method),
     )
     pairs = [row for run in runs for row in run.pairs]
     table = to_markdown(summary) + footnote(runs)

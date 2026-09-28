@@ -12,7 +12,7 @@ from test_ingest import CENTRE, CRS, TRANSFORM, site_at, write_cog
 from satreg import cli
 from satreg.cli import load_run_config, main, parse_args, site_images
 from satreg.georef import NOMINAL
-from satreg.ingest import cache_path
+from satreg.ingest import bands_cache_path, cache_path
 from satreg.methods import load_methods, missing_dependencies
 from satreg.methods.arosics import Arosics
 from satreg.real import ANCHOR, load_series_config, series_path
@@ -303,10 +303,11 @@ def test_a_device_the_machine_lacks_is_refused_before_the_first_pair(monkeypatch
 def test_synthetic_site_gets_the_nominal_grid():
     args = cli._parser().parse_args(["benchmark"])
 
-    images, georefs = site_images(args)
+    images, georefs, bands = site_images(args)
 
     assert georefs == {"synthetic": NOMINAL}
     assert images["synthetic"].ndim == 2
+    assert bands == {}
 
 
 def test_benchmark_runs_a_variant_declared_in_the_methods_config(tmp_path, capsys):
@@ -593,3 +594,74 @@ def test_cycle_refuses_a_held_out_site_named_on_the_command_line(tmp_path):
     with pytest.raises(SystemExit, match="'beauce' is held out.*--allow-held-out"):
         main(["cycle", "--site", "beauce", "--out", str(tmp_path / "out")] + held_out)
     assert not (tmp_path / "out").exists()
+
+
+@pytest.fixture
+def cached_bands(tmp_path, cached_site):
+    """The configured site with a B04/B08 chip in the cache, B08 inverted."""
+    config = load_sites(Path(cached_site[1]))
+    site = config.sites["beauce"]
+    b04 = read_chip_of(cache_path(site, config.catalogue, tmp_path / "data"))
+    stack = bands_cache_path(site, config.catalogue, tmp_path / "data", ["B04", "B08"])
+    with rasterio.open(
+        stack,
+        "w",
+        driver="GTiff",
+        width=128,
+        height=128,
+        count=2,
+        dtype=b04.dtype,
+        crs=CRS,
+        transform=TRANSFORM,
+    ) as dst:
+        for index, (band, data) in enumerate([("B04", b04), ("B08", 10_000 - b04)], 1):
+            dst.write(data, index)
+            dst.set_band_description(index, band)
+    return cached_site
+
+
+def read_chip_of(path):
+    with rasterio.open(path) as src:
+        return src.read(1)
+
+
+def test_benchmark_runs_band_pairs_of_a_configured_site(tmp_path, capsys, cached_bands):
+    out = tmp_path / "out"
+    main(
+        ["benchmark", "--site", "beauce", "--band-pair", "B04", "B08"]
+        + ["--pairs", "2", "--size", "64", "--degradations", "clean"]
+        + ["--methods", "phase_correlation"]
+        + PRESETS
+        + cached_bands
+        + ["--out", str(out)]
+    )
+
+    printed = capsys.readouterr().out
+    row = "| beauce | B04/B08 | translation | clean | phase_correlation | cpu | 2 |"
+    assert row in printed
+    pairs = (out / "pairs.csv").read_text().splitlines()
+    assert pairs[0].startswith("site,bands,")
+    assert all(line.startswith("beauce,B04/B08,") for line in pairs[1:])
+    context = json.loads((out / "context.json").read_text())
+    assert context["run"]["band_pairs"] == [["B04", "B08"]]
+
+
+def test_run_config_sets_the_band_pairs(tmp_path):
+    config = write_run_config(tmp_path / "run.toml", band_pairs=[["B04", "B08"]])
+
+    args = parse_args(["benchmark", "--config", str(config)])
+
+    assert args.band_pairs == [["B04", "B08"]]
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        (["--band-pair", "B04", "B08"], "synthetic site has no bands"),
+        (["--site", "beauce", "--band-pair", "B04", "B05"], "B05"),
+    ],
+    ids=["synthetic site", "20 m band"],
+)
+def test_band_pairs_the_run_cannot_cut_are_refused(options, message, cached_site):
+    with pytest.raises(SystemExit, match=message):
+        main(["benchmark"] + options + cached_site)

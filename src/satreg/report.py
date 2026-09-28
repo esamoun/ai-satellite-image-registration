@@ -14,8 +14,8 @@ from .compute import MEMORY_READINGS
 
 @dataclass(frozen=True)
 class SummaryRow:
-    """One row of the results table: a method on a device, on a site, scenario and
-    degradation.
+    """One row of the results table: a method on a device, on a site, band pair,
+    scenario and degradation.
 
     Accuracy columns average the pairs that did not fail; failures are reported
     by ``failure_rate`` alone, so one wild estimate cannot swamp the mean. Cost
@@ -24,6 +24,7 @@ class SummaryRow:
 
     Attributes:
         site: Site name.
+        bands: Band pair, ``reference/moving``; empty for single-band pairs.
         scenario: Geometric model of the pairs.
         degradation: Degradation name.
         method: Method name.
@@ -39,6 +40,7 @@ class SummaryRow:
     """
 
     site: str
+    bands: str
     scenario: str
     degradation: str
     method: str
@@ -54,7 +56,8 @@ class SummaryRow:
 
 
 def summarize(results: Sequence[PairResult]) -> list[SummaryRow]:
-    """Group per-pair results by site, scenario, degradation, method and device.
+    """Group per-pair results by site, band pair, scenario, degradation, method
+    and device.
 
     Args:
         results: Per-pair results, in any order.
@@ -62,13 +65,13 @@ def summarize(results: Sequence[PairResult]) -> list[SummaryRow]:
     Returns:
         One row per group, in order of first appearance.
     """
-    groups: dict[tuple[str, str, str, str, str], list[PairResult]] = {}
+    groups: dict[tuple[str, str, str, str, str, str], list[PairResult]] = {}
     for r in results:
-        key = (r.site, r.scenario, r.degradation, r.method, r.device)
+        key = (r.site, r.bands, r.scenario, r.degradation, r.method, r.device)
         groups.setdefault(key, []).append(r)
 
     rows = []
-    for (site, scenario, degradation, method, device), group in groups.items():
+    for (site, bands, scenario, degradation, method, device), group in groups.items():
         kept = [r for r in group if not r.failed]
 
         def mean(values: list[float]) -> float:
@@ -80,6 +83,7 @@ def summarize(results: Sequence[PairResult]) -> list[SummaryRow]:
         rows.append(
             SummaryRow(
                 site=site,
+                bands=bands,
                 scenario=scenario,
                 degradation=degradation,
                 method=method,
@@ -119,6 +123,9 @@ def write_csv(rows: Sequence[object], path: Path) -> None:
 def to_markdown(rows: Sequence[SummaryRow]) -> str:
     """Render the results table as GitHub-flavoured markdown.
 
+    A ``bands`` column follows the site when a row has a band pair, so a
+    single-band table reads as it did before band pairs existed.
+
     Args:
         rows: Summary rows.
 
@@ -135,13 +142,20 @@ def to_markdown(rows: Sequence[SummaryRow]) -> str:
     def cost(x: float) -> str:
         return "n/a" if math.isnan(x) else f"{x:.1f}"
 
+    with_bands = any(r.bands for r in rows)
+
+    def site(r: SummaryRow) -> str:
+        return f"{r.site} | {r.bands or 'single'}" if with_bands else r.site
+
     header = (
-        "| site | scenario | degradation | method | device | pairs | clouds "
+        f"| site {'| bands ' if with_bands else ''}| scenario | degradation "
+        "| method | device | pairs | clouds "
         "| EPE (px) | < 0.1 px | < 0.5 px | failures | time (ms) | memory (MiB) |\n"
-        "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|\n"
+        f"|---|{'---|' if with_bands else ''}---|---|---|---|---:|---:|---:|---:"
+        "|---:|---:|---:|---:|\n"
     )
     body = "".join(
-        f"| {r.site} | {r.scenario} | {r.degradation} | {r.method} | {r.device} "
+        f"| {site(r)} | {r.scenario} | {r.degradation} | {r.method} | {r.device} "
         f"| {r.n_pairs} "
         f"| {percent(r.cloud_fraction)} | {pixels(r.mean_epe)} "
         f"| {percent(r.share_below_0_1)} | {percent(r.share_below_0_5)} "

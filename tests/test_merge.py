@@ -178,3 +178,33 @@ def test_merge_command_reports_runs_it_cannot_merge(tmp_path):
 
     with pytest.raises(SystemExit, match="satreg: .* both measured cpu"):
         main(["merge", str(run), str(run), "--out", str(tmp_path / "merged")])
+
+
+def test_rows_written_before_the_bands_column_are_single_band(two_devices, tmp_path):
+    cpu, cuda = two_devices
+
+    def without_bands(row):
+        del row["bands"]
+        return row
+
+    for name in ("summary.csv", "pairs.csv"):
+        rewrite_csv(cpu / name, without_bands)
+    context = json.loads((cpu / "context.json").read_text())
+    del context["run"]["band_pairs"]
+    (cpu / "context.json").write_text(json.dumps(context))
+
+    merge([cpu, cuda], tmp_path / "merged")
+
+    merged = read_run(tmp_path / "merged")
+    assert {row.bands for row in merged.summary} == {""}
+    assert "| bands |" not in (tmp_path / "merged" / "summary.md").read_text()
+
+
+def test_runs_on_other_band_pairs_are_refused(two_devices):
+    cpu, cuda = two_devices
+    context = json.loads((cuda / "context.json").read_text())
+    context["run"]["band_pairs"] = [["B04", "B08"]]
+    (cuda / "context.json").write_text(json.dumps(context))
+
+    with pytest.raises(MergeError, match="band_pairs"):
+        merge([cpu, cuda], cpu.parent / "merged")

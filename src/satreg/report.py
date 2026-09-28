@@ -170,3 +170,21 @@ def memory_note(meters: dict[str, str]) -> str:
         f"{MEMORY_READINGS[meter]} for {', '.join(methods)}"
         for meter, methods in by_meter.items()
     )
+
+
+def held_out_note(sites: Sequence[str]) -> str:
+    """Warn, under a table, that it has rows of held-out sites.
+
+    Args:
+        sites: Held-out sites the table has rows of.
+
+    Returns:
+        A paragraph to append to the table, empty if ``sites`` is.
+    """
+    if not sites:
+        return ""
+    return (
+        f"\nHeld-out sites in this table: {', '.join(sites)}. They are kept for "
+        "the final evaluation: no threshold, preset or variant may be chosen on "
+        "their rows.\n"
+    )

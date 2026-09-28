@@ -1687,3 +1687,98 @@ locally, where the Mac's own helper did. A partial clone fetches missing objects
 later, which would need the token again after it is gone. No Kaggle or GitHub
 credential is in the repository; a test checks the Kaggle files for token
 patterns.
+
+---
+
+## 2026-09-28: Six sites: fields, city, mountain, forest, desert, coast
+
+*My call*: the Briançonnais for the mountain site, rather than Chamonix or the
+Maurienne, and the Calanques of Marseille for the coast, rather than the Arcachon
+basin or the Brest roadstead.
+
+**Decision.** Four sites join Beauce and Toulouse in `configs/sites.toml`, each
+with a comment on what it stands for: `alps` (the Briançonnais, 44.90° N,
+6.64° E, July to September only), `vosges` (the Donon massif, 48.51° N, 7.12° E),
+`libya4` (the CEOS Libya-4 site, 28.55° N, 23.39° E) and `marseille` (the
+Calanques, 43.23° N, 5.44° E). They share Beauce's chip size, band and scene
+cloud limit.
+
+**Why.** The spec asks for six landscapes, and the N1 table already showed that one
+texture can make a method's weakness look like a property of the method. The
+Briançonnais has strong relief, which is what a mountain site is for (relief
+displacement, cast shadows), with little glacier; Chamonix's snow and ice would
+fill much of the chip, and change between dates. The Donon is a large, nearly
+continuous forest: low contrast, repetitive canopy, few straight edges. Libya-4 is
+a pseudo-invariant calibration site, so its dunes barely change between dates and
+it has no man-made edge at all. For the coast, the Mediterranean has almost no
+tide, so the shoreline does not move between two dates, which matters for the real
+multi-temporal pairs to come (ticket 08); Arcachon and Brest have strong tides and
+wide intertidal flats. The Marseille centre sits north of the shoreline: the SCL
+counts 25 % water over the chip, so land stays the larger part.
+
+**Check.** Each new site was fetched once and run on 20 clean translation pairs
+with the five installed methods (phase correlation, SIFT, AROSICS, RAFT,
+LightGlue). No method failed a pair on any of them, so no site was replaced.
+For the two held-out sites only the failure column was read (see the held-out
+entry).
+Refetching Beauce and Toulouse under the chip-level cloud rule gave the same
+scenes and byte-identical chips, so the N1 table stands.
+
+---
+
+## 2026-09-28: A chip is used only if its scene classification shows it clear
+
+*My call*: the first scene, in the existing order, whose chip passes a limit,
+rather than the clearest chip among several scenes.
+
+**Decision.** Scenes are still tried least cloudy first by `eo:cloud_cover`, but a
+scene is now used only if the L2A scene classification (SCL, 20 m) over the chip
+window counts at most `max_chip_cloud` percent (default 1 %) of cloud (classes 8,
+9 and 10: medium and high probability cloud, thin cirrus) and cloud shadow
+(class 3). The chip's shares of cloud, shadow, snow (11) and water (6) are
+written to its GeoTIFF tags (`chip_cloud_pct` and so on). Snow and water are
+recorded, not rejected. The SCL pixels read are every 20 m pixel the chip touches,
+so a chip starting on an odd 10 m pixel counts a half pixel of margin on each
+side.
+
+**Why.** The scene cloud cover is an average over a 110 km tile: a scene at 3 %
+can have all of it on the chip, and one at 20 % can leave the chip clear. Simulated
+pairs could live with that (a cloud in the chip is texture in both images), but
+real pairs (ticket 08) cannot, because the cloud is on one date only. Keeping the
+existing order and taking the first chip under the limit means a site whose chip
+was already clear keeps its scene: Beauce and Toulouse did. Ranking all candidates
+by their chip's cloud share would read more SCL files for little gain, and could
+change the N1 chips. Shadow counts with cloud because it hides the ground as much.
+Snow does not, since on a mountain site in summer it is ground, but its share is
+kept so that a snowy chip can be spotted. `max_chip_cloud` is part of the cache
+key like every other parameter that picks the chip.
+
+**Rejected.** The `CLD_20m` cloud probability layer: it misses cloud shadow, and a
+threshold on a probability is one more choice where the classification already
+makes it.
+
+---
+
+## 2026-09-28: Held-out sites stay out of every N2 table
+
+*My call*: held-out sites appear in no N2 table, rather than in a separate table or
+in the main one with a marker.
+
+**Decision.** A site can declare `held_out = true` in `configs/sites.toml`; the
+Alps and Libya-4 do, the spec's default. `satreg benchmark` refuses a held-out
+site, before fetching or running anything, unless given `--allow-held-out`. A run
+that uses one lists it under `held_out_sites` in `context.json`, and its table,
+merged or not, ends with a line naming the held-out sites and saying that no
+choice may be made on their rows. Being held out is not part of the chip's cache
+key, since it does not change the chip. `satreg fetch` fetches held-out sites like
+any other.
+
+**Why.** Pretrained methods never saw these sites, but N2 chooses thresholds,
+presets and variants, and every choice made while looking at a site leaks into
+its score. A separate table would rely on good faith not to look at it; keeping
+held-out sites out of N2 altogether makes N3 their first real measurement. The
+refusal turns the rule into a check, and the flag keeps a deliberate exception
+possible and visible. The only look before N3 is the sanity check of the six-sites
+entry: whether any method fails a clean pair for a reason unrelated to
+registration, which is a check of the data, not of a method. Of that run, only the
+failure column was read (no failure).

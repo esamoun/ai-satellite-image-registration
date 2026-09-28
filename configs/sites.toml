@@ -1,6 +1,9 @@
 # Sites that benchmark pairs are cut from. Each chip is a square window of
 # `chip_px` pixels centred on (lon, lat), read from the least cloudy Sentinel-2
-# L2A scene of the date range. See docs/decisions.md.
+# L2A scene of the date range whose scene classification (SCL) shows at most
+# `max_chip_cloud` % (default 1 %) of cloud and cloud shadow over the chip.
+# A site with `held_out = true` is kept for the final evaluation (N3): the
+# benchmark refuses it unless given --allow-held-out. See docs/decisions.md.
 
 [stac]
 url = "https://earth-search.aws.element84.com/v1"
@@ -20,6 +23,60 @@ band = "B04"
 [sites.toulouse]
 lon = 1.444
 lat = 43.604
+chip_px = 1024
+start = 2025-04-01
+end = 2025-09-30
+max_cloud = 5.0
+band = "B04"
+
+# Mountain: the Briançonnais, where the Durance and Guisane valleys meet, in the
+# Hautes-Alpes. Steep slopes from about 1,200 to 2,700 m, so relief displacement
+# and cast shadows, but little glacier: in late summer snow does not fill the
+# chip. Summer dates only, when the snow cover is lowest. Held out, as the spec
+# says by default.
+[sites.alps]
+lon = 6.64
+lat = 44.90
+chip_px = 1024
+start = 2025-07-01
+end = 2025-09-30
+max_cloud = 5.0
+band = "B04"
+held_out = true
+
+# Forest: the Donon massif in the northern Vosges, a large, nearly continuous
+# conifer and beech forest on rounded hills. Low contrast, repetitive canopy
+# texture and few straight edges: what makes forest hard to register.
+[sites.vosges]
+lon = 7.12
+lat = 48.51
+chip_px = 1024
+start = 2025-04-01
+end = 2025-09-30
+max_cloud = 5.0
+band = "B04"
+
+# Desert: Libya-4, a CEOS pseudo-invariant calibration site in the Great Sand
+# Sea (centre from the CEOS site list). Sand dunes whose reflectance barely
+# changes between dates, and no man-made edge at all. Held out, as the spec says
+# by default.
+[sites.libya4]
+lon = 23.39
+lat = 28.55
+chip_px = 1024
+start = 2025-04-01
+end = 2025-09-30
+max_cloud = 5.0
+band = "B04"
+held_out = true
+
+# Coast and water: the Calanques east of Marseille, a rocky Mediterranean coast
+# with the southern districts of the city behind it. The centre sits north of
+# the shoreline so that land stays the larger part of the chip, and there is
+# almost no tide, so the shoreline does not move between dates.
+[sites.marseille]
+lon = 5.44
+lat = 43.23
 chip_px = 1024
 start = 2025-04-01
 end = 2025-09-30

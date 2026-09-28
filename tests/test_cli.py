@@ -48,15 +48,14 @@ def test_module_is_runnable():
     assert "benchmark" in result.stdout
 
 
-@pytest.fixture
-def cached_site(tmp_path):
-    """A configured site whose chip is already in the cache, so no fetch happens."""
+def _cached_site(tmp_path, extra=""):
+    """Configure a site and put its chip in the cache, so no fetch happens."""
     site = site_at(*CENTRE, chip_px=128)
     config = tmp_path / "sites.toml"
     config.write_text(
         '[stac]\nurl = "https://stac.example"\ncollection = "sentinel-2-c1-l2a"\n'
         f"[sites.beauce]\nlon = {site.lon}\nlat = {site.lat}\nchip_px = 128\n"
-        "start = 2025-04-01\nend = 2025-09-30\nmax_cloud = 5.0\n"
+        "start = 2025-04-01\nend = 2025-09-30\nmax_cloud = 5.0\n" + extra
     )
     catalogue = load_sites(config).catalogue
     chip = cache_path(site, catalogue, tmp_path / "data")
@@ -64,6 +63,18 @@ def cached_site(tmp_path):
     texture = np.random.default_rng(0).integers(1, 10_000, (128, 128), np.uint16)
     write_cog(chip, texture)
     return ["--sites-config", str(config), "--data-dir", str(tmp_path / "data")]
+
+
+@pytest.fixture
+def cached_site(tmp_path):
+    """A configured site whose chip is already in the cache."""
+    return _cached_site(tmp_path)
+
+
+@pytest.fixture
+def held_out_site(tmp_path):
+    """The same site, held out, whose chip is in the cache under the same key."""
+    return _cached_site(tmp_path, "held_out = true\n")
 
 
 def test_benchmark_runs_on_a_configured_site_from_the_cache(
@@ -83,6 +94,49 @@ def test_benchmark_runs_on_a_configured_site_from_the_cache(
     assert "synthetic" not in printed
     assert "mild" not in printed
     assert (out / "summary.md").read_text() == printed
+
+
+def test_context_names_no_held_out_site_when_none_ran(tmp_path, cached_site):
+    out = tmp_path / "out"
+    main(
+        ["benchmark", "--site", "beauce", "--pairs", "1", "--size", "64"]
+        + ["--degradations", "clean", "--methods", "phase_correlation"]
+        + PRESETS
+        + cached_site
+        + ["--out", str(out)]
+    )
+
+    assert json.loads((out / "context.json").read_text())["held_out_sites"] == []
+    assert "Held-out" not in (out / "summary.md").read_text()
+
+
+def test_a_held_out_site_is_refused_before_anything_runs(tmp_path, held_out_site):
+    out = tmp_path / "out"
+
+    with pytest.raises(SystemExit, match="'beauce' is held out.*--allow-held-out"):
+        main(["benchmark", "--site", "beauce", "--out", str(out)] + held_out_site)
+    assert not out.exists()
+
+
+def test_a_run_allowed_on_a_held_out_site_says_so(tmp_path, capsys, held_out_site):
+    out = tmp_path / "out"
+    main(
+        ["benchmark", "--site", "beauce", "--allow-held-out", "--pairs", "1"]
+        + ["--size", "64", "--degradations", "clean"]
+        + ["--methods", "phase_correlation"]
+        + PRESETS
+        + held_out_site
+        + ["--out", str(out)]
+    )
+
+    printed = capsys.readouterr().out
+    assert printed.endswith(
+        "Held-out sites in this table: beauce. They are kept for the final "
+        "evaluation: no threshold, preset or variant may be chosen on their rows.\n"
+    )
+    context = json.loads((out / "context.json").read_text())
+    assert context["held_out_sites"] == ["beauce"]
+    assert context["run"]["allow_held_out"] is True
 
 
 def test_fetch_prints_the_cached_chip(capsys, cached_site):

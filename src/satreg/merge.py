@@ -16,7 +16,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 
 from .compute import describe
-from .report import SummaryRow, memory_note, to_markdown, write_csv
+from .report import SummaryRow, held_out_note, memory_note, to_markdown, write_csv
 
 # Run options that decide which pairs are drawn, how they are scored and how their
 # cost is read. Runs that differ on one of them are not merged.
@@ -190,7 +190,7 @@ def footnote(runs: Sequence[Run]) -> str:
         f"\nMeasured by device: {machines}. Time is the median of "
         f"{options['repeats']} calls per pair, after {options['warmup']} warm-up "
         f"call(s) per method; {memory_note(meters)}. Details in `context.json`.\n"
-    )
+    ) + held_out_note(runs[0].context.get("held_out_sites", []))
 
 
 def merge(paths: Sequence[Path], out: Path) -> str:

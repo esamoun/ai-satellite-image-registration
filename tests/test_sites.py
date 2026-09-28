@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from satreg.sites import DEFAULT_BAND, load_sites
+from satreg.sites import DEFAULT_BAND, DEFAULT_MAX_CHIP_CLOUD, load_sites
 
 CATALOGUE = """
 [stac]
@@ -39,6 +39,23 @@ def test_the_committed_configuration_declares_beauce():
     assert config.catalogue.collection == "sentinel-2-c1-l2a"
 
 
+def test_the_committed_configuration_holds_out_the_mountain_and_the_desert():
+    config = load_sites(Path(__file__).parents[1] / "configs" / "sites.toml")
+
+    assert set(config.sites) == {
+        "beauce",
+        "toulouse",
+        "alps",
+        "vosges",
+        "libya4",
+        "marseille",
+    }
+    assert [name for name, site in config.sites.items() if site.held_out] == [
+        "alps",
+        "libya4",
+    ]
+
+
 def test_sites_are_read_from_the_file_with_a_default_band(tmp_path):
     config = load_sites(write(tmp_path, site_table()))
 
@@ -48,6 +65,17 @@ def test_sites_are_read_from_the_file_with_a_default_band(tmp_path):
     assert site.start == dt.date(2025, 4, 1) and site.end == dt.date(2025, 9, 30)
     assert site.max_cloud == 5.0
     assert site.band == DEFAULT_BAND == "B04"
+    assert site.max_chip_cloud == DEFAULT_MAX_CHIP_CLOUD == 1.0
+    assert site.held_out is False
+
+
+def test_a_site_can_hold_itself_out_and_set_its_chip_cloud_limit(tmp_path):
+    table = site_table(held_out="true", max_chip_cloud="3.0")
+
+    site = load_sites(write(tmp_path, table)).sites["beauce"]
+
+    assert site.held_out is True
+    assert site.max_chip_cloud == 3.0
 
 
 def test_the_band_is_configurable(tmp_path):
@@ -63,6 +91,8 @@ def test_the_band_is_configurable(tmp_path):
         {"chip_px": "0"},
         {"start": "2025-10-01"},
         {"max_cloud": "120.0"},
+        {"max_chip_cloud": "-1.0"},
+        {"held_out": '"yes"'},
         {"start": '"2025-04-01"'},
         {"colour": '"red"'},
     ],

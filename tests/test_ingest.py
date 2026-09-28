@@ -14,10 +14,12 @@ from satreg.ingest import (
     Scene,
     band_href,
     cache_path,
+    chip_cover,
     fetch_chip,
     read_chip,
     read_georef,
     read_window,
+    scl_href,
     stac_search,
 )
 from satreg.sites import Catalogue, Site
@@ -28,9 +30,15 @@ CRS = "EPSG:32631"
 TRANSFORM = from_origin(390_000, 5_345_000, 10, 10)
 SHAPE = (300, 400)
 CENTRE = (150, 200)  # (row, col) of the pixel the test site is centred on
+# The 64 px chip of the test site starts at 10 m pixel (118, 168), which is
+# 20 m pixel (59, 84), and covers 32 x 32 pixels of the 20 m grid.
+SCL_CHIP = (slice(59, 91), slice(84, 116))
+
+# SCL classes: vegetation, cloud shadow, cloud (high probability), snow, water.
+VEGETATION, SHADOW, CLOUD, SNOW, WATER = 4, 3, 9, 11, 6
 
 
-def write_cog(path, data, nodata=0):
+def write_cog(path, data, nodata=0, transform=TRANSFORM):
     with rasterio.open(
         path,
         "w",
@@ -40,7 +48,7 @@ def write_cog(path, data, nodata=0):
         count=1,
         dtype=data.dtype,
         crs=CRS,
-        transform=TRANSFORM,
+        transform=transform,
         nodata=nodata,
     ) as dst:
         dst.write(data, 1)
@@ -52,6 +60,21 @@ def source(tmp_path):
     """A tiny single-band GeoTIFF standing in for a Sentinel-2 COG."""
     data = np.random.default_rng(0).integers(1, 10_000, SHAPE, dtype=np.uint16)
     return write_cog(tmp_path / "B04.tif", data), data
+
+
+def write_scl(path, fill=None):
+    """A scene classification on the 20 m grid of the fixture tile.
+
+    Args:
+        path: Where to write it.
+        fill: ``{class: (rows, cols)}`` slices of the 20 m grid to set to that
+            class; the rest is vegetation.
+    """
+    scl = np.full((SHAPE[0] // 2, SHAPE[1] // 2), VEGETATION, np.uint8)
+    for value, where in (fill or {}).items():
+        scl[where] = value
+    transform = TRANSFORM @ TRANSFORM.scale(2)
+    return write_cog(path, scl, transform=transform)
 
 
 def site_at(row, col, chip_px=64, **overrides):
@@ -82,8 +105,11 @@ def searching(*scenes):
     return search
 
 
-def scene(href, item_id="S2B_T31UCP_20250701", cloud_cover=0.1):
-    return Scene(item_id, href, cloud_cover, "2025-07-01T10:56:29Z")
+def scene(href, item_id="S2B_T31UCP_20250701", cloud_cover=0.1, scl=None):
+    """A candidate scene; its classification is clear unless ``scl`` is given."""
+    if scl is None:
+        scl = write_scl(Path(href).with_name(f"{item_id}_SCL.tif"))
+    return Scene(item_id, href, cloud_cover, "2025-07-01T10:56:29Z", scl)
 
 
 def test_chip_is_a_window_of_the_source_grid_without_resampling(source):
@@ -219,6 +245,7 @@ def item(item_id, cloud_cover):
         properties={"eo:cloud_cover": cloud_cover},
     )
     stac_item.add_asset("red", asset(f"{item_id}/B04.tif", "B04"))
+    stac_item.add_asset("scl", pystac.Asset(f"{item_id}/SCL.tif"))
     return stac_item
 
 
@@ -243,8 +270,153 @@ def test_search_asks_for_the_site_and_sorts_least_cloudy_first(monkeypatch):
 
     assert [s.item_id for s in scenes] == ["c", "a", "b"]
     assert scenes[0].href == "c/B04.tif"
+    assert scenes[0].scl_href == "c/SCL.tif"
     (params,) = requests
     assert params["collections"] == ["sentinel-2-c1-l2a"]
     assert params["intersects"]["coordinates"] == [site.lon, site.lat]
     assert params["datetime"] == "2025-04-01/2025-09-30"
     assert params["query"] == {"eo:cloud_cover": {"lte": 5.0}}
+
+
+def test_scene_classification_asset_is_found_by_its_key():
+    assets = {"red": asset("B04.tif", "B04"), "scl": pystac.Asset("SCL.tif")}
+
+    assert scl_href(assets) == "SCL.tif"
+    with pytest.raises(ValueError, match="scl"):
+        scl_href({"red": asset("B04.tif", "B04")})
+
+
+def test_chip_cover_counts_the_classes_over_the_chip_only(source, tmp_path):
+    href, _ = source
+    rows, cols = SCL_CHIP
+    scl = write_scl(
+        tmp_path / "SCL.tif",
+        {
+            # A quarter of the chip's 32 x 32 pixels, split between cloud rows...
+            CLOUD: (slice(rows.start, rows.start + 4), cols),
+            # ...cloud shadow rows, and a snow and a water column.
+            SHADOW: (slice(rows.start + 4, rows.start + 8), cols),
+            SNOW: (rows, slice(cols.start, cols.start + 2)),
+            WATER: (rows, slice(cols.stop - 1, cols.stop)),
+        },
+    )
+    # Cloud all around the chip, never on it.
+    with rasterio.open(scl, "r+") as dst:
+        data = dst.read(1)
+        data[: rows.start, :] = CLOUD
+        data[rows.stop :, :] = CLOUD
+        dst.write(data, 1)
+    _, profile = read_window(href, site_at(*CENTRE))
+
+    cover = chip_cover(scl, profile)
+
+    # Snow and water columns overwrite the cloud and shadow rows they cross.
+    assert cover == pytest.approx(
+        {
+            "cloud": 100 * 4 * 29 / 1024,
+            "shadow": 100 * 4 * 29 / 1024,
+            "snow": 100 * 2 * 32 / 1024,
+            "water": 100 * 1 * 32 / 1024,
+        }
+    )
+
+
+def test_a_chip_on_an_odd_pixel_counts_every_20_m_pixel_it_touches(source, tmp_path):
+    href, _ = source
+    # The chip starts on 10 m pixel (119, 169), inside 20 m pixel (59, 84).
+    _, profile = read_window(href, site_at(CENTRE[0] + 1, CENTRE[1] + 1))
+    scl = write_scl(tmp_path / "SCL.tif", {CLOUD: (slice(59, 60), slice(None))})
+
+    cover = chip_cover(scl, profile)
+
+    assert cover["cloud"] == pytest.approx(100 / 33)
+
+
+def test_classification_on_another_grid_is_unavailable(source, tmp_path):
+    href, _ = source
+    scl = tmp_path / "SCL.tif"
+    with rasterio.open(
+        scl,
+        "w",
+        driver="GTiff",
+        width=200,
+        height=150,
+        count=1,
+        dtype="uint8",
+        crs="EPSG:32632",
+        transform=TRANSFORM @ TRANSFORM.scale(2),
+    ) as dst:
+        dst.write(np.full((150, 200), VEGETATION, np.uint8), 1)
+    _, profile = read_window(href, site_at(*CENTRE))
+
+    with pytest.raises(ChipUnavailable, match="EPSG:32632"):
+        chip_cover(scl, profile)
+
+
+def test_a_clear_scene_with_a_cloud_on_the_chip_is_skipped(source, tmp_path):
+    href, _ = source
+    # The least cloudy scene has 3 % of the chip under cloud and none elsewhere.
+    rows, _ = SCL_CHIP
+    cloudy = write_scl(tmp_path / "cloudy.tif", {CLOUD: (rows, slice(84, 85))})
+    search = searching(
+        scene(href, item_id="cloud_on_chip", cloud_cover=0.0, scl=cloudy),
+        scene(href, item_id="clear_chip", cloud_cover=3.0),
+    )
+
+    path = fetch_chip(site_at(*CENTRE), CATALOGUE, tmp_path / "data", search)
+
+    with rasterio.open(path) as chip:
+        assert chip.tags()["item_id"] == "clear_chip"
+
+
+def test_cloud_shadow_counts_against_the_chip_but_snow_does_not(source, tmp_path):
+    href, _ = source
+    rows, cols = SCL_CHIP
+    shadowed = write_scl(tmp_path / "shadow.tif", {SHADOW: (rows, slice(84, 85))})
+    snowy = write_scl(tmp_path / "snow.tif", {SNOW: (slice(59, 75), cols)})
+    search = searching(
+        scene(href, item_id="shadow", cloud_cover=0.0, scl=shadowed),
+        scene(href, item_id="snow", cloud_cover=1.0, scl=snowy),
+    )
+
+    path = fetch_chip(site_at(*CENTRE), CATALOGUE, tmp_path / "data", search)
+
+    with rasterio.open(path) as chip:
+        tags = chip.tags()
+    assert tags["item_id"] == "snow"
+    assert tags["chip_snow_pct"] == "50.000"
+    assert tags["chip_cloud_pct"] == tags["chip_shadow_pct"] == "0.000"
+    assert tags["chip_water_pct"] == "0.000"
+
+
+def test_the_chip_cloud_limit_is_the_site_s(source, tmp_path):
+    href, _ = source
+    rows, _ = SCL_CHIP
+    cloudy = write_scl(tmp_path / "cloudy.tif", {CLOUD: (rows, slice(84, 85))})
+    site = site_at(*CENTRE, max_chip_cloud=5.0)
+
+    path = fetch_chip(
+        site, CATALOGUE, tmp_path, searching(scene(href, cloud_cover=0.0, scl=cloudy))
+    )
+
+    with rasterio.open(path) as chip:
+        assert chip.tags()["chip_cloud_pct"] == "3.125"
+
+
+def test_no_scene_with_a_clear_chip_names_the_chip_limit(source, tmp_path):
+    href, _ = source
+    cloudy = write_scl(tmp_path / "cloudy.tif", {CLOUD: SCL_CHIP})
+
+    with pytest.raises(LookupError, match="1.0 % cloud and cloud shadow"):
+        fetch_chip(
+            site_at(*CENTRE), CATALOGUE, tmp_path, searching(scene(href, scl=cloudy))
+        )
+
+
+def test_holding_a_site_out_keeps_its_cached_chip():
+    site = site_at(*CENTRE)
+    held_out = site_at(*CENTRE, held_out=True)
+
+    assert cache_path(site, CATALOGUE, Path("data")) == cache_path(
+        held_out, CATALOGUE, Path("data")
+    )

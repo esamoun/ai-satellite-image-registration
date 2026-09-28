@@ -7,6 +7,10 @@ from pathlib import Path
 
 DEFAULT_BAND = "B04"
 
+# Highest share of cloud and cloud shadow accepted over the chip itself, in
+# percent of its pixels, as the L2A scene classification (SCL) reads them.
+DEFAULT_MAX_CHIP_CLOUD = 1.0
+
 
 @dataclass(frozen=True)
 class Catalogue:
@@ -34,6 +38,10 @@ class Site:
         end: Last acquisition date searched, inclusive.
         max_cloud: Highest scene cloud cover accepted, in percent.
         band: Band name as the STAC ``eo:bands`` list gives it, e.g. ``B04``.
+        max_chip_cloud: Highest share of cloud and cloud shadow accepted over
+            the chip window, in percent, read from the scene classification.
+        held_out: Whether the site is kept for the final evaluation (N3), out of
+            every run that chooses a threshold, a preset or a variant.
     """
 
     name: str
@@ -44,6 +52,8 @@ class Site:
     end: dt.date
     max_cloud: float
     band: str = DEFAULT_BAND
+    max_chip_cloud: float = DEFAULT_MAX_CHIP_CLOUD
+    held_out: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.start, dt.date) or not isinstance(self.end, dt.date):
@@ -56,6 +66,10 @@ class Site:
             raise ValueError(f"{self.name}: start {self.start} is after end {self.end}")
         if not 0 <= self.max_cloud <= 100:
             raise ValueError(f"{self.name}: max_cloud must be in [0, 100]")
+        if not 0 <= self.max_chip_cloud <= 100:
+            raise ValueError(f"{self.name}: max_chip_cloud must be in [0, 100]")
+        if not isinstance(self.held_out, bool):
+            raise ValueError(f"{self.name}: held_out must be true or false")
 
 
 @dataclass(frozen=True)

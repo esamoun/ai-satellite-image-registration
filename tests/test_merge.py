@@ -91,6 +91,20 @@ def test_merged_footnote_names_the_machine_and_commit_of_each_device(
     )
 
 
+def test_merged_footnote_names_the_held_out_sites(two_devices, tmp_path):
+    for run in two_devices:
+        context = json.loads((run / "context.json").read_text())
+        context["held_out_sites"] = ["alps"]
+        (run / "context.json").write_text(json.dumps(context))
+
+    table = merge(two_devices, tmp_path / "merged")
+
+    assert table.endswith(
+        "Held-out sites in this table: alps. They are kept for the final "
+        "evaluation: no threshold, preset or variant may be chosen on their rows.\n"
+    )
+
+
 def test_merged_files_keep_every_row_and_each_run_context(two_devices, tmp_path):
     merge(two_devices, tmp_path / "merged")
 

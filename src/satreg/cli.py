@@ -29,7 +29,7 @@ from .methods import (
 )
 from .methods.deep import DEVICES, check_available
 from .metrics import FAILURE_EPE_PX
-from .report import memory_note, summarize, to_markdown, write_csv
+from .report import held_out_note, memory_note, summarize, to_markdown, write_csv
 from .sites import SitesConfig, load_sites
 from .texture import fractal_texture
 
@@ -105,6 +105,12 @@ def _parser(run_config: dict[str, object] | None = None) -> argparse.ArgumentPar
         "which is generated offline)",
     )
     _add_data_arguments(bench)
+    bench.add_argument(
+        "--allow-held-out",
+        action="store_true",
+        help="run on sites the sites config holds out for the final evaluation; "
+        "the table and context.json name them",
+    )
     bench.add_argument(
         "--degradations",
         nargs="+",
@@ -298,6 +304,37 @@ def fetch(args: argparse.Namespace) -> list[Path]:
     ]
 
 
+def held_out_sites(args: argparse.Namespace) -> list[str]:
+    """Check the benchmark's sites, and name the held-out ones among them.
+
+    The configuration file is only read when a configured site is requested, so
+    the synthetic site runs anywhere.
+
+    Args:
+        args: Parsed ``benchmark`` arguments.
+
+    Returns:
+        The requested sites marked held out, in the order requested.
+
+    Raises:
+        SystemExit: If a site is not configured, or is held out and
+            ``--allow-held-out`` is not given.
+    """
+    names = [name for name in args.sites or [] if name != SYNTHETIC_SITE]
+    if not names:
+        return []
+    config = load_sites(args.sites_config)
+    for name in names:
+        _configured_site(config, name)
+    held_out = [name for name in names if config.sites[name].held_out]
+    if held_out and not args.allow_held_out:
+        raise SystemExit(
+            f"satreg: site {held_out[0]!r} is held out for the final evaluation "
+            f"({args.sites_config}); pass --allow-held-out to run it"
+        )
+    return held_out
+
+
 def site_images(
     args: argparse.Namespace,
 ) -> tuple[dict[str, np.ndarray], dict[str, Georef]]:
@@ -427,6 +464,7 @@ def benchmark(args: argparse.Namespace) -> str:
         repeats=args.repeats,
     )
     degradations = degradation_presets(args)
+    held_out = held_out_sites(args)
     sites, georefs = site_images(args)
     methods = configured_methods(args)
 
@@ -448,6 +486,8 @@ def benchmark(args: argparse.Namespace) -> str:
     # Where each method ran: the deep-learning ones name their device, the
     # others run on the CPU.
     context["devices"] = {name: method_device(m) for name, m in methods.items()}
+    # Sites kept for the final evaluation, so a table that looked at them says so.
+    context["held_out_sites"] = held_out
     # Every option the run used, whether from the command line, a run config or
     # a default, so the tables can be reproduced from this file alone.
     context["run"] = {k: v for k, v in sorted(vars(args).items()) if k != "command"}
@@ -456,6 +496,7 @@ def benchmark(args: argparse.Namespace) -> str:
         f"calls per pair, after {config.warmup} warm-up call(s) per method; "
         f"{memory_note(meters)}. Details in `context.json`.\n"
     )
+    table += held_out_note(held_out)
 
     write_csv(results, args.out / "pairs.csv")
     write_csv(summary, args.out / "summary.csv")

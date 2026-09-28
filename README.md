@@ -138,13 +138,19 @@ satreg benchmark --site beauce
 ```
 
 `satreg fetch` finds the least cloudy Sentinel-2 L2A scene of each site in the
-[Earth Search](https://earth-search.aws.element84.com/v1) STAC catalogue and reads
-a 1024 × 1024 px window of its B04 COG, on the native 10 m grid with no
+[Earth Search](https://earth-search.aws.element84.com/v1) STAC catalogue whose
+scene classification (SCL) shows the chip itself free of cloud and cloud shadow,
+and reads a 1024 × 1024 px window of its B04 COG, on the native 10 m grid with no
 resampling. No account is needed. The chip (about 1.5 MB per site) is cached in
 `data/chips/`, which is not committed: later runs make no network call, and
 `satreg benchmark --site <name>` fetches a missing chip by itself. Sites, dates,
-cloud limit, chip size and band are set in [`configs/sites.toml`](configs/sites.toml).
+cloud limits, chip size and band are set in [`configs/sites.toml`](configs/sites.toml).
 Without `--site`, the benchmark uses the synthetic texture and runs offline.
+
+Six sites are declared: Beauce (fields), Toulouse (city), Alps (mountain),
+Vosges (forest), Libya-4 (desert) and Marseille (coast). The Alps and Libya-4 are
+held out for the final evaluation: the benchmark refuses them unless given
+`--allow-held-out`, and a table that includes them says so.
 
 ### Under degraded conditions
 

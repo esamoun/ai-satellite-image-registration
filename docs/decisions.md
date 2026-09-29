@@ -2622,3 +2622,102 @@ scene and window should.
   correlation in Toulouse (50 %).
 
 20 pairs per row: this table sizes the effect, it is not the N2 table (ticket 12).
+
+---
+
+## 2026-09-29: The N2 simulated table: four sites, three scenarios, three presets, 100 pairs a cell
+
+*My call*: 100 pairs a cell, as in N1, rather than 50. *My call*: the
+deep-learning methods' accuracy from the GPU run only, and their M1 cost from 10
+pairs a cell, rather than all 3,600 pairs on both devices (about 6 hours on
+the M1 in all, rather than about 15).
+
+**Decision.** The N2 table crosses the four sites that are not held out (Beauce,
+Toulouse, Vosges, Marseille), the three scenarios (translation, affine, dense)
+and the three presets, with 100 pairs a cell: 3,600 pairs, the same windows and
+displacements across scenarios, presets and methods. It is two runs of the same
+pairs, merged by `satreg merge`: [`configs/n2.toml`](../configs/n2.toml) on the
+M1's CPU (the four classic methods), and
+[`configs/n2-gpu.toml`](../configs/n2-gpu.toml) on a Kaggle T4 (the six
+deep-learning methods). A test checks that the two configs make the same pairs.
+A third run, [`configs/n2-cost.toml`](../configs/n2-cost.toml), times RAFT,
+RAFT-small, LightGlue and LightGlue-DISK on the M1's CPU on the first 10 pairs
+of each cell (360 pairs); it has its own cost table, since `satreg merge` only
+joins runs of the same pairs. The motion ranges, seed, failure threshold and
+timing (one warm-up call, median of 3) are those of N1 and of the dense-field
+entry.
+
+**Why.** With 100 pairs, a failure rate is known to about ±5 points, as in N1,
+and a cell of N2 reads next to the same cell of N1. 50 pairs would halve the
+runs, for ±7 points. Running every network on all 3,600 pairs on the M1 too
+would take about 12 hours and add little: accuracy is the same on both devices
+for RAFT, and differs for LightGlue and RoMa on hard pairs only by RANSAC's
+sampling order (failures.md, 2026-09-25). What the M1 run adds is the cost per
+call, which barely depends on the pair, so 10 pairs a cell time it. RoMa takes
+3.5 s a call on the M1 and swaps next to the other networks; its M1 time comes
+from the cycle-consistency and false-change runs, where it runs on the CPU.
+
+---
+
+## 2026-09-29: The N2 methods: every variant but AROSICS' 60 % floor
+
+*My call*: every method and variant, except `arosics_floor60`, rather than only
+the six headline methods.
+
+**Decision.** The N2 table has ten rows per cell: `phase_correlation`,
+`phase_correlation_hann`, `sift_ransac` and `arosics`, then `raft`,
+`raft_small`, `lightglue`, `lightglue_disk`, `roma` and `roma_dense`. The
+headline row of each method stays the one named after it (`roma` is the affine
+fit, entry of 2026-09-24).
+
+**Why.** Each variant answers a question the table asks: the Hann window wins
+clean pairs and loses hard ones, RAFT's size is the choice N3 fine-tunes,
+DISK keypoints sit on whole pixels, and `roma_dense` is the only method that
+beat RAFT on clean dense pairs. The 60 % floor was settled by the N1 run.
+
+---
+
+## 2026-09-29: Inter-band pairs in N2: Beauce and Toulouse, translation, on Kaggle
+
+*My call* (ticket 10 review, 2026-09-28): B04/B08, with B04/B03 as the control.
+*My call* (2026-09-29): Beauce and Toulouse only, translation only, rather than
+four sites or three scenarios. *My call* (2026-09-29): run it on Kaggle, which
+reverses the ticket-10 call to run it on the M1.
+
+**Decision.** [`configs/n2-bands.toml`](../configs/n2-bands.toml): B04/B08 and
+B04/B03 on Beauce and Toulouse, translation, the three presets, 50 pairs a cell,
+the ten methods of the table, on a Kaggle T4 (the classic methods on Kaggle's
+CPU). 600 pairs. The B04/B04 rows are not run again: they are the first 50
+pairs of each translation cell of the single-band table.
+
+**Why.** Beauce and Toulouse are the two scenes whose B04/B08 co-registration was
+measured to hold the truth at 0.1 px; another site would first need that check.
+Translation keeps the question to the bands, not the motion model. On the M1
+the run takes about 4.5 hours, RoMa's two rows being most of it; on a T4, a
+quarter of an hour. The table measures accuracy, which does not depend on the
+device, except for one thing: on CUDA RoMa computes in half precision (romatch
+switches to float32 only on a CPU), where the first measurement of 2026-09-28
+was in float32. Its B04/B08 rows may therefore move a little against that
+entry; a change is a finding to report, not a reason to rerun.
+
+---
+
+## 2026-09-29: RoMa's affine fit joins the cycle-consistency and false-change runs
+
+*My call*: add `roma` to both, rather than leave them on the default methods.
+*My call* (after timing it): keep it, for about four more hours on the M1,
+rather than drop it or move both runs to Kaggle.
+
+**Decision.** The `[cycle]` and `[false_change]` tables of `configs/n2.toml` run
+the default methods (phase correlation, SIFT + RANSAC, AROSICS, RAFT, LightGlue)
+and `roma`, on the four sites, with the settings of the first measurements. Both
+are run again from the commit of the N2 run.
+
+**Why.** RoMa is the one method that still registers red against near-infrared,
+and its behaviour on real pairs, where ground change broke RAFT, is unmeasured.
+A check on the four sites timed RoMa at about 8 s a window on the M1, the
+change detection and the memory call included, next to 2.9 s for the call alone:
+about 2 hours for its 864 false-change windows, and a similar time in cycle
+consistency, where a triplet is three registrations. That is most of the M1's six
+hours. Kaggle would cut it, but its notebook only runs `satreg benchmark`.
+`roma_dense` is left out: it would add as much again.

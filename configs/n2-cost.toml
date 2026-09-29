@@ -1,0 +1,41 @@
+# The CPU cost of the deep-learning methods in N2: their time and memory per
+# call on the M1, on the first 10 pairs of each cell of the simulated table
+# (configs/n2.toml), 360 pairs. Their accuracy is the GPU run's, on all 3,600
+# (configs/n2-gpu.toml): a call's time barely depends on the pair, so 10 pairs
+# a cell are enough to time it. The pairs differ in number from the other runs,
+# so `satreg merge` keeps this one apart: its own cost table. RoMa is left out
+# (3.5 s a call here); its M1 time is in the cycle and false-change runs.
+# About 35 minutes.
+
+[benchmark]
+sites = ["beauce", "toulouse", "vosges", "marseille"]
+scenarios = ["translation", "affine", "dense"]
+degradations = ["clean", "mild", "hard"]
+methods = [
+    "raft",
+    "raft_small",
+    "lightglue",
+    "lightglue_disk",
+]
+device = "cpu"
+
+pairs = 10
+size = 256
+seed = 0
+
+max_shift = 4.0
+max_rotation = 0.2
+max_scale_change = 0.002
+max_shear = 0.002
+max_local_shift = 0.8
+local_length = 64.0
+
+failure_threshold = 1.0
+warmup = 1
+repeats = 3
+
+sites_config = "configs/sites.toml"
+degradations_config = "configs/degradations.toml"
+methods_config = "configs/methods.toml"
+data_dir = "data"
+out = "outputs/n2-cost"

@@ -1,0 +1,86 @@
+# The N2 results: classic and pretrained methods on the four sites that are not
+# held out, on simulated pairs (three scenarios, three presets), on inter-band
+# pairs, on the real triplets (cycle consistency) and through a change detector
+# (false change). `make n2` runs the M1 part and merges the GPU part:
+#
+#   satreg benchmark --config configs/n2.toml        # M1, CPU     -> outputs/n2-m1
+#   satreg benchmark --config configs/n2-gpu.toml    # Kaggle, T4  -> outputs/n2-gpu
+#   satreg merge outputs/n2-m1 outputs/kaggle/outputs/n2-gpu --out outputs/n2
+#   satreg benchmark --config configs/n2-cost.toml   # M1, CPU     -> outputs/n2-cost
+#   satreg benchmark --config configs/n2-bands.toml  # Kaggle, T4  -> outputs/n2-bands
+#   satreg cycle --config configs/n2.toml            # M1          -> outputs/n2-cycle
+#   satreg false-change --config configs/n2.toml     # M1          -> outputs/n2-false-change
+#
+# Each command reads the table named after it. Keys are its options, with
+# underscores; an option given on the command line overrides its key here.
+# Paths are relative to the repository root. The reasoning behind the values is
+# in docs/decisions.md, and the tables and their reading in docs/evaluation.md.
+
+# Simulated pairs on the M1's CPU, the classic methods. Every cell (site,
+# scenario, preset, method) is 100 pairs, the same 100 windows and displacements
+# across scenarios, presets and methods: 4 sites x 3 scenarios x 3 presets x 100
+# = 3,600 pairs, x 4 methods. configs/n2-gpu.toml makes the same pairs for the
+# deep-learning methods on a GPU, and configs/n2-cost.toml times them on this
+# CPU, on the first 10 pairs of each cell.
+[benchmark]
+sites = ["beauce", "toulouse", "vosges", "marseille"]
+scenarios = ["translation", "affine", "dense"]
+degradations = ["clean", "mild", "hard"]
+methods = [
+    "phase_correlation",
+    "phase_correlation_hann",
+    "sift_ransac",
+    "arosics",
+]
+device = "cpu"
+
+pairs = 100
+size = 256
+seed = 0
+
+# Displacement ranges: shift per component (px), rotation (degrees), scale change
+# (fraction), shear (px per px), and the dense field's peak (px) and correlation
+# length (px). The same as in N1 for the global motion.
+max_shift = 4.0
+max_rotation = 0.2
+max_scale_change = 0.002
+max_shear = 0.002
+max_local_shift = 0.8
+local_length = 64.0
+
+failure_threshold = 1.0
+warmup = 1
+repeats = 3
+
+sites_config = "configs/sites.toml"
+degradations_config = "configs/degradations.toml"
+methods_config = "configs/methods.toml"
+data_dir = "data"
+out = "outputs/n2-m1"
+
+# Real triplets of each site's series (configs/real.toml): 16 windows x 4
+# triplets = 64 per site and method, and 5 simulated triplets per site, scenario
+# and preset next to them. The default methods, and RoMa's affine fit.
+[cycle]
+sites = ["beauce", "toulouse", "vosges", "marseille"]
+methods = ["phase_correlation", "sift_ransac", "arosics", "raft", "lightglue", "roma"]
+simulated_triplets = 5
+scenarios = ["translation", "affine", "dense"]
+seed = 0
+failure_threshold = 1.0
+warmup = 1
+repeats = 1
+out = "outputs/n2-cycle"
+
+# False change: 20 simulated pairs per site, scenario and preset, and the real
+# pairs of every site whose stable ground covers at least 5 % of the chip.
+[false_change]
+sites = ["beauce", "toulouse", "vosges", "marseille"]
+methods = ["phase_correlation", "sift_ransac", "arosics", "raft", "lightglue", "roma"]
+pairs = 20
+scenarios = ["translation", "affine"]
+seed = 0
+failure_threshold = 1.0
+warmup = 1
+repeats = 1
+out = "outputs/n2-false-change"

@@ -64,6 +64,31 @@ cannot put in one table:
 Methods and their other parameters may differ between the runs: a method that
 ran on one side only simply has one row.
 
+## The N2 runs
+
+N2 runs the notebook twice, from the same commit.
+
+The GPU half of the simulated table is the same procedure on
+[`configs/n2-gpu.toml`](../configs/n2-gpu.toml): set `CONFIG =
+"configs/n2-gpu.toml"` in the notebook's parameters cell. The run lands in
+`outputs/kaggle/outputs/n2-gpu/`, where `make n2-merge` looks for it, and merges
+with the M1 run of [`configs/n2.toml`](../configs/n2.toml):
+
+```bash
+satreg benchmark --config configs/n2.toml      # or: make n2-m1
+satreg merge outputs/n2-m1 outputs/kaggle/outputs/n2-gpu --out outputs/n2
+```
+
+A test checks that the two configs make the same pairs. The GPU run has 3,600
+pairs and six methods, about 30 times the first GPU run: a little over two hours
+on a T4, inside a Kaggle session's limit.
+
+The inter-band run is [`configs/n2-bands.toml`](../configs/n2-bands.toml), with
+`CONFIG = "configs/n2-bands.toml"`: 600 pairs and ten methods, the classic ones
+on Kaggle's CPU. It fetches the B08 and B03 bands of Beauce and Toulouse itself,
+and lands in `outputs/kaggle/outputs/n2-bands/`. It is not merged: it is a table
+of its own.
+
 ## What `context.json` records
 
 Besides the machine, the thread settings and the library versions:

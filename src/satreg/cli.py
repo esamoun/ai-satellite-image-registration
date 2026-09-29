@@ -69,6 +69,13 @@ DEFAULT_METHODS_CONFIG = Path("configs/methods.toml")
 DEFAULT_DATA_DIR = Path("data")
 DEFAULT_SERIES_CONFIG = Path("configs/real.toml")
 
+# Commands a run configuration file can set, and the table each one reads.
+RUN_TABLES = {
+    "benchmark": "benchmark",
+    "cycle": "cycle",
+    "false-change": "false_change",
+}
+
 
 def _add_data_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
@@ -85,13 +92,26 @@ def _add_data_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _parser(run_config: dict[str, object] | None = None) -> argparse.ArgumentParser:
+def _add_config_argument(parser: argparse.ArgumentParser, command: str) -> None:
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help=f"TOML file whose [{RUN_TABLES[command]}] table sets any of the "
+        "options below, by their name with underscores; options given here "
+        "override it",
+    )
+
+
+def _parser(
+    run_config: dict[str, object] | None = None, command: str = "benchmark"
+) -> argparse.ArgumentParser:
     """Build the argument parser.
 
     Args:
-        run_config: Defaults for ``benchmark`` options, by destination name, as
-            read by ``load_run_config``. Options given on the command line still
-            win.
+        run_config: Defaults for the options of ``command``, by destination name,
+            as read by ``load_run_config``. Options given on the command line
+            still win.
+        command: The command ``run_config`` sets, one of ``RUN_TABLES``.
 
     Returns:
         The parser.
@@ -115,12 +135,7 @@ def _parser(run_config: dict[str, object] | None = None) -> argparse.ArgumentPar
         "benchmark", help="score methods on simulated pairs and write the table"
     )
     defaults = BenchmarkConfig()
-    bench.add_argument(
-        "--config",
-        type=Path,
-        help="TOML file whose [benchmark] table sets any of the options below, "
-        "by their name with underscores; options given here override it",
-    )
+    _add_config_argument(bench, "benchmark")
     bench.add_argument(
         "--site",
         action="append",
@@ -248,8 +263,6 @@ def _parser(run_config: dict[str, object] | None = None) -> argparse.ArgumentPar
         "the CPU",
     )
     bench.add_argument("--out", type=Path, default=Path("outputs/benchmark"))
-    if run_config:
-        bench.set_defaults(**run_config)
 
     merging = commands.add_parser(
         "merge",
@@ -297,6 +310,7 @@ def _parser(run_config: dict[str, object] | None = None) -> argparse.ArgumentPar
         help="register the real triplets of each site and score how well each "
         "method's displacements close, next to simulated triplets",
     )
+    _add_config_argument(closing, "cycle")
     _add_series_arguments(closing)
     closing.add_argument(
         "--allow-held-out",
@@ -376,6 +390,7 @@ def _parser(run_config: dict[str, object] | None = None) -> argparse.ArgumentPar
         "leaves for a change detector, on simulated pairs and on the stable "
         "ground of real ones",
     )
+    _add_config_argument(changes, "false-change")
     _add_series_arguments(changes)
     changes.add_argument(
         "--allow-held-out",
@@ -447,6 +462,10 @@ def _parser(run_config: dict[str, object] | None = None) -> argparse.ArgumentPar
         help="timed calls of a method on each pair, whose median is reported",
     )
     changes.add_argument("--out", type=Path, default=Path("outputs/false-change"))
+    if run_config:
+        {"benchmark": bench, "cycle": closing, "false-change": changes}[
+            command
+        ].set_defaults(**run_config)
     return parser
 
 
@@ -468,37 +487,40 @@ def _add_series_arguments(parser: argparse.ArgumentParser) -> None:
     _add_data_arguments(parser)
 
 
-def load_run_config(path: Path) -> dict[str, object]:
-    """Read the ``[benchmark]`` table of a run configuration file.
+def load_run_config(path: Path, command: str = "benchmark") -> dict[str, object]:
+    """Read the table of one command in a run configuration file.
 
     Args:
-        path: TOML file with a ``[benchmark]`` table. Its keys are ``benchmark``
-            options by destination name (``max_shift`` for ``--max-shift``).
-            Paths are read relative to the working directory, like the
-            command-line options.
+        path: TOML file with a table named after the command (``[benchmark]``,
+            ``[cycle]``, ``[false_change]``). Its keys are that command's options
+            by destination name (``max_shift`` for ``--max-shift``). Paths are
+            read relative to the working directory, like the command-line
+            options. The file's other tables are not read.
+        command: The command, one of ``RUN_TABLES``.
 
     Returns:
         Option destination to value.
 
     Raises:
-        SystemExit: If the file is missing, has no ``[benchmark]`` table, or sets
-            an option that does not exist.
+        SystemExit: If the file is missing, has no table for the command, or sets
+            an option the command does not have.
     """
+    table = RUN_TABLES[command]
     try:
         with path.open("rb") as f:
             raw = tomllib.load(f)
     except FileNotFoundError:
         raise SystemExit(f"satreg: no run configuration at {path}") from None
-    if "benchmark" not in raw:
-        raise SystemExit(f"satreg: {path} needs a [benchmark] table")
-    options = set(vars(_parser().parse_args(["benchmark"]))) - {"command", "config"}
-    unknown = sorted(set(raw["benchmark"]) - options)
+    if table not in raw:
+        raise SystemExit(f"satreg: {path} needs a [{table}] table")
+    options = set(vars(_parser().parse_args([command]))) - {"command", "config"}
+    unknown = sorted(set(raw[table]) - options)
     if unknown:
         raise SystemExit(
-            f"satreg: {path}: unknown benchmark option {unknown[0]!r} "
+            f"satreg: {path}: unknown {command} option {unknown[0]!r} "
             f"(options: {', '.join(sorted(options))})"
         )
-    return raw["benchmark"]
+    return raw[table]
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -510,10 +532,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     Returns:
         The parsed arguments.
     """
-    args = _parser().parse_args(argv)
-    if getattr(args, "config", None) is None:
-        return args
-    return _parser(load_run_config(args.config)).parse_args(argv)
+    command_line = _parser().parse_args(argv)
+    if getattr(command_line, "config", None) is None:
+        return command_line
+    run_config = load_run_config(command_line.config, command_line.command)
+    args = _parser(run_config, command_line.command).parse_args(argv)
+    # A repeatable option (--site, --band-pair) appends to its default, which is
+    # now the config's list. Given on the command line, it replaces that list,
+    # as every other option replaces its key. Without a config, such an option
+    # has no default: a value means the command line gave it.
+    defaults = vars(_parser().parse_args([command_line.command]))
+    for dest, value in vars(command_line).items():
+        if value is not None and defaults.get(dest) is None:
+            setattr(args, dest, value)
+    return args
 
 
 def _configured_site(config: SitesConfig, name: str) -> None:

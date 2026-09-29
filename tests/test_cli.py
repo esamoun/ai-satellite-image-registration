@@ -365,6 +365,26 @@ def test_command_line_overrides_the_run_config(tmp_path):
     assert args.seed == 3
 
 
+def test_repeated_option_on_the_command_line_replaces_the_run_config_list(tmp_path):
+    config = write_run_config(
+        tmp_path / "run.toml",
+        sites=["beauce", "toulouse"],
+        band_pairs=[["B04", "B08"], ["B04", "B03"]],
+    )
+
+    args = parse_args(
+        ["benchmark", "--config", str(config), "--site", "vosges"]
+        + ["--band-pair", "B04", "B02"]
+    )
+
+    assert args.sites == ["vosges"]
+    assert args.band_pairs == [["B04", "B02"]]
+    assert parse_args(["benchmark", "--config", str(config)]).sites == [
+        "beauce",
+        "toulouse",
+    ]
+
+
 def test_run_config_paths_are_read_as_paths(tmp_path):
     config = write_run_config(tmp_path / "run.toml", out="outputs/n1")
 
@@ -407,6 +427,92 @@ def test_repository_gpu_config_runs_the_deep_learning_methods_on_cuda():
     assert options["device"] == "cuda"
     assert {"raft", "lightglue", "roma"} <= set(options["methods"])
     assert all(hasattr(methods[name], "device") for name in options["methods"])
+
+
+def test_cycle_and_false_change_read_their_own_table(tmp_path):
+    config = tmp_path / "run.toml"
+    config.write_text(
+        "[benchmark]\npairs = 50\n"
+        '[cycle]\nsimulated_triplets = 2\nmethods = ["raft"]\n'
+        '[false_change]\npairs = 7\nout = "outputs/fc"\n'
+    )
+
+    cycle_args = parse_args(["cycle", "--config", str(config), "--seed", "4"])
+    change_args = parse_args(["false-change", "--config", str(config)])
+
+    assert cycle_args.simulated_triplets == 2
+    assert cycle_args.methods == ["raft"]
+    assert cycle_args.seed == 4
+    assert change_args.pairs == 7
+    assert change_args.out == Path("outputs/fc")
+    assert parse_args(["benchmark", "--config", str(config)]).pairs == 50
+
+
+def test_run_config_without_the_command_table_is_rejected(tmp_path):
+    config = write_run_config(tmp_path / "run.toml", pairs=5)
+
+    with pytest.raises(SystemExit, match="needs a \\[false_change\\] table"):
+        parse_args(["false-change", "--config", str(config)])
+
+
+def test_run_config_option_of_another_command_is_rejected(tmp_path):
+    config = tmp_path / "run.toml"
+    config.write_text("[cycle]\nsize = 128\n")
+
+    with pytest.raises(SystemExit, match="unknown cycle option 'size'"):
+        parse_args(["cycle", "--config", str(config)])
+
+
+def test_repository_n2_config_is_valid_for_each_command():
+    benchmark = load_run_config(CONFIGS / "n2.toml")
+    closing = load_run_config(CONFIGS / "n2.toml", "cycle")
+    changes = load_run_config(CONFIGS / "n2.toml", "false-change")
+    methods = load_methods(CONFIGS / "methods.toml")
+    held_out = {"alps", "libya4"}
+
+    for options in (benchmark, closing, changes):
+        assert not held_out & set(options["sites"])
+        assert set(options["methods"]) <= set(methods)
+    assert "arosics_floor60" not in benchmark["methods"]
+    assert "roma" in closing["methods"] and "roma" in changes["methods"]
+
+
+def test_repository_n2_cost_config_times_the_first_pairs_of_the_m1_one():
+    m1 = load_run_config(CONFIGS / "n2.toml")
+    gpu = load_run_config(CONFIGS / "n2-gpu.toml")
+    cost = load_run_config(CONFIGS / "n2-cost.toml")
+    own = {"methods", "device", "out", "pairs"}
+
+    assert {k: v for k, v in m1.items() if k not in own} == {
+        k: v for k, v in cost.items() if k not in own
+    }
+    assert cost["device"] == "cpu"
+    assert cost["pairs"] < m1["pairs"]
+    assert set(cost["methods"]) == set(gpu["methods"]) - {"roma", "roma_dense"}
+
+
+def test_repository_n2_gpu_config_makes_the_pairs_of_the_m1_one():
+    m1 = load_run_config(CONFIGS / "n2.toml")
+    gpu = load_run_config(CONFIGS / "n2-gpu.toml")
+    methods = load_methods(CONFIGS / "methods.toml")
+    own = {"methods", "device", "out"}
+
+    assert {k: v for k, v in m1.items() if k not in own} == {
+        k: v for k, v in gpu.items() if k not in own
+    }
+    assert gpu["device"] == "cuda"
+    assert all(hasattr(methods[name], "device") for name in gpu["methods"])
+    assert {"roma", "roma_dense"} <= set(gpu["methods"])
+    assert not {"roma", "roma_dense"} & set(m1["methods"])
+
+
+def test_repository_n2_bands_config_is_valid():
+    options = load_run_config(CONFIGS / "n2-bands.toml")
+
+    assert options["sites"] == ["beauce", "toulouse"]
+    assert options["band_pairs"] == [["B04", "B08"], ["B04", "B03"]]
+    assert options["device"] == "cuda"
+    assert set(options["methods"]) <= set(load_methods(CONFIGS / "methods.toml"))
 
 
 def test_context_records_every_option_of_the_run(tmp_path):

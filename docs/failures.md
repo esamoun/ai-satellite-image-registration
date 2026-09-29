@@ -209,3 +209,23 @@ fit, and likely SIFT, which shares the fit) carry roughly 5 to 15 points of
 failure-rate spread from RANSAC alone. RoMa and SIFT were not rerun with shuffled
 matches. Whether to reduce that spread, or report it, is left to the N2 results
 table (ticket 12).
+
+## 2026-09-29: A one-site check that ran every site
+
+**What happened.** A quick check of the N2 false-change settings, `satreg
+false-change --config configs/n2.toml --site toulouse --methods
+phase_correlation roma --pairs 1`, was meant to run Toulouse alone. It ran
+Beauce, Toulouse, Vosges, Marseille, then Toulouse again, for 67 minutes;
+`context.json` listed the five sites. Timed as one site, it put RoMa's cost in
+the false-change run at five times its real value.
+
+**Why.** `--site` and `--band-pair` are repeatable options: argparse appends
+each value to the option's default. With `--config`, that default is the
+config's list, so the command line added to the list where it should have
+replaced it, as it replaces every other key. No test crossed a config with a
+repeatable option.
+
+**What was done instead.** `parse_args` now keeps the command line's list for
+an option it gave that has no default of its own, which is what a repeatable
+option is, and a test checks that `--site` and `--band-pair` replace the
+config's lists. The false-change settings themselves ran without error.

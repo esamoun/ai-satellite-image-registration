@@ -1,0 +1,41 @@
+# The GPU half of the N2 simulated table: the deep-learning methods on the same
+# 3,600 pairs as the [benchmark] table of configs/n2.toml, on a Kaggle T4
+# (kaggle/satreg-gpu-benchmark.ipynb with CONFIG = "configs/n2-gpu.toml", see
+# docs/kaggle.md). `satreg merge` puts both runs in one table, by device, and
+# refuses them if their pairs differ. Only the methods, the device and the
+# output differ from configs/n2.toml.
+
+[benchmark]
+sites = ["beauce", "toulouse", "vosges", "marseille"]
+scenarios = ["translation", "affine", "dense"]
+degradations = ["clean", "mild", "hard"]
+methods = [
+    "raft",
+    "raft_small",
+    "lightglue",
+    "lightglue_disk",
+    "roma",
+    "roma_dense",
+]
+device = "cuda"
+
+pairs = 100
+size = 256
+seed = 0
+
+max_shift = 4.0
+max_rotation = 0.2
+max_scale_change = 0.002
+max_shear = 0.002
+max_local_shift = 0.8
+local_length = 64.0
+
+failure_threshold = 1.0
+warmup = 1
+repeats = 3
+
+sites_config = "configs/sites.toml"
+degradations_config = "configs/degradations.toml"
+methods_config = "configs/methods.toml"
+data_dir = "data"
+out = "outputs/n2-gpu"

@@ -83,11 +83,14 @@ A test checks that the two configs make the same pairs. The GPU run has 3,600
 pairs and six methods, about 30 times the first GPU run: a little over two hours
 on a T4, inside a Kaggle session's limit.
 
-The inter-band run is [`configs/n2-bands.toml`](../configs/n2-bands.toml), with
-`CONFIG = "configs/n2-bands.toml"`: 600 pairs and ten methods, the classic ones
-on Kaggle's CPU. It fetches the B08 and B03 bands of Beauce and Toulouse itself,
-and lands in `outputs/kaggle/outputs/n2-bands/`. It is not merged: it is a table
-of its own.
+The inter-band table is split the same way. Its GPU half is
+[`configs/n2-bands-gpu.toml`](../configs/n2-bands-gpu.toml), with
+`CONFIG = "configs/n2-bands-gpu.toml"`: the six deep-learning methods on 600
+pairs. It fetches the B08 and B03 bands of Beauce and Toulouse itself, and lands
+in `outputs/kaggle/outputs/n2-bands-gpu/`; `make n2-bands-merge` joins it to the
+classic methods, run on the M1 by `make n2-bands`. The notebook does not install
+AROSICS (its GDAL bindings must match a system GDAL), so a config run on Kaggle
+lists deep-learning methods only; a test checks every config on `cuda`.
 
 ## What `context.json` records
 

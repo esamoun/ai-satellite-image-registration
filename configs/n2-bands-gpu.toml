@@ -1,0 +1,36 @@
+# The GPU half of the N2 inter-band table: the deep-learning methods on the same
+# 600 pairs as configs/n2-bands.toml, on a Kaggle T4
+# (kaggle/satreg-gpu-benchmark.ipynb with CONFIG = "configs/n2-bands-gpu.toml",
+# see docs/kaggle.md). RoMa computes in half precision there (float32 on a CPU).
+# Only the methods, the device and the output differ from configs/n2-bands.toml.
+
+[benchmark]
+sites = ["beauce", "toulouse"]
+band_pairs = [["B04", "B08"], ["B04", "B03"]]
+scenarios = ["translation"]
+degradations = ["clean", "mild", "hard"]
+methods = [
+    "raft",
+    "raft_small",
+    "lightglue",
+    "lightglue_disk",
+    "roma",
+    "roma_dense",
+]
+device = "cuda"
+
+pairs = 50
+size = 256
+seed = 0
+
+max_shift = 4.0
+
+failure_threshold = 1.0
+warmup = 1
+repeats = 3
+
+sites_config = "configs/sites.toml"
+degradations_config = "configs/degradations.toml"
+methods_config = "configs/methods.toml"
+data_dir = "data"
+out = "outputs/n2-bands-gpu"

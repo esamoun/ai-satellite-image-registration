@@ -506,13 +506,30 @@ def test_repository_n2_gpu_config_makes_the_pairs_of_the_m1_one():
     assert not {"roma", "roma_dense"} & set(m1["methods"])
 
 
-def test_repository_n2_bands_config_is_valid():
-    options = load_run_config(CONFIGS / "n2-bands.toml")
+def test_repository_n2_bands_configs_make_the_same_pairs_on_both_machines():
+    m1 = load_run_config(CONFIGS / "n2-bands.toml")
+    gpu = load_run_config(CONFIGS / "n2-bands-gpu.toml")
+    methods = load_methods(CONFIGS / "methods.toml")
+    own = {"methods", "device", "out"}
 
-    assert options["sites"] == ["beauce", "toulouse"]
-    assert options["band_pairs"] == [["B04", "B08"], ["B04", "B03"]]
-    assert options["device"] == "cuda"
-    assert set(options["methods"]) <= set(load_methods(CONFIGS / "methods.toml"))
+    assert {k: v for k, v in m1.items() if k not in own} == {
+        k: v for k, v in gpu.items() if k not in own
+    }
+    assert m1["sites"] == ["beauce", "toulouse"]
+    assert m1["band_pairs"] == [["B04", "B08"], ["B04", "B03"]]
+    assert (m1["device"], gpu["device"]) == ("cpu", "cuda")
+    assert not set(m1["methods"]) & set(gpu["methods"])
+    assert all(not hasattr(methods[name], "device") for name in m1["methods"])
+
+
+def test_repository_cuda_configs_list_only_methods_the_kaggle_notebook_installs():
+    # The notebook installs the dl extra and RoMa, not AROSICS: a CUDA config
+    # listing a classic method stops on Kaggle before its first pair.
+    methods = load_methods(CONFIGS / "methods.toml")
+    for path in sorted(CONFIGS.glob("*.toml")):
+        options = load_run_config(path) if "[benchmark]" in path.read_text() else {}
+        if options.get("device") == "cuda":
+            assert all(hasattr(methods[name], "device") for name in options["methods"])
 
 
 def test_context_records_every_option_of_the_run(tmp_path):

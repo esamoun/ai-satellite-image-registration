@@ -2682,19 +2682,26 @@ beat RAFT on clean dense pairs. The 60 % floor was settled by the N1 run.
 *My call* (ticket 10 review, 2026-09-28): B04/B08, with B04/B03 as the control.
 *My call* (2026-09-29): Beauce and Toulouse only, translation only, rather than
 four sites or three scenarios. *My call* (2026-09-29): run it on Kaggle, which
-reverses the ticket-10 call to run it on the M1.
+reverses the ticket-10 call to run it on the M1. *My call* (2026-09-30, after the
+Kaggle run stopped on AROSICS, see docs/failures.md): split it, the classic
+methods on the M1 and the deep-learning ones on Kaggle, rather than install
+AROSICS on Kaggle or run it all on the M1.
 
 **Decision.** [`configs/n2-bands.toml`](../configs/n2-bands.toml): B04/B08 and
 B04/B03 on Beauce and Toulouse, translation, the three presets, 50 pairs a cell,
-the ten methods of the table, on a Kaggle T4 (the classic methods on Kaggle's
-CPU). 600 pairs. The B04/B04 rows are not run again: they are the first 50
+the ten methods of the table. 600 pairs. The four classic methods run on the
+M1's CPU; [`configs/n2-bands-gpu.toml`](../configs/n2-bands-gpu.toml) runs the
+six deep-learning ones on a Kaggle T4, on the same pairs, and `satreg merge`
+joins the two runs. The B04/B04 rows are not run again: they are the first 50
 pairs of each translation cell of the single-band table.
 
 **Why.** Beauce and Toulouse are the two scenes whose B04/B08 co-registration was
 measured to hold the truth at 0.1 px; another site would first need that check.
 Translation keeps the question to the bands, not the motion model. On the M1
 the run takes about 4.5 hours, RoMa's two rows being most of it; on a T4, a
-quarter of an hour. The table measures accuracy, which does not depend on the
+quarter of an hour. The classic methods cannot follow: the Kaggle notebook does
+not install AROSICS, whose GDAL bindings must match a system GDAL, and building
+them there risks more failed runs. On the M1 they take a few minutes. The table measures accuracy, which does not depend on the
 device, except for one thing: on CUDA RoMa computes in half precision (romatch
 switches to float32 only on a CPU), where the first measurement of 2026-09-28
 was in float32. Its B04/B08 rows may therefore move a little against that

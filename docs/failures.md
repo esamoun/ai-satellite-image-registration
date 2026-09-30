@@ -229,3 +229,27 @@ repeatable option.
 an option it gave that has no default of its own, which is what a repeatable
 option is, and a test checks that `--site` and `--band-pair` replace the
 config's lists. The false-change settings themselves ran without error.
+
+---
+
+## 2026-09-30: The inter-band run on Kaggle stopped at its method check
+
+**Attempted.** The N2 inter-band run, `configs/n2-bands.toml` with its ten
+methods, on a Kaggle T4 from the notebook in `kaggle/`.
+
+**What happened.** The install and the B08 and B03 chips of Beauce and Toulouse
+went through; after 140 s the benchmark stopped with `satreg: method arosics
+needs arosics, not installed`, before its first pair.
+
+**Why.** The notebook installs the dl extra and RoMa, not AROSICS, whose GDAL
+bindings must be built against a system GDAL. Every earlier Kaggle config listed
+deep-learning methods only, so the gap never showed; moving the inter-band run
+to Kaggle, with the classic methods on Kaggle's CPU, was decided without
+checking what the notebook installs. No test tied a config's methods to where it
+runs.
+
+**What was done instead.** The config is split like the simulated table:
+`configs/n2-bands.toml` runs the classic methods on the M1, where AROSICS is
+installed, `configs/n2-bands-gpu.toml` the deep-learning ones on Kaggle, on the
+same pairs, and `make n2-bands-merge` joins them. A test checks that every
+config on `cuda` lists deep-learning methods only.

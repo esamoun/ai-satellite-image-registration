@@ -1,4 +1,4 @@
-.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-cycle n2-false-change n2-merge real-pairs check-presets cycle false-change clean
+.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change clean
 
 install:
 	pip install -e ".[dev]"
@@ -46,20 +46,25 @@ n1:
 	satreg benchmark --config configs/n1.toml
 
 # The N2 results, published in docs/evaluation.md: the M1 parts of
-# configs/n2.toml and configs/n2-cost.toml, then the merge with the GPU half of
-# the simulated table (configs/n2-gpu.toml). That half and the inter-band run
-# (configs/n2-bands.toml) run on Kaggle and are downloaded to outputs/kaggle/
-# (docs/kaggle.md). About 6 hours on the M1, RoMa's rows in cycle consistency
-# and false change being most of it: keep it plugged in with the lid open.
+# configs/n2.toml, configs/n2-cost.toml and configs/n2-bands.toml, then the
+# merges with the GPU halves of the simulated and inter-band tables
+# (configs/n2-gpu.toml, configs/n2-bands-gpu.toml). Those halves run on Kaggle
+# and are downloaded to outputs/kaggle/ (docs/kaggle.md). About 6 hours on the
+# M1, RoMa's rows in cycle consistency and false change being most of it: keep
+# it plugged in with the lid open.
 N2_GPU = outputs/kaggle/outputs/n2-gpu
+N2_BANDS_GPU = outputs/kaggle/outputs/n2-bands-gpu
 
-n2: n2-m1 n2-cost n2-cycle n2-false-change n2-merge
+n2: n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge
 
 n2-m1:
 	satreg benchmark --config configs/n2.toml
 
 n2-cost:
 	satreg benchmark --config configs/n2-cost.toml
+
+n2-bands:
+	satreg benchmark --config configs/n2-bands.toml
 
 n2-cycle:
 	satreg cycle --config configs/n2.toml
@@ -69,6 +74,9 @@ n2-false-change:
 
 n2-merge:
 	satreg merge outputs/n2-m1 $(N2_GPU) --out outputs/n2
+
+n2-bands-merge:
+	satreg merge outputs/n2-bands-m1 $(N2_BANDS_GPU) --out outputs/n2-bands
 
 # The real multi-temporal pairs of configs/real.toml, and the presets measured
 # next to them (docs/decisions.md).

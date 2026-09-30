@@ -7,7 +7,9 @@
 #   satreg benchmark --config configs/n2-gpu.toml    # Kaggle, T4  -> outputs/n2-gpu
 #   satreg merge outputs/n2-m1 outputs/kaggle/outputs/n2-gpu --out outputs/n2
 #   satreg benchmark --config configs/n2-cost.toml   # M1, CPU     -> outputs/n2-cost
-#   satreg benchmark --config configs/n2-bands.toml  # Kaggle, T4  -> outputs/n2-bands
+#   satreg benchmark --config configs/n2-bands.toml      # M1, CPU     -> outputs/n2-bands-m1
+#   satreg benchmark --config configs/n2-bands-gpu.toml  # Kaggle, T4  -> outputs/n2-bands-gpu
+#   satreg merge outputs/n2-bands-m1 outputs/kaggle/outputs/n2-bands-gpu --out outputs/n2-bands
 #   satreg cycle --config configs/n2.toml            # M1          -> outputs/n2-cycle
 #   satreg false-change --config configs/n2.toml     # M1          -> outputs/n2-false-change
 #

@@ -1,13 +1,13 @@
-# The inter-band part of N2, on a Kaggle T4 (kaggle/satreg-gpu-benchmark.ipynb
-# with CONFIG = "configs/n2-bands.toml", see docs/kaggle.md): red (B04) against
-# near-infrared (B08), where vegetation flips contrast, and red against green
-# (B03) as the control. Beauce and Toulouse only, the two scenes whose
-# inter-band ground truth was checked at 0.1 px (docs/decisions.md); translation
-# only, since the question is the bands, not the motion model. Every cell is 50
-# pairs: 2 sites x 2 band pairs x 3 presets x 50 = 600 pairs, x 10 methods. The
-# deep-learning methods run on the GPU, RoMa in half precision there (float32 on
-# a CPU), the classic ones on Kaggle's CPU. The B04/B04 rows are the first 50
-# pairs of the single-band table (configs/n2.toml), so they are not run again.
+# The inter-band part of N2: red (B04) against near-infrared (B08), where
+# vegetation flips contrast, and red against green (B03) as the control. Beauce
+# and Toulouse only, the two scenes whose inter-band ground truth was checked at
+# 0.1 px (docs/decisions.md); translation only, since the question is the bands,
+# not the motion model. Every cell is 50 pairs: 2 sites x 2 band pairs x 3
+# presets x 50 = 600 pairs. This file runs the classic methods on the M1's CPU;
+# configs/n2-bands-gpu.toml runs the deep-learning ones on the same pairs on a
+# Kaggle T4, whose notebook does not install AROSICS, and `satreg merge` puts
+# both in one table. The B04/B04 rows are the first 50 pairs of the
+# single-band table (configs/n2.toml), so they are not run again.
 
 [benchmark]
 sites = ["beauce", "toulouse"]
@@ -19,14 +19,8 @@ methods = [
     "phase_correlation_hann",
     "sift_ransac",
     "arosics",
-    "raft",
-    "raft_small",
-    "lightglue",
-    "lightglue_disk",
-    "roma",
-    "roma_dense",
 ]
-device = "cuda"
+device = "cpu"
 
 pairs = 50
 size = 256
@@ -42,4 +36,4 @@ sites_config = "configs/sites.toml"
 degradations_config = "configs/degradations.toml"
 methods_config = "configs/methods.toml"
 data_dir = "data"
-out = "outputs/n2-bands"
+out = "outputs/n2-bands-m1"

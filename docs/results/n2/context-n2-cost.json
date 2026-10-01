@@ -1,0 +1,100 @@
+{
+  "recorded_at": "2026-09-30T23:33:49+00:00",
+  "code": {
+    "commit": "a0999e2ea841d15ad347354b673f21aceaaccd82",
+    "dirty": false
+  },
+  "machine": {
+    "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "cpu": "Apple M1",
+    "memory_gib": 8.0
+  },
+  "gpu": null,
+  "threads": {
+    "cpu_count": 8,
+    "usable_cpus": 8,
+    "opencv": 8,
+    "torch": 4,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+  },
+  "python": "3.13.7",
+  "libraries": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "scikit-image": "0.26.0",
+    "opencv-python-headless": "5.0.0.93",
+    "rasterio": "1.5.1",
+    "arosics": "1.13.2",
+    "GDAL": "3.13.3",
+    "torch": "2.14.0",
+    "torchvision": "0.29.0"
+  },
+  "cost": {
+    "warmup": 1,
+    "repeats": 3,
+    "process_peak_rss_mib": 1732.4375,
+    "memory": {
+      "raft": "torch-cpu",
+      "raft_small": "torch-cpu",
+      "lightglue": "torch-cpu",
+      "lightglue_disk": "torch-cpu"
+    },
+    "run_seconds": 1891.4226152920164
+  },
+  "devices": {
+    "raft": "cpu",
+    "raft_small": "cpu",
+    "lightglue": "cpu",
+    "lightglue_disk": "cpu"
+  },
+  "held_out_sites": [],
+  "run": {
+    "allow_held_out": false,
+    "band_pairs": null,
+    "config": "configs/n2-cost.toml",
+    "data_dir": "data",
+    "degradations": [
+      "clean",
+      "mild",
+      "hard"
+    ],
+    "degradations_config": "configs/degradations.toml",
+    "device": "cpu",
+    "failure_threshold": 1.0,
+    "local_length": 64.0,
+    "max_local_shift": 0.8,
+    "max_rotation": 0.2,
+    "max_scale_change": 0.002,
+    "max_shear": 0.002,
+    "max_shift": 4.0,
+    "methods": [
+      "raft",
+      "raft_small",
+      "lightglue",
+      "lightglue_disk"
+    ],
+    "methods_config": "configs/methods.toml",
+    "out": "outputs/n2-cost",
+    "pairs": 10,
+    "repeats": 3,
+    "scenarios": [
+      "translation",
+      "affine",
+      "dense"
+    ],
+    "seed": 0,
+    "sites": [
+      "beauce",
+      "toulouse",
+      "vosges",
+      "marseille"
+    ],
+    "sites_config": "configs/sites.toml",
+    "size": 256,
+    "warmup": 1
+  }
+}

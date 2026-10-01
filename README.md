@@ -9,19 +9,32 @@ classic and deep-learning methods recover the displacement between two Sentinel-
 images, on accuracy and on compute cost. Displacements are simulated on real
 imagery, so the ground truth is exact down to a fraction of a pixel.
 
-**Status: in progress, level N1** (simulator, classic methods, metrics). So far the
-pipeline runs end to end with the three classic methods (phase correlation, SIFT +
-RANSAC and AROSICS), on a synthetic texture or on a real Sentinel-2 chip, under
-increasingly degraded conditions, for translations and small affine motions. N2
-has started: RAFT, a pretrained optical-flow network, runs in the same benchmark
-and returns a displacement for every pixel, LightGlue, a learned keypoint matcher,
-runs next to SIFT, RoMa, a dense matcher, runs when it is named, and a third
-scenario simulates a displacement that varies across the pair.
+**Status: in progress, level N2 done** (classic methods against pretrained
+deep-learning methods). The pipeline runs four classic methods (phase correlation,
+with and without a Hann window, SIFT + RANSAC and AROSICS) and three pretrained
+networks used as published (RAFT, LightGlue and RoMa), on four Sentinel-2 sites,
+for translations, small affine motions and dense fields, under increasingly
+degraded conditions. Next is N3: fine-tuning a network on this data.
 
-**First results:** [the N1 table](docs/evaluation.md), 1,200 simulated pairs on two
-Sentinel-2 sites. Phase correlation is the most robust under clouds and blur, SIFT
-+ RANSAC the only classic method that follows an affine motion, and none registers
-more than 38 % of the hard pairs on the low-texture site to 0.3 px.
+**Results so far:** [the N2 tables](docs/evaluation.md), 3,600 simulated pairs on
+four sites, plus inter-band pairs, real multi-temporal triplets and a false-change
+count. In short:
+
+- **AI wins where no global model describes the motion, and where the two images
+  do not look alike.** On clean dense fields RoMa's dense output is at 0.053 px
+  and RAFT at 0.095 px, against 0.133 px for SIFT. Red against near infrared,
+  RoMa is the only method that holds (0.115 px, 15 % of failures).
+- **Classic methods keep global motion on clean pairs.** Phase correlation with a
+  Hann window is at 0.004 px on clean translations and SIFT at 0.012 px on clean
+  affine pairs; the best pretrained method is at about 0.03 px on both.
+- **No pretrained method is the best everywhere.** RAFT is as robust as phase
+  correlation under clouds and blur, and fails four red/near-infrared pairs in
+  five; RoMa declines 64 % of the hardest pairs.
+- **It costs a hundred to eight hundred times more on a laptop CPU**: 370 ms a
+  pair for RAFT and 3 s for RoMa, against 3.6 ms for phase correlation.
+
+The classic baseline, [the N1 table](docs/evaluation.md#n1-the-classic-baseline),
+is on the same page.
 
 ## Run it
 
@@ -210,6 +223,18 @@ ranges. Output goes to `outputs/cycle/`, with one row per registration in
 skips the simulated triplets. Held-out sites are left out unless
 `--allow-held-out` is given.
 
+```bash
+satreg false-change               # what a residual costs a change detector
+```
+
+`satreg false-change` asks what the accuracy is for. One fixed change detector
+(a threshold at 3 σ of the pair's noise) is run after each method's correction,
+and the pixels it flags where nothing changed are counted. On simulated pairs
+nothing changed anywhere, and a reference curve gives the false-change rate as a
+function of the residual. On real pairs the count is made on stable ground,
+built-up and bare ground in ESA WorldCover. Output goes to
+`outputs/false-change/`, with the figure `false_change.png`.
+
 ### Under degraded conditions
 
 Each pair is run clean and under named degradation presets, declared in
@@ -255,6 +280,21 @@ It refuses runs that measured the same device, or whose pairs or scoring differ.
 The procedure, where the weights go and how long a run takes are in
 [`docs/kaggle.md`](docs/kaggle.md).
 
+### The N2 run
+
+```bash
+make install-dl install-arosics install-roma
+make n2
+```
+
+`make n2` runs the M1 part of the published N2 tables (about 5 h 30) and merges
+the GPU part, which the Kaggle notebook produces first from
+[`configs/n2-gpu.toml`](configs/n2-gpu.toml) and
+[`configs/n2-bands-gpu.toml`](configs/n2-bands-gpu.toml) (about 2 h 25 on a T4).
+The commands, configs, pair counts and hardware are in
+[`docs/evaluation.md`](docs/evaluation.md); the tables as the runs wrote them
+are in [`docs/results/n2/`](docs/results/n2/).
+
 ### The N1 run
 
 ```bash
@@ -270,8 +310,8 @@ reading are in [`docs/evaluation.md`](docs/evaluation.md).
 
 ## Where the reasoning is
 
-- [`docs/evaluation.md`](docs/evaluation.md): the N1 results table, how to
-  reproduce it, and what it shows.
+- [`docs/evaluation.md`](docs/evaluation.md): the N2 and N1 results tables, how
+  to reproduce them, and what they show.
 - [`docs/decisions.md`](docs/decisions.md): each choice and why it was made.
 - [`docs/failures.md`](docs/failures.md): what did not work, and what it taught.
 - [`docs/kaggle.md`](docs/kaggle.md): running the benchmark on a Kaggle GPU.

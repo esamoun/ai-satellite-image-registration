@@ -1,0 +1,105 @@
+{
+  "recorded_at": "2026-09-30T23:35:52+00:00",
+  "code": {
+    "commit": "a0999e2ea841d15ad347354b673f21aceaaccd82",
+    "dirty": false
+  },
+  "machine": {
+    "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "cpu": "Apple M1",
+    "memory_gib": 8.0
+  },
+  "gpu": null,
+  "threads": {
+    "cpu_count": 8,
+    "usable_cpus": 8,
+    "opencv": 8,
+    "torch": null,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+  },
+  "python": "3.13.7",
+  "libraries": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "scikit-image": "0.26.0",
+    "opencv-python-headless": "5.0.0.93",
+    "rasterio": "1.5.1",
+    "arosics": "1.13.2",
+    "GDAL": "3.13.3",
+    "torch": "2.14.0",
+    "torchvision": "0.29.0"
+  },
+  "cost": {
+    "warmup": 1,
+    "repeats": 3,
+    "process_peak_rss_mib": 533.0,
+    "memory": {
+      "phase_correlation": "tracemalloc",
+      "phase_correlation_hann": "tracemalloc",
+      "sift_ransac": "tracemalloc",
+      "arosics": "tracemalloc"
+    },
+    "run_seconds": 120.18972074997146
+  },
+  "devices": {
+    "phase_correlation": "cpu",
+    "phase_correlation_hann": "cpu",
+    "sift_ransac": "cpu",
+    "arosics": "cpu"
+  },
+  "held_out_sites": [],
+  "run": {
+    "allow_held_out": false,
+    "band_pairs": [
+      [
+        "B04",
+        "B08"
+      ],
+      [
+        "B04",
+        "B03"
+      ]
+    ],
+    "config": "configs/n2-bands.toml",
+    "data_dir": "data",
+    "degradations": [
+      "clean",
+      "mild",
+      "hard"
+    ],
+    "degradations_config": "configs/degradations.toml",
+    "device": "cpu",
+    "failure_threshold": 1.0,
+    "local_length": 64.0,
+    "max_local_shift": 0.8,
+    "max_rotation": 0.2,
+    "max_scale_change": 0.002,
+    "max_shear": 0.002,
+    "max_shift": 4.0,
+    "methods": [
+      "phase_correlation",
+      "phase_correlation_hann",
+      "sift_ransac",
+      "arosics"
+    ],
+    "methods_config": "configs/methods.toml",
+    "out": "outputs/n2-bands-m1",
+    "pairs": 50,
+    "repeats": 3,
+    "scenarios": [
+      "translation"
+    ],
+    "seed": 0,
+    "sites": [
+      "beauce",
+      "toulouse"
+    ],
+    "sites_config": "configs/sites.toml",
+    "size": 256,
+    "warmup": 1
+  }
+}

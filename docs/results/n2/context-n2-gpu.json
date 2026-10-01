@@ -1,0 +1,113 @@
+{
+  "recorded_at": "2026-09-30T09:38:44+00:00",
+  "code": {
+    "commit": "7505bcd49a40ae323eedb39729c048d30c6fef27",
+    "dirty": false
+  },
+  "machine": {
+    "system": "Linux-6.12.90+-x86_64-with-glibc2.35",
+    "architecture": "x86_64",
+    "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+    "memory_gib": 31.347740173339844
+  },
+  "gpu": {
+    "name": "Tesla T4",
+    "memory_gib": 14.56219482421875,
+    "count": 2,
+    "capability": "7.5",
+    "cuda": "12.8",
+    "cudnn": 91002
+  },
+  "threads": {
+    "cpu_count": 4,
+    "usable_cpus": 4,
+    "opencv": 4,
+    "torch": 2,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+  },
+  "python": "3.12.13",
+  "libraries": {
+    "numpy": "2.0.2",
+    "scipy": "1.16.3",
+    "scikit-image": "0.25.2",
+    "opencv-python-headless": "4.13.0.92",
+    "rasterio": "1.5.0",
+    "arosics": null,
+    "GDAL": "3.8.4",
+    "torch": "2.10.0+cu128",
+    "torchvision": "0.25.0+cu128"
+  },
+  "cost": {
+    "warmup": 1,
+    "repeats": 3,
+    "process_peak_rss_mib": 4242.49609375,
+    "memory": {
+      "raft": "cuda",
+      "raft_small": "cuda",
+      "lightglue": "cuda",
+      "lightglue_disk": "cuda",
+      "roma": "cuda",
+      "roma_dense": "cuda"
+    },
+    "run_seconds": 7521.392375913
+  },
+  "devices": {
+    "raft": "cuda",
+    "raft_small": "cuda",
+    "lightglue": "cuda",
+    "lightglue_disk": "cuda",
+    "roma": "cuda",
+    "roma_dense": "cuda"
+  },
+  "held_out_sites": [],
+  "run": {
+    "allow_held_out": false,
+    "band_pairs": null,
+    "config": "configs/n2-gpu.toml",
+    "data_dir": "data",
+    "degradations": [
+      "clean",
+      "mild",
+      "hard"
+    ],
+    "degradations_config": "configs/degradations.toml",
+    "device": "cuda",
+    "failure_threshold": 1.0,
+    "local_length": 64.0,
+    "max_local_shift": 0.8,
+    "max_rotation": 0.2,
+    "max_scale_change": 0.002,
+    "max_shear": 0.002,
+    "max_shift": 4.0,
+    "methods": [
+      "raft",
+      "raft_small",
+      "lightglue",
+      "lightglue_disk",
+      "roma",
+      "roma_dense"
+    ],
+    "methods_config": "configs/methods.toml",
+    "out": "/kaggle/working/outputs/n2-gpu",
+    "pairs": 100,
+    "repeats": 3,
+    "scenarios": [
+      "translation",
+      "affine",
+      "dense"
+    ],
+    "seed": 0,
+    "sites": [
+      "beauce",
+      "toulouse",
+      "vosges",
+      "marseille"
+    ],
+    "sites_config": "configs/sites.toml",
+    "size": 256,
+    "warmup": 1
+  }
+}

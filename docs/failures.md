@@ -253,3 +253,33 @@ runs.
 installed, `configs/n2-bands-gpu.toml` the deep-learning ones on Kaggle, on the
 same pairs, and `make n2-bands-merge` joins them. A test checks that every
 config on `cuda` lists deep-learning methods only.
+
+---
+
+## 2026-10-01: RoMa's hard failures on the T4 looked like a device effect
+
+**Attempted.** Reading the N2 simulated table against RoMa's first measurement
+(decisions.md, 2026-09-24): 20 Beauce pairs on the M1's CPU, where `roma`
+declined 35 to 40 % of `hard` pairs.
+
+**What happened.** On the T4, `roma` fails 48 % of hard Beauce translations,
+83 % at Toulouse, 81 % in the Vosges and 61 % at Marseille: 68 % over the four
+sites, almost all declined for lack of certain pixels. The first suspect was the
+device: on CUDA, romatch computes in half precision, on a CPU in float32.
+
+**Why.** It is the site and the sample, not the device. The N2 false-change run
+has RoMa on the M1's CPU, on 20 hard pairs per site and scenario: it fails 35 %
+at Beauce, 85 % at Toulouse, 80 to 85 % in the Vosges and 50 to 55 % at
+Marseille. The first 20 pairs of the same cells on the T4 give 35 to 40 %, 85 %,
+65 to 70 % and 60 %. The two runs do not draw the same pairs, and with 20 pairs
+a rate moves by 5 points a pair: the two devices are within one to three pairs
+in twenty of each other, the Vosges furthest apart. The first measurement was
+Beauce only, the site where RoMa declines least, and on 20 pairs: the first 20
+Beauce pairs of the T4 run give the same 35 to 40 %, against 48 to 50 % over
+the 100.
+
+**What was done instead.** Nothing rerun. The two devices are still not compared
+pair by pair on `hard`; evaluation.md says so in its limits. Why RoMa finds
+fewer certain pixels on hard Toulouse pairs than on hard Beauce ones, the
+opposite of every keypoint method, is not explained.
+

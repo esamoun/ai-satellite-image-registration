@@ -1,0 +1,100 @@
+{
+  "recorded_at": "2026-10-01T04:17:32+00:00",
+  "code": {
+    "commit": "a0999e2ea841d15ad347354b673f21aceaaccd82",
+    "dirty": false
+  },
+  "machine": {
+    "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "cpu": "Apple M1",
+    "memory_gib": 8.0
+  },
+  "gpu": null,
+  "threads": {
+    "cpu_count": 8,
+    "usable_cpus": 8,
+    "opencv": 8,
+    "torch": 4,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+  },
+  "python": "3.13.7",
+  "libraries": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "scikit-image": "0.26.0",
+    "opencv-python-headless": "5.0.0.93",
+    "rasterio": "1.5.1",
+    "arosics": "1.13.2",
+    "GDAL": "3.13.3",
+    "torch": "2.14.0",
+    "torchvision": "0.29.0"
+  },
+  "cost": {
+    "warmup": 1,
+    "repeats": 1,
+    "process_peak_rss_mib": 3960.265625,
+    "memory": {
+      "phase_correlation": "tracemalloc",
+      "sift_ransac": "tracemalloc",
+      "arosics": "tracemalloc",
+      "raft": "torch-cpu",
+      "lightglue": "torch-cpu",
+      "roma": "torch-cpu"
+    },
+    "run_seconds": 7992.2435792499455
+  },
+  "devices": {
+    "phase_correlation": "cpu",
+    "sift_ransac": "cpu",
+    "arosics": "cpu",
+    "raft": "cpu",
+    "lightglue": "cpu",
+    "roma": "cpu"
+  },
+  "held_out_sites": [],
+  "stable_share": {
+    "beauce": 0.0057048797607421875,
+    "toulouse": 0.4061250686645508,
+    "vosges": 0.0005235671997070312,
+    "marseille": 0.08789443969726562
+  },
+  "run": {
+    "allow_held_out": false,
+    "config": "configs/n2.toml",
+    "data_dir": "data",
+    "degradations": null,
+    "degradations_config": "configs/degradations.toml",
+    "device": null,
+    "failure_threshold": 1.0,
+    "methods": [
+      "phase_correlation",
+      "sift_ransac",
+      "arosics",
+      "raft",
+      "lightglue",
+      "roma"
+    ],
+    "methods_config": "configs/methods.toml",
+    "out": "outputs/n2-false-change",
+    "pairs": 20,
+    "repeats": 1,
+    "scenarios": [
+      "translation",
+      "affine"
+    ],
+    "seed": 0,
+    "series_config": "configs/real.toml",
+    "sites": [
+      "beauce",
+      "toulouse",
+      "vosges",
+      "marseille"
+    ],
+    "sites_config": "configs/sites.toml",
+    "warmup": 1
+  }
+}

@@ -2728,3 +2728,51 @@ about 2 hours for its 864 false-change windows, and a similar time in cycle
 consistency, where a triplet is three registrations. That is most of the M1's six
 hours. Kaggle would cut it, but its notebook only runs `satreg benchmark`.
 `roma_dense` is left out: it would add as much again.
+
+---
+
+## 2026-10-01: After the N2 run, the headline rows stay as they are
+
+**Decision.** No headline row changes after the N2 run. `roma` stays the affine
+fit and `roma_dense` the variant (call of 2026-09-24); `phase_correlation` stays
+the reference row and `phase_correlation_hann` the variant (N1); `raft` and
+`lightglue` stay the large model and the ALIKED keypoints.
+
+**Why.** The run, on four sites and 100 pairs a cell, says what the first
+measurements on 20 Beauce pairs said. `roma_dense` is the most accurate method
+on clean and mild dense pairs (0.053 and 0.069 px, against 0.140 px for `roma`),
+and worse than `roma` everywhere else: 0.052 against 0.040 px on clean
+translations, and 98 % of failures on hard translations against 68 %, a third of
+its hard pairs answered wrong by more than 1 px against one in twenty. The Hann
+window still wins clean and mild translations (0.004 against 0.014 px on
+clean) and loses hard ones (0.270 px and 4 % of failures against 0.191 px and 1 %). RAFT small
+and LightGlue on DISK are about three and four times less accurate than their
+headline rows on clean translations (0.131 against 0.047 px, 0.129 against
+0.033 px), and fail about ten times and half again as many hard pairs (22 %
+against 2 %, 24 % against 15 %).
+
+**Rejected.** `roma_dense` as RoMa's headline, for its one winning scenario: it
+would put a row that fails nearly every hard pair in the cycle-consistency and
+false-change runs, which take one row per method.
+
+---
+
+## 2026-10-01: The published N2 tables are copied to `docs/results/n2/`
+
+**Decision.** The tables the N2 runs wrote (`summary.md` of the simulated,
+cost, inter-band, cycle-consistency and false-change runs), the false-change
+figure and each run's `context.json` are copied by hand to `docs/results/n2/`
+and committed. `docs/evaluation.md` links to them and shows the figure from
+there. `pairs.csv` and the other per-pair files stay in `outputs/`.
+
+**Why.** `outputs/` is not committed, so a link to it is dead on GitHub and the
+figure would not show. N1 put its full table at the end of `evaluation.md`; N2's
+tables are 360 rows for the simulated run alone, too long for the page. The
+contexts are what ties a published number to its commit, machine and options,
+and they are a few kilobytes. The per-pair files are megabytes and come back
+with `make n2`.
+
+**Limits.** The copy is manual: after a rerun, the files in `docs/results/n2/`
+and the tables of `evaluation.md` must be refreshed together, and nothing checks
+that they match.
+

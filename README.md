@@ -321,6 +321,29 @@ A session that stops is resumed with `--resume`: pair number `i` depends on its
 index alone, so a resumed run ends on the weights an uninterrupted one gives,
 and a test pins it.
 
+With `validate_every = N` in `[train]`, the run scores its network on the light
+validation set before the first step and every `N` steps
+([`trainval.py`](src/satreg/trainval.py)): the 360 pairs `satreg validate
+--light` scores, drawn and scored by the same code. Each validation is a line of
+`validation.csv` and of `summary.md`. The run keeps, in `best.pt`, the weights
+of the validation with the lowest selection score: the mean error over the 360
+pairs, the three presets weighing the same, a pair that fails (over 1 px)
+counting for 1 px. The pretrained weights, step 0, are a reference and are never
+the kept ones. The rule is in [`docs/decisions.md`](docs/decisions.md), written
+before the first real run.
+
+Pairs are made on the fly. `workers = N` prepares them in `N` processes, a few
+steps ahead of the loop, and gives the same batches as one process: on the M1,
+RAFT small at batch 4 goes from 1.49 s per step, 59 % of it making pairs, to
+0.64 s with 3 workers. `--max-minutes` stops a run on a checkpoint after that
+long, for a session with a time limit.
+
+The real trainings run on a Kaggle GPU, from
+[`kaggle/satreg-train.ipynb`](kaggle/satreg-train.ipynb). Its first use is the
+timing run, [`configs/train-timing.toml`](configs/train-timing.toml): 300 steps
+of RAFT large and small on a T4, to measure what the step budget is set from
+([`docs/kaggle.md`](docs/kaggle.md#training-on-a-kaggle-gpu)).
+
 The methods `raft_ft` and `raft_small_ft` of
 [`configs/methods.toml`](configs/methods.toml) are RAFT with the weights of a
 checkpoint at a local path, `outputs/train/<method>/checkpoint.pt`, where
@@ -487,7 +510,8 @@ reading are in [`docs/evaluation.md`](docs/evaluation.md).
   to reproduce them, and what they show.
 - [`docs/decisions.md`](docs/decisions.md): each choice and why it was made.
 - [`docs/failures.md`](docs/failures.md): what did not work, and what it taught.
-- [`docs/kaggle.md`](docs/kaggle.md): running the benchmark on a Kaggle GPU.
+- [`docs/kaggle.md`](docs/kaggle.md): running the benchmark and the trainings on
+  a Kaggle GPU.
 - [`CONTEXT.md`](CONTEXT.md): the glossary, what each word means in the code and
   the docs (chip, pair, seen and held-out site, validation set).
 

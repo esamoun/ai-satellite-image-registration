@@ -1,3 +1,5 @@
 from .cli import main
 
-main()
+# Guarded: the worker processes of a training import this module again.
+if __name__ == "__main__":
+    main()

@@ -134,6 +134,41 @@ def _fine_tuned(model: str, checkpoint: str, device: str) -> Any:
     return network
 
 
+def estimate(
+    network: Any,
+    reference: np.ndarray,
+    moving: np.ndarray,
+    iterations: int,
+    device: str,
+) -> Dense:
+    """Run a RAFT network on a pair, as the ``raft`` method does.
+
+    Args:
+        network: The network, in evaluation mode, on ``device``.
+        reference: Reference image.
+        moving: Moving image, same shape as ``reference``.
+        iterations: Recurrent refinements of the flow.
+        device: Device the network is on.
+
+    Returns:
+        The flow of the last refinement, on the reference grid.
+    """
+    import torch
+
+    rows, cols = reference.shape
+    image1, image2 = (
+        torch.from_numpy(network_input(image))[None].to(device)
+        for image in (reference, moving)
+    )
+    with torch.inference_mode():
+        flows = network(image1, image2, num_flow_updates=iterations)
+    flow = flows[-1][0, :, :rows, :cols].cpu().numpy()
+    # torchvision's flow goes from image1 to image2, in (x, y) order:
+    # image2(p + flow) = image1(p). With the reference as image1, it is the
+    # displacement, once put in (row, col) order.
+    return Dense(flow[::-1])
+
+
 @dataclass(frozen=True)
 class Raft:
     """RAFT, torchvision's optical-flow network, pretrained or fine-tuned.
@@ -194,21 +229,7 @@ class Raft:
         Returns:
             The flow of the last refinement, on the reference grid.
         """
-        import torch
-
-        network = self.network()
-        rows, cols = reference.shape
-        image1, image2 = (
-            torch.from_numpy(network_input(image))[None].to(self.device)
-            for image in (reference, moving)
-        )
-        with torch.inference_mode():
-            flows = network(image1, image2, num_flow_updates=self.iterations)
-        flow = flows[-1][0, :, :rows, :cols].cpu().numpy()
-        # torchvision's flow goes from image1 to image2, in (x, y) order:
-        # image2(p + flow) = image1(p). With the reference as image1, it is the
-        # displacement, once put in (row, col) order.
-        return Dense(flow[::-1])
+        return estimate(self.network(), reference, moving, self.iterations, self.device)
 
 
 def fetch_weights() -> list[str]:

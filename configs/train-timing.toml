@@ -1,0 +1,37 @@
+# Timing run (N3): a few hundred steps on a Kaggle T4, at the batch and window
+# size planned for the real trainings, to measure what the step budget is set
+# from: seconds per step, GPU memory, and the share of the time spent making
+# pairs. Its checkpoint means nothing beyond that. The training notebook runs it
+# for large and for small (docs/kaggle.md); the budget drawn from its numbers is
+# in docs/decisions.md.
+
+[train]
+# "large" or "small"; the notebook passes --model for each.
+model = "large"
+steps = 300
+# Pairs per step, of 256 px: the planned batch of the real trainings.
+batch_size = 8
+learning_rate = 1e-4
+weight_decay = 1e-5
+gamma = 0.85
+iterations = 12
+clip = 1.0
+freeze_batch_norm = true
+# A new pair at every draw, as in a real training.
+n_pairs = 0
+checkpoint_every = 50
+# Light validation set (configs/validation.toml, 360 pairs) on the pretrained
+# weights, then every 150 steps: twice here, to time a validation and to have
+# one on each side of the resume test.
+validate_every = 150
+# Processes that make the pairs ahead of the loop: a Kaggle session has 4 CPU
+# cores, one is left to the loop.
+workers = 3
+device = "cuda"
+
+# What the pairs are made of, as in configs/train-pairs.toml.
+[pairs]
+size = 256
+scenarios = ["translation", "affine", "dense"]
+cross_date = 0.5
+seed = 0

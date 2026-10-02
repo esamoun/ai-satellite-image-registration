@@ -1,4 +1,7 @@
-# Running the benchmark on a Kaggle GPU
+# Running on a Kaggle GPU
+
+Two notebooks: the benchmark, below, and the N3 trainings
+([Training on a Kaggle GPU](#training-on-a-kaggle-gpu)).
 
 The M1 has no CUDA device, so the deep-learning methods' GPU rows come from a
 Kaggle notebook: [`kaggle/satreg-gpu-benchmark.ipynb`](../kaggle/satreg-gpu-benchmark.ipynb).
@@ -138,6 +141,98 @@ bands, B04 and the scene classification on the same grid.
 The dataset contains modified Copernicus Sentinel data 2025-2026, free to
 redistribute with that attribution, which its description carries.
 
+## Training on a Kaggle GPU
+
+The N3 trainings run in a second notebook,
+[`kaggle/satreg-train.ipynb`](../kaggle/satreg-train.ipynb). It clones the
+repository at a commit, installs the `dl` extra, copies the training chips
+dataset to a writable folder and runs `satreg train` once per entry of `RUNS`,
+on the first GPU. Each run's directory is saved as the notebook's output, under
+`outputs/train/<run>/`: `checkpoint.pt`, `best.pt`, `log.csv`,
+`validation.csv`, `summary.md` and `context.json`.
+
+### Set it up, once
+
+1. **Push the commit to run** and set `COMMIT` in the parameters cell. Its
+   `configs/train-sites.toml`, `configs/sites.toml` and `configs/real.toml`
+   must be the ones the chips dataset was built with (see above).
+2. **Import the notebook** in Kaggle's editor (*File → Import notebook*).
+   `kernel-metadata.json` describes the benchmark notebook only; the training
+   notebook's settings are set in the editor.
+3. **Settings**: internet on, accelerator *GPU T4 x2* or *GPU T4* (a training
+   uses one GPU either way).
+4. **Inputs** (*Add Input*): the private dataset `<user>/satreg-training-chips`.
+   The notebook finds it by its `chips.json`, wherever Kaggle mounts it, and
+   stops if it is missing.
+5. **Secret**: `GITHUB_TOKEN`, as for the benchmark notebook, while the
+   repository is private.
+
+### The parameters cell
+
+- `CONFIG`: the run's config. Its `[train]` table sets the steps, the batch
+  size, the validation interval and the worker processes.
+- `RUNS`: one training per entry: the name of its directory, and the options of
+  `satreg train` that override the config (`--model small`, for instance).
+- `MAX_MINUTES`: the time the trainings may take in all. A run still going then
+  stops on a checkpoint (`satreg train --max-minutes`), before Kaggle's own
+  session limit cuts it without one.
+- `COMPARE`: pairs of runs whose loss curves are printed side by side.
+
+### Going on with a run in another session
+
+A session's output is the only thing that survives it. To resume a run:
+
+1. open the notebook again and add, as an input, the output of the version that
+   started the run (*Add Input → Notebook Output Files*, pick that version);
+2. keep the run's name in `RUNS`, with the same config and options;
+3. *Save Version → Save & Run All*.
+
+The notebook copies the run's directory from the input and passes `--resume`.
+The new version's output then holds the whole run, the first session's files
+included, so the next session needs this one's output only. Pair number `i`
+depends on its index alone, so the resumed run trains on the pairs the
+uninterrupted one would have seen. `context.json` lists every session with its
+commit, its machine and its steps.
+
+### The timing run
+
+Done before any real training, to fix the step budget. The default parameters
+are the timing run: [`configs/train-timing.toml`](../configs/train-timing.toml)
+is 300 steps at the planned batch (8 pairs of 256 px), with a validation on the
+light set at steps 0, 150 and 300.
+
+**Session 1, on *GPU T4 x2*.** Run the notebook as it is. `RUNS` trains
+`timing-large`, `timing-small`, and `timing-large-cut`, which is RAFT large
+stopped at step 150.
+
+**Session 2, on *GPU T4*.** Add the output of session 1 as an input, and set:
+
+```python
+RUNS = {"timing-large-cut": ["--model", "large"]}
+COMPARE = [("timing-large", "timing-large-cut")]
+```
+
+The cut run resumes from its checkpoint to step 300, and the last cell prints
+its loss next to the uninterrupted run's, by stretches of 25 steps.
+
+**The quota.** Before and after each session, read the GPU hours used this week
+on the account's settings page, and note the session's duration (the report
+cell prints it). The two sessions use the two accelerators, so the difference
+says what an hour of each one removes.
+
+**What to read.** The report cell prints, per run: the median seconds per step,
+the share of the time spent getting the pairs (`pair_share`), the pairs consumed
+per second and the peak GPU memory. It also lists the files fetched besides the
+dataset, which must be none. The time of one validation is the `seconds` column
+of each run's `validation.csv`. The step budget drawn from these numbers is in
+[`decisions.md`](decisions.md).
+
+### Bring a run back
+
+Download the version's output from Kaggle's site (*Output → Download All*) and
+unpack it so that the run is in `outputs/train/<run>/`. `best.pt` holds the
+weights of the kept checkpoint.
+
 ## What `context.json` records
 
 Besides the machine, the thread settings and the library versions:
@@ -178,8 +273,15 @@ methods and the run swaps, so close other applications while it runs.
   If an import of `cv2` fails after the install, uninstall `opencv-python`.
 - Kaggle unpacked the uploaded zip with `real/` and `chips.json` at the
   dataset's root (49 files, seen in its Data Explorer). The path a notebook
-  sees it under is not checked until the first training notebook runs: if it
-  is not `/kaggle/input/satreg-training-chips/`, the notebook passes the path
-  it finds as `--data-dir`.
+  sees it under is not checked until the training notebook's first run, so the
+  notebook does not rely on it: it looks for `chips.json` next to `real/` under
+  `/kaggle/input` and prints the folder it found.
+- The training notebook was run on the M1 against a fake `/kaggle` tree, both
+  sessions of the timing run, not on Kaggle yet. Kaggle's session limit and the
+  way the weekly quota counts a *T4 x2* session come from third-party pages
+  until the timing run reads them.
+- On a GPU, two runs of the same training differ in the last digits from the
+  first step on, so a resumed run follows the uninterrupted one closely, not bit
+  for bit. They are equal on a CPU, which a test checks.
 - `pip install -e ".[dl]"` keeps Kaggle's own PyTorch, built for its CUDA, since
   it meets `torch>=2.0`. Installing another torch there would lose CUDA support.

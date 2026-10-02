@@ -5,7 +5,7 @@ import json
 import logging
 import math
 import zlib
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -447,6 +447,61 @@ def _run_method(
     )
 
 
+def simulated_pairs(
+    sites: Mapping[str, np.ndarray],
+    config: BenchmarkConfig,
+    degradations: Mapping[str, Degradation] = DEGRADATIONS,
+    georefs: Mapping[str, Georef] | None = None,
+    bands: Mapping[str, Mapping[str, np.ndarray]] | None = None,
+) -> Iterator[tuple[dict[str, str | int], SimulatedPair]]:
+    """Draw every pair of a run, in the order the benchmark scores them.
+
+    Pair geometry depends only on the seed, the site name and the pair index, so
+    every band pair, scenario and degradation sees the same window and the same
+    displacement at the centre, and a run with fewer pairs is a prefix of a run
+    with more.
+
+    Args:
+        sites: Site name to 2-D image to cut pairs from.
+        config: Run parameters.
+        degradations: Degradation name to degradation.
+        georefs: Site name to the map grid of its image, for the sites that
+            have one.
+        bands: Site name to band name to 2-D band, as in ``run_benchmark``.
+
+    Yields:
+        The ``site``, ``bands``, ``scenario``, ``degradation`` and ``pair`` of
+        a pair, and the pair, degraded.
+
+    Raises:
+        ValueError: If ``config.n_pairs`` is not positive, or a band pair names
+            a band a site does not have.
+    """
+    if config.n_pairs < 1:
+        raise ValueError(f"n_pairs must be positive, got {config.n_pairs}")
+
+    georefs = georefs or {}
+    for site, image in sites.items():
+        sources = _pair_sources(site, image, config, bands or {})
+        for band_label, moving, reference in sources:
+            for index in range(config.n_pairs):
+                for scenario in config.scenarios:
+                    geometry = _rng(config.seed, site, index)
+                    clean = draw_pair(
+                        moving, config, geometry, scenario, georefs.get(site), reference
+                    )
+                    for degradation_name, degrade in degradations.items():
+                        rng = _rng(config.seed, site, index, degradation_name)
+                        labels = {
+                            "site": site,
+                            "bands": band_label,
+                            "scenario": scenario,
+                            "degradation": degradation_name,
+                            "pair": index,
+                        }
+                        yield labels, degrade(clean, rng)
+
+
 def run_benchmark(
     sites: Mapping[str, np.ndarray],
     methods: Mapping[str, Method],
@@ -481,37 +536,22 @@ def run_benchmark(
         ValueError: If ``config.n_pairs`` is not positive, or a band pair names
             a band a site does not have.
     """
+    # Checked before the first pair is drawn, not when the first one is asked for.
     if config.n_pairs < 1:
         raise ValueError(f"n_pairs must be positive, got {config.n_pairs}")
 
-    georefs = georefs or {}
     warmed: set[str] = set()
     results = []
-    for site, image in sites.items():
-        sources = _pair_sources(site, image, config, bands or {})
-        for band_label, moving, reference in sources:
-            for index in range(config.n_pairs):
-                for scenario in config.scenarios:
-                    geometry = _rng(config.seed, site, index)
-                    clean = draw_pair(
-                        moving, config, geometry, scenario, georefs.get(site), reference
-                    )
-                    for degradation_name, degrade in degradations.items():
-                        rng = _rng(config.seed, site, index, degradation_name)
-                        pair = degrade(clean, rng)
-                        for method_name, method in methods.items():
-                            labels = {
-                                "site": site,
-                                "bands": band_label,
-                                "scenario": scenario,
-                                "degradation": degradation_name,
-                                "method": method_name,
-                                "device": method_device(method),
-                                "pair": index,
-                            }
-                            warmup = 0 if method_name in warmed else config.warmup
-                            warmed.add(method_name)
-                            results.append(
-                                _run_method(method, pair, config, labels, warmup)
-                            )
+    for pair_labels, pair in simulated_pairs(
+        sites, config, degradations, georefs, bands
+    ):
+        for method_name, method in methods.items():
+            labels = {
+                **pair_labels,
+                "method": method_name,
+                "device": method_device(method),
+            }
+            warmup = 0 if method_name in warmed else config.warmup
+            warmed.add(method_name)
+            results.append(_run_method(method, pair, config, labels, warmup))
     return results

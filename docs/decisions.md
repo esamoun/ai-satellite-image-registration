@@ -3451,3 +3451,107 @@ Both checkpoints were then scored by `satreg validate --light` as `raft_ft` and
 (`docs/results/n3/validation-overfit-light.md`). Those rows prove the path, not
 a model: nothing is concluded from them. The runs were made from a working tree
 with uncommitted changes, and their `context.json` says so.
+
+---
+
+## 2026-10-02: A training keeps the checkpoint with the lowest selection score on the light validation set
+
+**Decision.** Written before the first real training, and not changed after one.
+
+- **When.** A run with `validate_every = N` scores its network on the light
+  validation set (360 pairs: 4 chips, 3 scenarios, 3 presets, 10 pairs a cell)
+  before the first step and every `N` steps, the last step included. The pairs
+  are drawn by the benchmark's code and scored by its metric: a test checks that
+  the errors are those of `satreg validate --light` for the same weights.
+- **The selection score.** The mean end-point error over the 360 pairs, a pair
+  over the failure threshold (1 px), or with no finite error, counting for
+  1 px. The three presets have the same number of pairs, so they weigh the
+  same: no preset mix is tuned.
+- **What is kept.** The weights of the validation with the lowest selection
+  score, the earliest of equal ones, in `best.pt`. `checkpoint.pt` stays the
+  file the run resumes from.
+- **Step 0.** The pretrained weights are scored as a reference and are never
+  the kept ones: a run that never beats them still keeps its best trained step,
+  and the table shows that it is worse.
+- **Record.** Every validation is in `validation.csv`, per preset and over all
+  of them, with the mean error and failure rate the validation tables show.
+
+**Why.** The mean error of the tables leaves failed pairs out, so a network that
+fails more pairs can show a lower one: it cannot choose a checkpoint alone. The
+failure rate alone moves by steps of one pair in 360. Capping a failed pair at
+the threshold puts both in one figure, in pixels: a failure costs, and costs the
+same at 2 px and at 30 px, so one pair under a cloud, tens of pixels off, does
+not decide among checkpoints. Equal weights for the presets are the choice that
+needs no argument; weighing `hard` more would be a setting chosen with nothing
+to choose it on. Keeping step 0 out makes the kept checkpoint a trained one in
+every run, so the comparison with the pretrained method is made by the
+validation table, in the open, and not by a rule that silently returns the
+pretrained weights.
+
+On the pretrained RAFT small the score is 0.322 px (M1): 0.145 px on `clean`,
+0.191 px and 0.8 % of failures on `mild`, 0.463 px and 30.0 % on `hard`, the
+rows of the published light table.
+
+**Limits.**
+
+- The light set cannot rank two checkpoints that are close: its failure rate
+  under `hard` rests on 120 pairs (see the entry on the validation set). The
+  kept checkpoint is confirmed on the full validation set afterwards.
+- The checkpoint is chosen on four validation chips, with the degradations the
+  training draws from. It says nothing of real pairs.
+- The score depends on the 1 px threshold, the benchmark's.
+- The interval `N` of the real trainings is not set here: it depends on how long
+  a validation takes on the T4, which the timing run measures.
+
+**Rejected.** The lowest mean error of the table: rewards failing. The lowest
+training loss: measured on training chips, on pairs that change at every step.
+The last checkpoint: simpler, but a run whose error rises at the end would
+report its worst point. The lowest score on `hard` alone: 120 pairs.
+
+---
+
+## 2026-10-02: Training pairs are made on the fly by worker processes, and a session stops itself on a checkpoint
+
+**Decision.**
+
+- **On the fly, no cache.** Pairs are generated during the training, in worker
+  processes that prepare the batches of the next 4 steps (`workers` in
+  `[train]`). Pair `i` depends on its index alone, so the batches are those of
+  one process: a test compares them. This settles the question the entry on pair
+  generation left to this ticket, on the M1's numbers; the timing run confirms
+  it on Kaggle's CPUs or reverses it.
+- **Time budget.** `satreg train --max-minutes M` stops at the first step that
+  ends after `M` minutes and writes a checkpoint. The Kaggle notebook passes
+  what is left of its own budget, so a run is cut by itself, with a checkpoint,
+  and not by the session's limit.
+- **Resume across sessions.** A session's output, added as an input of the next
+  one, is where the notebook finds the checkpoint; it then passes `--resume`.
+- **The timing run.** `configs/train-timing.toml`: 300 steps, batch 8, 256 px,
+  3 workers, a validation at steps 0, 150 and 300, for RAFT large and small,
+  and a third run cut at step 150 for the resume test.
+
+**Why.** Measured on the M1 (MPS), RAFT small, batch 4, 256 px, 12 steps: with
+no worker a step takes 1.49 s, 59 % of it making pairs; with 3 workers 0.64 s
+and 1 %. A cache would cost disk and a fixed number of pairs for the same
+result. A Kaggle session has 4 CPU cores: 3 make pairs, one runs the loop.
+
+**Limits.**
+
+- The M1 figures say that workers remove the wait, not what a T4 step costs. On
+  a T4, RAFT small may consume pairs faster than 3 workers make them (about 6
+  pairs a second each on the M1, a third of them dense): the timing run's
+  `pair_share` says so. If it is high, the answer is a cache or a smaller share
+  of dense pairs, and a new entry.
+- With workers on the CPU, a cut and resumed run ends on the uninterrupted
+  run's weights, bit for bit. On a GPU it does not: on MPS, two identical runs
+  already differ at the fifth digit of the loss within 12 steps. "Same loss
+  curve" on Kaggle therefore means close curves, and the notebook prints both
+  side by side with their largest gap.
+- The notebook's two sessions were run on the M1 against a copy of Kaggle's
+  folder layout, not on Kaggle yet.
+- Not in this entry: the step budget. It is fixed from the timing run's numbers
+  and the quota read on the account page, in its own entry.
+
+**Rejected.** A cache of pairs on disk: the first measurement does not ask for
+it. Using both GPUs of a *T4 x2* session for one training: batches of 8 split in
+two change the recipe, for a loop that would have to be written and tested.

@@ -4,6 +4,8 @@ The recipe is the one of RAFT's own fine-tuning stages, read from the original
 training script and from torchvision's reference script: the sequence loss on
 the pixels the loss mask keeps, AdamW under a one-cycle learning rate, the
 gradient's norm clipped, batch normalisation frozen, every parameter trained.
+Every few steps the network is scored on the light validation set, and the run
+keeps the weights of its best validation next to its last checkpoint.
 The network starts from the torchvision weights the ``raft`` method runs and
 sees its pairs as that method sees a benchmark pair. A run writes a checkpoint
 it can resume from, which the ``raft`` method loads from its path. Needs the
@@ -13,9 +15,13 @@ it can resume from, which the ``raft`` method loads from its path. Needs the
 import csv
 import dataclasses
 import logging
+import math
+import multiprocessing
 import os
+import statistics
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import Future, ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -23,8 +29,11 @@ from typing import Any
 
 import numpy as np
 
+from . import trainval
+from .compute import MIB
 from .methods import deep, raft
 from .trainpairs import PairGenerator, TrainingPair
+from .trainval import ValidationRow
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +51,19 @@ ADAM_EPS = 1e-8
 
 CHECKPOINT = "checkpoint.pt"
 LOG = "log.csv"
+# The weights of the run's best validation, and its validations.
+BEST = "best.pt"
+VALIDATIONS = "validation.csv"
+
+# Steps whose pairs worker processes prepare ahead of the training loop.
+STEPS_AHEAD = 4
+
+# Keys of a run's configuration that may change between two sessions: they say
+# where and how fast the run is computed, not what it computes.
+SESSION_KEYS = ("device", "workers")
+
+# Scores a network in evaluation mode after a number of steps.
+Validate = Callable[[Any, int], list[ValidationRow]]
 
 # Fine-tuned method each model's checkpoint is for, in configs/methods.toml.
 METHOD_NAMES = {"large": "raft_ft", "small": "raft_small_ft"}
@@ -67,6 +89,10 @@ class TrainConfig:
             new pair at every draw. A few pairs make an overfit test.
         checkpoint_every: Steps between two checkpoints; one is always written
             at the end.
+        validate_every: Steps between two validations on the light validation
+            set, the last step being one too; 0 for none.
+        workers: Processes that prepare the pairs ahead of the loop; 0 to make
+            them in the loop itself. The pairs are the same either way.
         device: ``"cpu"``, ``"mps"`` or ``"cuda"``.
     """
 
@@ -81,6 +107,8 @@ class TrainConfig:
     freeze_batch_norm: bool = True
     n_pairs: int = 0
     checkpoint_every: int = 100
+    validate_every: int = 0
+    workers: int = 0
     device: str = "cpu"
 
     def __post_init__(self) -> None:
@@ -96,6 +124,8 @@ class TrainConfig:
                 raise ValueError(f"{name} must be positive, got {getattr(self, name)}")
         if self.weight_decay < 0 or self.n_pairs < 0:
             raise ValueError("weight_decay and n_pairs must not be negative")
+        if self.validate_every < 0 or self.workers < 0:
+            raise ValueError("validate_every and workers must not be negative")
         if not 0 < self.gamma <= 1:
             raise ValueError(f"gamma must be in (0, 1], got {self.gamma}")
         deep.check_device(self.device)
@@ -217,14 +247,34 @@ def pair_indices(step: int, config: TrainConfig) -> list[int]:
     return [i % config.n_pairs if config.n_pairs else i for i in indices]
 
 
+# The generator of a worker process, set once when the process starts.
+_GENERATOR: PairGenerator | None = None
+
+
+def _start_worker(generator: PairGenerator) -> None:
+    global _GENERATOR
+    _GENERATOR = generator
+
+
+def _worker_arrays(index: int) -> tuple[np.ndarray, ...]:
+    return pair_arrays(_GENERATOR(index))
+
+
 class Batches:
-    """Batches of training pairs by step, as tensors on the run's device."""
+    """Batches of training pairs by step, as tensors on the run's device.
+
+    With ``config.workers``, worker processes prepare the pairs of the next
+    steps while the network trains on the current one. A pair depends on its
+    index alone, so the batches are the ones a single process makes.
+    """
 
     def __init__(self, generator: PairGenerator, config: TrainConfig) -> None:
         self.generator = generator
         self.config = config
         # The pairs of a run that cycles over a few, made once.
         self._kept: dict[int, tuple[np.ndarray, ...]] = {}
+        self._pool: ProcessPoolExecutor | None = None
+        self._ahead: dict[int, list[Future]] = {}
 
     def _arrays(self, index: int) -> tuple[np.ndarray, ...]:
         if not self.config.n_pairs:
@@ -233,19 +283,49 @@ class Batches:
             self._kept[index] = pair_arrays(self.generator(index))
         return self._kept[index]
 
+    def _prepared(self, step: int) -> list[tuple[np.ndarray, ...]]:
+        """The pairs of a step from the workers, the next steps being queued."""
+        if self._pool is None:
+            # Started afresh, not forked: the parent may hold a CUDA context
+            # and threads, which a fork would copy in an unusable state.
+            self._pool = ProcessPoolExecutor(
+                self.config.workers,
+                mp_context=multiprocessing.get_context("spawn"),
+                initializer=_start_worker,
+                initargs=(self.generator,),
+            )
+        last = min(step + STEPS_AHEAD, self.config.steps - 1)
+        for ahead in range(step, last + 1):
+            if ahead not in self._ahead:
+                indices = pair_indices(ahead, self.config)
+                self._ahead[ahead] = [
+                    self._pool.submit(_worker_arrays, i) for i in indices
+                ]
+        return [future.result() for future in self._ahead.pop(step)]
+
     def of(self, indices: Sequence[int]) -> tuple[Any, ...]:
         """Stack pairs into one batch: images, flow and mask."""
+        return self._stack([self._arrays(i) for i in indices])
+
+    def _stack(self, pairs: Sequence[tuple[np.ndarray, ...]]) -> tuple[Any, ...]:
         import torch
 
-        columns = zip(*(self._arrays(i) for i in indices), strict=True)
         return tuple(
             torch.from_numpy(np.stack(column)).to(self.config.device)
-            for column in columns
+            for column in zip(*pairs, strict=True)
         )
 
     def __call__(self, step: int) -> tuple[Any, ...]:
         """The batch of a step."""
+        if self.config.workers and not self.config.n_pairs:
+            return self._stack(self._prepared(step))
         return self.of(pair_indices(step, self.config))
+
+    def close(self) -> None:
+        """Stop the worker processes, dropping the pairs still queued."""
+        if self._pool is not None:
+            self._pool.shutdown(cancel_futures=True)
+            self._pool, self._ahead = None, {}
 
 
 def build_network(config: TrainConfig) -> Any:
@@ -357,6 +437,9 @@ class LogRow:
             masked pixels, in px, in training mode.
         learning_rate: Learning rate of the step.
         seconds: Time the step took, its pairs included.
+        pair_seconds: The part of it spent getting the batch: making the pairs,
+            or waiting for the workers to hand them over, and moving them to
+            the device. NaN in a log written before this was recorded.
     """
 
     step: int
@@ -364,6 +447,47 @@ class LogRow:
     epe: float
     learning_rate: float
     seconds: float
+    pair_seconds: float = math.nan
+
+
+@dataclass(frozen=True)
+class Timing:
+    """How fast a session trained.
+
+    Attributes:
+        steps: Steps the figures are read on: the session's, but for its first
+            one, which pays for starting the device and the workers.
+        seconds_per_step: Median time of a step, its pairs included.
+        pair_share: Share of the steps' time spent getting their batches.
+        pairs_per_second: Pairs the loop consumed per second.
+    """
+
+    steps: int
+    seconds_per_step: float
+    pair_share: float
+    pairs_per_second: float
+
+
+def timing(rows: Sequence[LogRow], batch_size: int) -> Timing | None:
+    """Sum up how fast a session trained.
+
+    Args:
+        rows: The session's steps.
+        batch_size: Pairs per step.
+
+    Returns:
+        The session's timing, ``None`` for a session without a step.
+    """
+    rows = list(rows[1:]) or list(rows)
+    if not rows:
+        return None
+    total = sum(r.seconds for r in rows)
+    return Timing(
+        steps=len(rows),
+        seconds_per_step=statistics.median(r.seconds for r in rows),
+        pair_share=sum(r.pair_seconds for r in rows) / total,
+        pairs_per_second=batch_size * len(rows) / total,
+    )
 
 
 @dataclass(frozen=True)
@@ -379,6 +503,10 @@ class TrainResult:
             run cycles over, in px; ``None`` for a run on new pairs or a
             resumed session.
         epe_after: The same for the network as the session left it.
+        validations: Every validation of the run so far, earlier sessions
+            included; empty for a run without validation.
+        peak_mib: Peak memory held by the session's CUDA tensors, the weights
+            included, in MiB; ``None`` on another device.
     """
 
     checkpoint: Path
@@ -387,6 +515,13 @@ class TrainResult:
     log: list[LogRow]
     epe_before: list[float] | None
     epe_after: list[float] | None
+    validations: list[ValidationRow] = dataclasses.field(default_factory=list)
+    peak_mib: float | None = None
+
+    @property
+    def best(self) -> ValidationRow | None:
+        """The validation whose weights are in ``BEST``, ``None`` before one."""
+        return trainval.best(self.validations)
 
 
 def read_log(path: Path) -> list[LogRow]:
@@ -395,7 +530,7 @@ def read_log(path: Path) -> list[LogRow]:
         return []
     with path.open(newline="") as f:
         return [
-            LogRow(int(r["step"]), *(float(r[k]) for k in list(r)[1:]))
+            LogRow(**{k: int(v) if k == "step" else float(v) for k, v in r.items()})
             for r in csv.DictReader(f)
         ]
 
@@ -448,6 +583,33 @@ def save_checkpoint(
     os.replace(partial, path)
 
 
+def save_best(
+    path: Path, network: Any, row: ValidationRow, described: Mapping[str, object]
+) -> None:
+    """Write the weights of a run's best validation so far.
+
+    The file has what a method needs to run the weights, and the validation
+    that chose them; a run is resumed from its checkpoint, not from this file.
+
+    Args:
+        path: The file.
+        network: The network, as validated.
+        row: Its validation over all presets.
+        described: The run, as in ``save_checkpoint``.
+    """
+    import torch
+
+    state = {
+        "model": network.state_dict(),
+        "step": row.step,
+        "validation": dataclasses.asdict(row),
+        **described,
+    }
+    partial = path.with_suffix(".partial")
+    torch.save(state, partial)
+    os.replace(partial, path)
+
+
 def load_checkpoint(path: Path) -> dict[str, Any]:
     """Read a checkpoint written by ``save_checkpoint``, on the CPU."""
     return raft.read_checkpoint(str(path))
@@ -460,6 +622,8 @@ def train(
     described: Mapping[str, object] | None = None,
     resume: bool = False,
     stop_at: int | None = None,
+    validate: Validate | None = None,
+    budget_seconds: float | None = None,
 ) -> TrainResult:
     """Fine-tune RAFT on training pairs and write its checkpoint.
 
@@ -472,6 +636,11 @@ def train(
         resume: Go on from the checkpoint in ``out`` instead of starting.
         stop_at: Stop at this step, short of the run's last, as a session that
             ends does; resuming goes on from there.
+        validate: Scores the network on the light validation set; called on the
+            pretrained weights, then every ``config.validate_every`` steps and
+            at the run's last step. Needed if ``config.validate_every`` is set.
+        budget_seconds: Stop at the first step that ends after this long,
+            leaving a checkpoint, as a session whose time is up must.
 
     Returns:
         What the session did.
@@ -479,28 +648,44 @@ def train(
     Raises:
         FileNotFoundError: If resuming without a checkpoint.
         FileExistsError: If starting where a checkpoint already is.
-        ValueError: If the checkpoint resumed is of another run.
+        ValueError: If the checkpoint resumed is of another run, or the run
+            validates and ``validate`` is missing.
         RuntimeError: If the device is not available on this machine.
     """
     import torch
 
+    started = perf_counter()
+    if config.validate_every and validate is None:
+        raise ValueError("a run with validate_every needs a validation set")
     described = {"train": dataclasses.asdict(config), **(described or {})}
-    path, log_path = out / CHECKPOINT, out / LOG
+    path, log_path, validations_path = out / CHECKPOINT, out / LOG, out / VALIDATIONS
     network = build_network(config)
     optimiser, schedule = optimiser_and_schedule(network, config)
     batches = Batches(generator, config)
     kept = range(config.n_pairs)
+
+    def validated(step: int) -> list[ValidationRow]:
+        network.eval()
+        rows = validate(network, step)
+        set_training(network, config)
+        return rows
 
     first_step, epe_before = 0, None
     if resume:
         if not path.exists():
             raise FileNotFoundError(f"no checkpoint to resume at {path}")
         state = load_checkpoint(path)
-        # The commit and the device may change between sessions, the run not.
+        # The commit, the device and the workers may change between sessions,
+        # the run not.
         for key in ("train", "pairs", "ranges"):
             ours, theirs = described.get(key), state.get(key)
             if key == "train":
-                ours, theirs = ({**x, "device": None} for x in (ours, theirs))
+                # A key the checkpoint predates is at its default there.
+                theirs = {**dataclasses.asdict(TrainConfig()), **theirs}
+                ours, theirs = (
+                    {k: v for k, v in x.items() if k not in SESSION_KEYS}
+                    for x in (ours, theirs)
+                )
             if ours != theirs:
                 raise ValueError(
                     f"{path} is the checkpoint of another run: its [{key}] differs"
@@ -518,37 +703,85 @@ def train(
 
     out.mkdir(parents=True, exist_ok=True)
     log = [row for row in read_log(log_path) if row.step <= first_step]
+    validations = [
+        row
+        for row in trainval.read_validations(validations_path)
+        if row.step <= first_step
+    ]
+    if config.validate_every and not resume:
+        # The pretrained weights, on the same pairs: what the run starts from.
+        validations.extend(validated(0))
+        trainval.write_validations(validations, validations_path)
+    on_cuda = config.device == "cuda"
+    if on_cuda:
+        torch.cuda.reset_peak_memory_stats()
+
     last_step = min(config.steps, stop_at or config.steps)
     step = first_step
-    for step in range(first_step + 1, last_step + 1):
-        start = perf_counter()
-        reference, moving, flow, mask = batches(step - 1)
-        predictions = network(reference, moving, num_flow_updates=config.iterations)
-        loss = sequence_loss(predictions, flow, mask, config.gamma)
-        optimiser.zero_grad(set_to_none=True)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(network.parameters(), config.clip)
-        learning_rate = schedule.get_last_lr()[0]
-        optimiser.step()
-        schedule.step()
-        epe = float(masked_epe(predictions[-1].detach(), flow, mask).nanmean())
-        row = LogRow(
-            step, float(loss.detach()), epe, learning_rate, perf_counter() - start
-        )
-        log.append(row)
-        if step % config.checkpoint_every == 0 or step == last_step:
-            save_checkpoint(path, network, optimiser, schedule, step, described)
-            _write_log(log, log_path)
-            logger.info(
-                "step %d of %d: loss %.4f, EPE %.4f px",
-                step,
-                config.steps,
-                row.loss,
-                epe,
-            )
+    try:
+        for step in range(first_step + 1, last_step + 1):
+            start = perf_counter()
+            reference, moving, flow, mask = batches(step - 1)
+            pair_seconds = perf_counter() - start
+            predictions = network(reference, moving, num_flow_updates=config.iterations)
+            loss = sequence_loss(predictions, flow, mask, config.gamma)
+            optimiser.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(network.parameters(), config.clip)
+            learning_rate = schedule.get_last_lr()[0]
+            optimiser.step()
+            schedule.step()
+            epe = float(masked_epe(predictions[-1].detach(), flow, mask).nanmean())
+            # Reading the loss waits for the device, so the clock counts the
+            # whole step.
+            loss_value = float(loss.detach())
+            seconds = perf_counter() - start
+            row = LogRow(step, loss_value, epe, learning_rate, seconds, pair_seconds)
+            log.append(row)
 
+            validating = config.validate_every and (
+                step % config.validate_every == 0 or step == config.steps
+            )
+            out_of_time = (
+                budget_seconds is not None and perf_counter() - started > budget_seconds
+            )
+            if validating:
+                before = trainval.best(validations)
+                rows = validated(step)
+                validations.extend(rows)
+                # Written before the checkpoint: a session killed in between
+                # validates this step again on resuming and writes the same.
+                if before is None or rows[-1].score < before.score:
+                    save_best(out / BEST, network, rows[-1], described)
+                logger.info(
+                    "step %d: validation score %.4f px (best so far: step %d)",
+                    step,
+                    rows[-1].score,
+                    trainval.best(validations).step,
+                )
+            last = step == last_step or out_of_time
+            if validating or last or step % config.checkpoint_every == 0:
+                save_checkpoint(path, network, optimiser, schedule, step, described)
+                _write_log(log, log_path)
+                if validations:
+                    trainval.write_validations(validations, validations_path)
+                logger.info(
+                    "step %d of %d: loss %.4f, EPE %.4f px",
+                    step,
+                    config.steps,
+                    row.loss,
+                    epe,
+                )
+            if out_of_time:
+                break
+    finally:
+        batches.close()
+
+    peak_mib = torch.cuda.max_memory_allocated() / MIB if on_cuda else None
     epe_after = evaluate(network, batches, kept) if config.n_pairs else None
-    return TrainResult(path, first_step, step, log, epe_before, epe_after)
+    return TrainResult(
+        path, first_step, step, log, epe_before, epe_after, validations, peak_mib
+    )
 
 
 def log_markdown(log: Sequence[LogRow], parts: int = 10) -> str:
@@ -560,20 +793,23 @@ def log_markdown(log: Sequence[LogRow], parts: int = 10) -> str:
 
     Returns:
         The table, ending with a newline: steps, mean loss, mean training
-        end-point error, last learning rate and mean time per step.
+        end-point error, last learning rate, mean time per step and the
+        share of that time spent getting the batches.
     """
     header = (
-        "| steps | loss | EPE (px) | learning rate | s/step |\n"
-        "|---|---:|---:|---:|---:|\n"
+        "| steps | loss | EPE (px) | learning rate | s/step | pairs |\n"
+        "|---|---:|---:|---:|---:|---:|\n"
     )
     lines = []
     for chunk in np.array_split(np.arange(len(log)), min(parts, len(log))):
         rows = [log[i] for i in chunk]
+        seconds = sum(r.seconds for r in rows)
         lines.append(
             f"| {rows[0].step}-{rows[-1].step} "
             f"| {np.mean([r.loss for r in rows]):.4f} "
             f"| {np.nanmean([r.epe for r in rows]):.4f} "
             f"| {rows[-1].learning_rate:.2e} "
-            f"| {np.mean([r.seconds for r in rows]):.2f} |\n"
+            f"| {seconds / len(rows):.2f} "
+            f"| {100 * sum(r.pair_seconds for r in rows) / seconds:.0f} % |\n"
         )
     return header + "".join(lines)

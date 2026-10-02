@@ -104,6 +104,27 @@ training needs and the configuration it ran with. A fine-tuned method loads its
 weights from it.
 _Avoid_: Snapshot, model file
 
+**Selection score**:
+The figure the validations of one training are compared on: the mean error over
+the pairs of the light validation set, a failed pair counting for the failure
+threshold. Lower is better.
+_Avoid_: Validation loss, best metric
+
+**Kept checkpoint**:
+The weights of the validation with the lowest selection score, saved apart from
+the checkpoint the training resumes from.
+_Avoid_: Best model, final checkpoint
+
+**Timing run**:
+A few hundred steps on the training GPU, which measure how long a step takes
+before the step budget is set. Its checkpoint is not a model to report.
+_Avoid_: Benchmark run, dry run
+
+**Step budget**:
+The number of steps a training gets, fixed from the timing run before any real
+training.
+_Avoid_: Epochs, training length
+
 **Overfit run**:
 A short training on a few pairs seen over and over, which checks that the
 training loop learns. Its checkpoint is not a model to report.

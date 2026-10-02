@@ -14,7 +14,7 @@ from time import perf_counter
 
 import numpy as np
 
-from . import cycle, falsechange, trainchips, trainpairs, validation
+from . import cycle, falsechange, trainchips, trainpairs, trainval, validation
 from . import train as training
 from .benchmark import (
     SCENARIOS,
@@ -80,6 +80,7 @@ DEFAULT_SERIES_CONFIG = Path("configs/real.toml")
 DEFAULT_TRAIN_CONFIG = Path("configs/train-sites.toml")
 DEFAULT_PAIRS_CONFIG = Path("configs/train-pairs.toml")
 DEFAULT_RUN_CONFIG = Path("configs/train-overfit.toml")
+DEFAULT_VALIDATION_CONFIG = Path("configs/validation.toml")
 DEFAULT_TRAIN_OUT = Path("outputs/train")
 
 # Commands a run configuration file can set, and the table each one reads.
@@ -433,6 +434,27 @@ def _parser(
     )
     tuning.add_argument(
         "--device", choices=DEVICES, help="device to train on (default: the config's)"
+    )
+    tuning.add_argument(
+        "--workers",
+        type=int,
+        help="processes that prepare the pairs ahead of the loop (default: the "
+        "config's)",
+    )
+    tuning.add_argument(
+        "--validation-config",
+        type=Path,
+        default=DEFAULT_VALIDATION_CONFIG,
+        help="TOML file whose [validate] table declares the validation set; a run "
+        "with validate_every scores its light set, on the chips of --data-dir",
+    )
+    tuning.add_argument(
+        "--max-minutes",
+        type=float,
+        metavar="MINUTES",
+        help="stop at the first step that ends after this long, leaving a "
+        "checkpoint, before the session's own limit cuts the run; --resume goes "
+        "on from there",
     )
     tuning.add_argument(
         "--resume",
@@ -1659,6 +1681,56 @@ def train_pairs(args: argparse.Namespace) -> str:
     return table
 
 
+def _light_validation(
+    args: argparse.Namespace,
+    config: trainchips.TrainingConfig,
+    series: SeriesConfig,
+    run: training.TrainConfig,
+) -> tuple[trainval.LightValidation, dict[str, object]]:
+    """Draw the light validation set a training scores its network on.
+
+    It is the set ``validate --light`` scores with the same validation config:
+    same chips, pairs, presets and failure threshold. The chips are read from
+    the training's data directory.
+
+    Args:
+        args: Parsed ``train`` arguments.
+        config: The training chips configuration.
+        series: Series configuration.
+        run: The training run, for its refinements and its device.
+
+    Returns:
+        The set, and what the run's context says of it.
+
+    Raises:
+        SystemExit: If the validation config is missing or invalid.
+        ValueError: If one of its chips is not a validation chip.
+    """
+    table = load_run_config(args.validation_config, "validate")
+    options = _parser(table, "validate").parse_args(["validate"])
+    scoring = dataclasses.replace(
+        _benchmark_config(options), n_pairs=options.light_pairs
+    )
+    presets = degradation_presets(options)
+    anchors = validation.load_validation_chips(
+        config, series, args.data_dir, options.chips
+    )
+    images = {name: anchor.image for name, anchor in anchors.items()}
+    light = trainval.LightValidation(
+        images, scoring, presets, run.iterations, run.device
+    )
+    described = {
+        "config": str(args.validation_config),
+        "chips": {name: anchor.item_id for name, anchor in anchors.items()},
+        "pairs_per_cell": scoring.n_pairs,
+        "pairs": len(light.pairs),
+        "presets": list(presets),
+        "failure_threshold": scoring.failure_threshold,
+        "every": run.validate_every,
+    }
+    return light, described
+
+
 def train(args: argparse.Namespace) -> str:
     """Fine-tune RAFT on training pairs and write its checkpoint.
 
@@ -1681,7 +1753,7 @@ def train(args: argparse.Namespace) -> str:
         run = training.load_train_config(args.config)
         overrides = {
             key: value
-            for key in ("model", "device")
+            for key in ("model", "device", "workers")
             if (value := getattr(args, key)) is not None
         }
         run = dataclasses.replace(run, **overrides)
@@ -1691,6 +1763,9 @@ def train(args: argparse.Namespace) -> str:
             config, series, args.data_dir, args.chips
         )
         generator = trainpairs.PairGenerator(chips, pairs_config, ranges)
+        light, validated = None, None
+        if run.validate_every:
+            light, validated = _light_validation(args, config, series, run)
     except FileNotFoundError as exc:
         raise SystemExit(
             f"satreg: no configuration at {exc.filename} (run from the repository "
@@ -1705,6 +1780,9 @@ def train(args: argparse.Namespace) -> str:
         )
     if args.stop_at is not None and args.stop_at < 1:
         raise SystemExit("satreg: need --stop-at >= 1")
+    if args.max_minutes is not None and args.max_minutes <= 0:
+        raise SystemExit("satreg: need --max-minutes > 0")
+    budget = None if args.max_minutes is None else 60 * args.max_minutes
 
     out = args.out or DEFAULT_TRAIN_OUT / training.METHOD_NAMES[run.model]
     context = environment()
@@ -1718,7 +1796,7 @@ def train(args: argparse.Namespace) -> str:
     }
     try:
         result = training.train(
-            generator, run, out, described, args.resume, args.stop_at
+            generator, run, out, described, args.resume, args.stop_at, light, budget
         )
     except (FileNotFoundError, FileExistsError, ValueError, RuntimeError) as exc:
         raise SystemExit(f"satreg: {exc}") from None
@@ -1748,6 +1826,36 @@ def train(args: argparse.Namespace) -> str:
         if result.epe_before is not None:
             table += f"- pretrained weights: {errors(result.epe_before)}\n"
         table += f"- after step {result.last_step}: {errors(result.epe_after)}\n"
+    speed = training.timing(session, run.batch_size)
+    if speed is not None:
+        memory = (
+            ""
+            if result.peak_mib is None
+            else f" Peak GPU memory, weights included: {result.peak_mib:.0f} MiB."
+        )
+        table += (
+            f"\nSpeed of this session, over {speed.steps} steps: "
+            f"{speed.seconds_per_step:.3f} s per step (median), "
+            f"{speed.pairs_per_second:.1f} pairs per second, "
+            f"{100 * speed.pair_share:.0f} % of the time spent getting the pairs, "
+            f"with {run.workers} worker process(es).{memory}\n"
+        )
+    kept = result.best
+    if result.validations:
+        seconds = np.mean([r.seconds for r in result.validations])
+        table += (
+            f"\nLight validation set ({validated['pairs']} pairs), every "
+            f"{run.validate_every} steps; step 0 is the pretrained weights. The "
+            "score is the mean error over every pair, a failed pair counting for "
+            f"{validated['failure_threshold']:g} px; EPE is over non-failed pairs. "
+            f"A validation took {seconds:.0f} s on average.\n\n"
+            + trainval.to_markdown(result.validations)
+        )
+        if kept is not None:
+            table += (
+                f"\nKept: step {kept.step}, score {kept.score:.4f} px, in "
+                f"{out / training.BEST}.\n"
+            )
     table += (
         f"\nCheckpoint: {result.checkpoint}, which the method {name} loads if "
         f"that is its path in the methods config.\n"
@@ -1759,6 +1867,14 @@ def train(args: argparse.Namespace) -> str:
     sessions = json.loads(context_path.read_text())["sessions"] if args.resume else []
     context["steps"] = [result.first_step, result.last_step]
     context["epe"] = {"before": result.epe_before, "after": result.epe_after}
+    context["timing"] = None if speed is None else dataclasses.asdict(speed)
+    context["peak_gpu_mib"] = result.peak_mib
+    context["workers"] = run.workers
+    if result.validations:
+        described["validation"] = {
+            **validated,
+            "kept": None if kept is None else dataclasses.asdict(kept),
+        }
     described = {"train": dataclasses.asdict(run), **described}
     _write_context({**described, "sessions": [*sessions, context]}, out)
     return table

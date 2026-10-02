@@ -27,7 +27,7 @@ from .cycle import summarize as cycle_summarize
 from .ingest import stac_scenes
 from .real import ANCHOR, Acquisition, Candidates, SeriesConfig, load_series
 from .report import SummaryRow, summarize
-from .trainchips import ROLES, VALIDATION, TrainingConfig
+from .trainchips import ROLES, TRAIN, VALIDATION, TrainingConfig
 
 # Label of the rows that pool every chip, in place of a chip's name.
 POOLED = "all chips"
@@ -37,6 +37,10 @@ ALL_PRESETS = "all"
 
 # Label of the closure rows that pool every triplet of dates.
 ALL_TRIPLETS = "all"
+
+# Label of the closure rows that pool the chips of a role, in place of a chip's
+# name, in the words of CONTEXT.md.
+ROLE_LABELS = {VALIDATION: "validation chips", TRAIN: "training chips"}
 
 # Random subsets drawn to say how far a light set of a given size strays from
 # the full one, and their seed.
@@ -183,13 +187,21 @@ def _ratio(sums: np.ndarray, counts: np.ndarray) -> np.ndarray:
         return np.where(counts > 0, sums / counts, math.nan)
 
 
+def _over(index: np.ndarray, sums: np.ndarray, counts: np.ndarray) -> np.ndarray:
+    """Average over the pair indices of each set of ``index``, along its last axis."""
+    return _ratio(sums[index].sum(axis=-1), counts[index].sum(axis=-1))
+
+
 def subset_tracking(
     results: Sequence[PairResult], sizes: Sequence[int]
 ) -> list[SubsetRow]:
     """Compare light sets, the first pairs of every cell, with the full set.
 
-    A pair index is one window and one displacement, shared by every chip's
-    cells, so a light set is a set of pair indices.
+    A pair index is, on each chip, one window and one displacement shared by the
+    chip's cells, so a light set is a set of pair indices.
+
+    Raises:
+        ValueError: If there are no results.
 
     Args:
         results: Per-pair results of the full validation run.
@@ -199,6 +211,8 @@ def subset_tracking(
     Returns:
         One row per size, degradation (then all of them pooled) and method.
     """
+    if not results:
+        raise ValueError("no results to compare light sets on")
     n_pairs = max(r.pair for r in results) + 1
     methods = list(dict.fromkeys(r.method for r in results))
     degradations = list(dict.fromkeys(r.degradation for r in results))
@@ -228,9 +242,6 @@ def subset_tracking(
                             gap[pair] += r.mean_epe - base.mean_epe
                             both[pair] += 1
 
-                def over(index: np.ndarray, sums: np.ndarray, counts: np.ndarray):
-                    return _ratio(sums[index].sum(axis=-1), counts[index].sum(axis=-1))
-
                 first, full = np.arange(size), np.arange(n_pairs)
                 is_base = method == methods[0]
                 rows.append(
@@ -240,14 +251,14 @@ def subset_tracking(
                         method=method,
                         failure_rate=1 - ok[first].sum() / (size * len(kept)),
                         full_failure_rate=1 - ok.sum() / (n_pairs * len(kept)),
-                        mean_epe=float(over(first, error, ok)),
-                        full_mean_epe=float(over(full, error, ok)),
-                        epe_spread=float(np.nanstd(over(draws, error, ok))),
-                        gap=math.nan if is_base else float(over(first, gap, both)),
-                        full_gap=math.nan if is_base else float(over(full, gap, both)),
+                        mean_epe=float(_over(first, error, ok)),
+                        full_mean_epe=float(_over(full, error, ok)),
+                        epe_spread=float(np.nanstd(_over(draws, error, ok))),
+                        gap=math.nan if is_base else float(_over(first, gap, both)),
+                        full_gap=math.nan if is_base else float(_over(full, gap, both)),
                         gap_spread=math.nan
                         if is_base
-                        else float(np.nanstd(over(draws, gap, both))),
+                        else float(np.nanstd(_over(draws, gap, both))),
                     )
                 )
     return rows
@@ -294,13 +305,15 @@ def closure_by_role(
         roles: Chip name to its role.
 
     Returns:
-        The closure summary rows, with ``"<role> chips"`` in place of the site
-        and ``ALL_TRIPLETS`` in place of the triplet: one per role, method and
-        device.
+        The closure summary rows, with the role's label of ``ROLE_LABELS`` in
+        place of the site and ``ALL_TRIPLETS`` in place of the triplet: one per
+        role, method and device.
     """
     return cycle_summarize(
         [
-            dataclasses.replace(r, site=f"{roles[r.site]} chips", triplet=ALL_TRIPLETS)
+            dataclasses.replace(
+                r, site=ROLE_LABELS[roles[r.site]], triplet=ALL_TRIPLETS
+            )
             for r in rows
         ]
     )

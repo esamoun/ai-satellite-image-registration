@@ -3319,13 +3319,19 @@ Both run on the M1's GPU (`mps`).
 | hard | raft_small | 0.426 | 21.3 % | 0.482 | 26.9 % |
 
 Clean and mild agree within 4 %. Under hard the validation set is 8 to 13 %
-worse, and the difference is Sète: 18 % of RAFT's pairs fail there, against 0 to
-3 % on the three other chips. Of its 100 windows, 19 fail in at least two of the
+worse. For RAFT the difference is Sète: 18 % of its pairs fail there, against 0
+to 3 % on the three other chips. Of its 100 windows, 19 fail in at least two of the
 three scenarios, and the same windows are fine without degradation (0.07 px).
 Without Sète the hard preset gives RAFT 1.7 % of failures and 0.225 px, against
 2.1 % and 0.223 px in N2. Sète is a lagoon and a sea coast; that the failing
 windows are the water ones is the likely reason and was not checked on the
 images.
+
+For RAFT small Sète does not explain it: without Sète it fails 19.9 % of the
+hard pairs, against 21.3 % in N2, but its error stays at 0.485 px against
+0.426 px, 14 % more, and Morvan alone fails 38 % of the time. This part of the
+difference is not explained. It is of the same order of magnitude, between
+chips that are not the same places.
 
 On real triplets, the validation chips behave like the seen sites of N2: nearly
 every triplet of Santerre fails (95 %), as on Beauce, both open fields that
@@ -3354,6 +3360,6 @@ change between dates, and none fails on Lyon.
   full set.
 - Sète weighs on every hard row. It is part of the set, and the by-chip table
   shows it.
-- Closure on the validation chips is 241 triplets, 62 of them on Santerre where
+- Closure on the validation chips is 241 triplets, 58 of them on Santerre where
   pretrained RAFT fails almost always: a variant can win there by failing less
   on one chip.

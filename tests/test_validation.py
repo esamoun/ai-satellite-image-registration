@@ -262,7 +262,7 @@ def test_closure_is_pooled_over_the_chips_of_each_role():
     assert (validation.site, validation.triplet) == ("validation chips", ALL_TRIPLETS)
     assert validation.n_triplets == 2
     assert validation.mean_closure == pytest.approx(0.2)
-    assert train.site == "train chips"
+    assert train.site == "training chips"
     assert train.failure_rate == 0.5
     assert train.mean_closure == pytest.approx(0.6)
 
@@ -368,6 +368,19 @@ def test_the_light_run_scores_the_first_pairs_of_the_full_one(tmp_path, capsys, 
 
     full = outcomes(tmp_path / "out" / "pairs.csv")
     assert outcomes(light / "pairs.csv") == full[:3]
+
+
+def test_the_light_run_records_where_it_was_written(tmp_path, cached):
+    main(["validate", "--pairs", "4", "--light", "--light-pairs", "2"] + SMALL + cached)
+
+    light = tmp_path / "out-light"
+    context = json.loads((light / "context.json").read_text())
+    assert context["run"]["out"] == str(light)
+
+
+def test_light_sets_cannot_be_compared_without_results():
+    with pytest.raises(ValueError, match="no results"):
+        subset_tracking([], [2])
 
 
 @pytest.mark.parametrize(

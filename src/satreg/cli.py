@@ -259,6 +259,12 @@ def _parser(
         help="TOML file declaring the degradation presets",
     )
     _add_closure_arguments(closing, defaults)
+    closing.add_argument(
+        "--seed",
+        type=int,
+        default=defaults.seed,
+        help="seed of the simulated triplets",
+    )
     closing.add_argument("--out", type=Path, default=Path("outputs/cycle"))
 
     changes = commands.add_parser(
@@ -584,7 +590,6 @@ def _add_closure_arguments(
         choices=DEVICES,
         help="device every deep-learning method runs on (default: as configured)",
     )
-    parser.add_argument("--seed", type=int, default=defaults.seed)
     parser.add_argument(
         "--failure-threshold",
         type=float,
@@ -1615,7 +1620,8 @@ def validate(args: argparse.Namespace) -> str:
         if not 0 < args.light_pairs <= args.pairs:
             raise SystemExit("satreg: need --light-pairs between 1 and --pairs")
         config = dataclasses.replace(config, n_pairs=args.light_pairs)
-        out = out.with_name(out.name + "-light")
+        # The run's context records where the light set went, not the full one.
+        out = args.out = out.with_name(out.name + "-light")
     degradations = degradation_presets(args)
     try:
         anchors = validation.load_validation_chips(
@@ -1705,7 +1711,6 @@ def validate_cycle(args: argparse.Namespace) -> str:
     config = BenchmarkConfig(
         n_pairs=0,
         size=cycle.WINDOW_PX,
-        seed=args.seed,
         failure_threshold=args.failure_threshold,
         warmup=args.warmup,
         repeats=args.repeats,
@@ -1726,7 +1731,7 @@ def validate_cycle(args: argparse.Namespace) -> str:
     context, meters = _run_context(args, config, methods, run_seconds, [])
     context["validation"] = {"chips": roles}
     chips = {
-        role: ", ".join(name for name in roles if roles[name] == role)
+        validation.ROLE_LABELS[role]: ", ".join(n for n in roles if roles[n] == role)
         for role in dict.fromkeys(roles.values())
     }
     table = (
@@ -1734,9 +1739,7 @@ def validate_cycle(args: argparse.Namespace) -> str:
         "together:\n\n"
         + cycle.to_markdown(by_role)
         + "\n"
-        + " ".join(
-            f"{role.capitalize()} chips: {names}." for role, names in chips.items()
-        )
+        + " ".join(f"{label.capitalize()}: {names}." for label, names in chips.items())
         + " Choices are made on the validation chips; the training chips are the "
         "ones a fine-tuned model has seen, and are reported, not chosen on. "
         + _closure_note(config, meters, context, simulated=False)

@@ -1,0 +1,19 @@
+# Training pairs (N3): what fine-tuning is fed. Each pair is a window cut from
+# a training chip of configs/train-sites.toml, given a known displacement by
+# the benchmark's simulator and a degradation drawn in the [training] ranges of
+# configs/degradations.toml. `satreg train-pairs` draws a few, saves them as a
+# contact sheet and measures how fast they are made. See docs/decisions.md.
+
+[pairs]
+# Side of both images, in px, as in the benchmark.
+size = 256
+# Geometric models, each as likely. Their ranges (shift within 4 px, and the
+# affine and local-field ranges) are the benchmark's unless set here, by the
+# names of its options: max_shift, max_rotation_deg, max_scale_change,
+# max_shear, max_local_shift, local_length.
+scenarios = ["translation", "affine", "dense"]
+# Share of cross-date pairs: reference and moving image from two dates of the
+# same chip. The others are same-date pairs, whose truth is exact. 0.0 gives
+# same-date pairs only.
+cross_date = 0.5
+seed = 0

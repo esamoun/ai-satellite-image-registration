@@ -3146,3 +3146,103 @@ not move for the same reason.
 within the rule. A replaced validation chip changes the validation set, so
 choices made before and after the replacement are not made on the same pixels;
 the entry that records the replacement must say which choices were already made.
+
+---
+
+## 2026-10-02: Training degradations are continuous, the test stays on three presets
+
+**Decision.** A training pair draws its degradation at random in ranges declared
+under `[training]` in `configs/degradations.toml`, next to the presets. The
+benchmark keeps `clean`, `mild` and `hard` and its seeded pairs, unchanged.
+
+| parameter | range | `hard` | beyond `hard` |
+|---|---|---|---|
+| gain | 0.6 to 1.67, log-uniform | 0.7 | 0.1 lower, and as far above 1 |
+| offset (reference std) | -0.7 to 0.7 | -0.5 | 0.2 further, both signs |
+| gamma | 0.6 to 1.7, log-uniform | 1.5 | 0.2 higher, and as far below 1 |
+| cloud cover | 0 to 0.4 | 0.3 | 0.1 more |
+| blur sigma (px) | 0 to 1.3 | 1.0 | 0.3 more |
+| noise SNR (dB) | 12 to 40 | 15 | 3 dB noisier |
+
+Half of the pairs have a cloud on the moving image, and three in ten have one on
+the reference, drawn apart; the other pairs have none on that image.
+
+**Why.** A test needs a few fixed points, so that a row of one table can be
+compared with the same row of another: three presets do that. A training needs
+the opposite. A model trained on the three presets could learn three settings
+and nothing between them, and a model that has seen `hard` exactly is tested on
+its own training distribution at its edge. Ranges that cover the presets and go
+a bit past the hardest one put `hard` inside what was seen, not on its border.
+Gain and gamma are drawn log-uniform because they multiply: 0.6 and 1.67 are the
+same distance from 1.
+
+**Limits.** "A bit beyond" is a judgement: the margins were set before any
+training and no score chose them. The benchmark's degradations and the
+training's are the same four functions, so the test measures a model on a kind
+of degradation it was trained on; only the real pairs and the inter-band pairs
+check anything outside it. The moving image is the only one whose radiometry,
+blur and resolution change, as in the benchmark.
+
+**Rejected.** Training on the three presets: simpler, but it trains on the test's
+exact points. Much wider ranges (cover up to 0.8, SNR down to 0 dB): pairs with
+almost no usable pixel teach nothing and cost the same.
+
+---
+
+## 2026-10-02: A training pair is the benchmark's pair, with a cloud on the reference and a loss mask
+
+**Decision.** `trainpairs.py` builds a pair with `draw_pair` and the `Preset` of
+the benchmark. Three things are added around them.
+
+1. A cloud on the reference. It is drawn after the benchmark's degradations,
+   with the same `Clouds` function applied to the clean reference, and the noise
+   the preset gave the reference is added on top. A pair without a reference
+   cloud is therefore the benchmark's pair, bit for bit.
+2. Cross-date pairs. The reference window comes from one date and the moving
+   window from another date of the same chip, set to the reference's units by
+   `in_units_of`, as the benchmark does for inter-band pairs. The truth is the
+   simulated displacement; the residual misregistration between the two dates is
+   not estimated and not removed.
+3. A loss mask. A pixel is left out if its true position falls outside the
+   moving image, if an opaque cloud (opacity 0.9 or more) covers it on the
+   reference or covers its true position on the moving image, or, on a
+   cross-date pair, if the scene classification hides it on either date.
+
+Pair number `i` of a seed draws from generators keyed by the seed and `i`, so it
+does not depend on what was drawn before it. The draws come in a fixed order:
+two configurations that differ by their share of cross-date pairs give the same
+chip, reference date, scenario, displacement and degradation at each index.
+
+**Why.** Reuse, so that the training cannot drift from what the test measures;
+the pin test fails if it does. The benchmark's own valid mask keeps cloud pixels
+when the motion is global, because a translation can be scored under a cloud.
+A loss cannot use them: the network sees no ground there, and penalising its
+flow under a cloud teaches it to invent one. On a cross-date pair a real cloud
+of one date is not in the other, so the two images disagree there for a reason
+that is not motion. On a same-date pair a real cloud is in both images and moves
+with the ground: it is texture like any other, and stays.
+
+**Limits.** The truth of a cross-date pair is off by the misregistration between
+the two dates, a few tenths of a pixel at most by Sentinel-2's specification,
+and nothing here measures it per pair. Thin cloud (opacity under 0.9) stays in
+the loss. The scene classification misses some clouds and shadows.
+
+---
+
+## 2026-10-02: Training pairs can be generated on the fly, dense pairs set the pace
+
+**Decision.** Measured on the M1 (8 GB) over 200 pairs of 256 px, one process,
+chips already in memory, up to the network's inputs, the flow and the mask:
+5.8 pairs per second. A translation or affine pair takes 10 to 25 ms; a dense
+pair takes 0.4 s, almost all of it in drawing and applying the smooth random
+field. Ticket 06 decides between generating on the fly and caching with these
+numbers.
+
+**Why.** The choice depends on how many pairs per second the GPU consumes, which
+is not known before the training loop exists. What is known: with a third of
+dense pairs one process gives about 6 pairs per second, so a batch of 8 takes
+1.4 s to prepare.
+
+**Limits.** Measured on the laptop, not on Kaggle, whose CPUs differ. The time
+to read the chips from disk is not included.
+

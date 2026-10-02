@@ -22,3 +22,47 @@ radiometry = { gain = 0.7, offset = -0.5, gamma = 1.5 }
 clouds = { cover = 0.3 }
 blur = { sigma = 1.0 }
 noise = { snr_db = 15 }
+
+# --- Training ranges (N3) ----------------------------------------------------
+#
+# Fine-tuning does not train on the three presets above: each training pair
+# draws its own degradation, every parameter on its own, in the ranges below.
+# They run from clean to a little past `hard`, and on both sides of "no change"
+# where the parameter has two sides. The presets stay what methods are tested
+# on. `satreg train-pairs` draws pairs from these ranges. See docs/decisions.md.
+#
+# A range is [low, high]. Gain and gamma multiply, so they are drawn uniformly
+# on a log scale; the others uniformly.
+
+[training.radiometry]
+# Contrast of the moving image, from 0.6 to 1 / 0.6. `hard` is 0.7: the low end
+# removes a seventh more contrast, and the high end is its mirror, the reference
+# being the flatter image.
+gain = [0.6, 1.67]
+# Level shift, in reference standard deviations, darker or brighter. `hard` is
+# -0.5: 0.2 further, on both sides.
+offset = [-0.7, 0.7]
+# Tone curve. `hard` is 1.5, `mild` 0.9: up to 1.7, and down to its mirror 0.6.
+gamma = [0.6, 1.7]
+
+[training.clouds]
+# Share of an image under cloud, when it has clouds. `hard` is 0.3: up to a
+# third more.
+cover = [0.0, 0.4]
+# Probability that the moving image has clouds. Under `hard` it always has;
+# here half of the pairs keep a clear moving image.
+moving = 0.5
+# Probability that the reference image has clouds, drawn on its own. No preset
+# clouds the reference: this is beyond `hard` in kind, not in amount. About one
+# pair in seven has clouds on both images.
+reference = 0.3
+
+[training.blur]
+# Blur of the moving image, in px, from none. `hard` is 1.0: up to 0.3 px more.
+sigma = [0.0, 1.3]
+
+[training.noise]
+# Signal-to-noise ratio of both images, in dB. `hard` is 15: down to 3 dB
+# lower, noise 1.4 times as strong. The clean end is 40 dB, noise at 1 % of the
+# scene's contrast, since a ratio has no "none".
+snr_db = [12.0, 40.0]

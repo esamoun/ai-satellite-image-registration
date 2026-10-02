@@ -51,6 +51,13 @@ same chip. Its ground truth carries the residual misregistration between the
 two dates.
 _Avoid_: Multi-temporal pair (which also names real pairs)
 
+**Loss mask**:
+The pixels of a training pair the training loss may use: those whose true
+position stays inside the moving image and that no opaque cloud covers, on
+either image.
+_Avoid_: Valid mask (the benchmark's, which keeps cloud pixels for a global
+motion)
+
 **Real pair**:
 Two dates of the same window with no displacement applied and no ground truth.
 

@@ -1,4 +1,4 @@
-.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset clean
+.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs clean
 
 install:
 	pip install -e ".[dev]"
@@ -107,6 +107,11 @@ train-dataset:
 	satreg fetch-train --export $(TRAIN_DATASET)
 	cp kaggle/dataset-metadata.json $(TRAIN_DATASET)/
 	cd $(TRAIN_DATASET) && zip -qr $(abspath $(TRAIN_ZIP)) real chips.json
+
+# A sample of the training pairs of configs/train-pairs.toml (N3): a contact
+# sheet to look at before any training, and how fast pairs are made.
+train-pairs:
+	satreg train-pairs
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

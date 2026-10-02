@@ -256,6 +256,42 @@ call that raises for any other chip. `--export DIR` copies the accepted chips to
 a directory laid out like `data/`, which is what is uploaded to Kaggle
 ([docs/kaggle.md](docs/kaggle.md)).
 
+### Training pairs
+
+```bash
+make train-pairs                  # draw 200 training pairs, time them, save a contact sheet
+satreg train-pairs --cross-date 0 # same-date pairs only
+```
+
+A training pair is a 256 px window of a training chip, moved by a known
+displacement and degraded by a random draw. The generator
+([`trainpairs.py`](src/satreg/trainpairs.py)) calls the benchmark's simulator
+and degradations, it does not copy them: with the exact parameters of a preset
+it returns the benchmark's pair, and a test pins it. What differs from the
+benchmark:
+
+- **Degradations are drawn in continuous ranges**, from clean to a bit beyond
+  `hard`, declared under `[training]` in
+  [`configs/degradations.toml`](configs/degradations.toml). The three presets
+  stay the test's.
+- **Clouds may fall on both images**: half of the pairs have a cloud on the
+  moving image, three in ten on the reference.
+- **Two kinds of pair**, in a share set by `cross_date` in
+  [`configs/train-pairs.toml`](configs/train-pairs.toml): same-date (one date,
+  exact truth) and cross-date (reference and moving from two dates of one chip).
+- **A loss mask** comes with each pair: pixels pushed out of frame, pixels under
+  an opaque cloud on either image and, on a cross-date pair, pixels the scene
+  classification hides on either date are left out.
+
+Pair number `i` of a seed is always the same pair, whatever was drawn before it.
+Only training chips are read: asking for a validation chip raises. The network's
+inputs are made by the conversion the `raft` method uses.
+
+The command writes `summary.md`, `pairs.csv` (one row per pair, with its drawn
+parameters) and `contact-sheet.png` to `outputs/train-pairs/`. On the M1, one
+process makes 5.8 pairs per second: a translation or affine pair takes 10 to
+25 ms, a dense pair 0.4 s.
+
 ### Under degraded conditions
 
 Each pair is run clean and under named degradation presets, declared in

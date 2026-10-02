@@ -58,30 +58,51 @@ class SimulatedPair:
         return float(np.mean(self.cloud >= 0.5))
 
     @property
-    def valid(self) -> np.ndarray:
-        """Reference pixels whose displacement can be observed in the moving image.
+    def in_frame(self) -> np.ndarray:
+        """Reference pixels whose displaced position lies in the moving image.
 
-        A reference pixel is valid if its displaced position lies within the
-        pixel centres of the moving image. Near the borders, content leaves the
-        moving image, and the displacement there cannot be observed. For a dense
-        truth, a pixel whose displaced position lies under opaque cloud is not
-        valid either: its displacement is its own, and the ground it would be
-        read from is hidden. A global truth is the same under the cloud as beside
-        it, so its pixels stay valid there.
+        Near the borders, content leaves the moving image, and the displacement
+        there cannot be observed. The frame is the pixel centres of the moving
+        image.
         """
-        shape = self.reference.shape
-        target = np.indices(shape, dtype=float) + self.truth.field(shape)
-        rows, cols = shape
-        inside = (
+        target = self._target()
+        rows, cols = self.reference.shape
+        return (
             (target[0] >= 0)
             & (target[0] <= rows - 1)
             & (target[1] >= 0)
             & (target[1] <= cols - 1)
         )
+
+    @property
+    def under_cloud(self) -> np.ndarray:
+        """Reference pixels whose displaced position lies under opaque cloud."""
+        if self.cloud is None:
+            return np.zeros(self.reference.shape, bool)
+        opacity = ndimage.map_coordinates(
+            self.cloud, self._target(), order=1, mode="nearest"
+        )
+        return opacity >= OPAQUE_CLOUD
+
+    @property
+    def valid(self) -> np.ndarray:
+        """Reference pixels whose displacement can be observed in the moving image.
+
+        A reference pixel is valid if its displaced position lies within the
+        pixel centres of the moving image. For a dense truth, a pixel whose
+        displaced position lies under opaque cloud is not valid either: its
+        displacement is its own, and the ground it would be read from is hidden.
+        A global truth is the same under the cloud as beside it, so its pixels
+        stay valid there.
+        """
         if self.cloud is None or not isinstance(self.truth, Dense):
-            return inside
-        opacity = ndimage.map_coordinates(self.cloud, target, order=1, mode="nearest")
-        return inside & (opacity < OPAQUE_CLOUD)
+            return self.in_frame
+        return self.in_frame & ~self.under_cloud
+
+    def _target(self) -> np.ndarray:
+        """Position in the moving image of each reference pixel, ``(2, ...)``."""
+        shape = self.reference.shape
+        return np.indices(shape, dtype=float) + self.truth.field(shape)
 
 
 def margin_for(max_shift: float) -> int:

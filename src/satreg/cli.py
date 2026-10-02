@@ -1,6 +1,6 @@
 """Command-line entry point: ``satreg fetch``, ``satreg benchmark``, ``satreg
 merge``, ``satreg real-pairs``, ``satreg check-presets``, ``satreg cycle``,
-``satreg false-change`` and ``satreg fetch-train``."""
+``satreg false-change``, ``satreg fetch-train`` and ``satreg train-pairs``."""
 
 import argparse
 import dataclasses
@@ -13,7 +13,7 @@ from time import perf_counter
 
 import numpy as np
 
-from . import cycle, falsechange, trainchips
+from . import cycle, falsechange, trainchips, trainpairs
 from .benchmark import SCENARIOS, BenchmarkConfig, method_device, run_benchmark
 from .compute import describe, environment, process_peak_rss_mib
 from .degrade import Preset, load_presets
@@ -69,6 +69,7 @@ DEFAULT_METHODS_CONFIG = Path("configs/methods.toml")
 DEFAULT_DATA_DIR = Path("data")
 DEFAULT_SERIES_CONFIG = Path("configs/real.toml")
 DEFAULT_TRAIN_CONFIG = Path("configs/train-sites.toml")
+DEFAULT_PAIRS_CONFIG = Path("configs/train-pairs.toml")
 
 # Commands a run configuration file can set, and the table each one reads.
 RUN_TABLES = {
@@ -496,6 +497,62 @@ def _parser(
         help="also copy the accepted chips to DIR, laid out as a data directory, "
         "with the manifest: what is uploaded for the training runs",
     )
+    drawn = commands.add_parser(
+        "train-pairs",
+        help="draw training pairs, save them as a contact sheet and measure how "
+        "fast they are made",
+    )
+    drawn.add_argument(
+        "--pairs-config",
+        type=Path,
+        default=DEFAULT_PAIRS_CONFIG,
+        help="TOML file whose [pairs] table says what training pairs are made of",
+    )
+    drawn.add_argument(
+        "--degradations-config",
+        type=Path,
+        default=DEFAULT_DEGRADATIONS_CONFIG,
+        help="TOML file whose [training] table gives the degradation ranges",
+    )
+    drawn.add_argument(
+        "--train-config",
+        type=Path,
+        default=DEFAULT_TRAIN_CONFIG,
+        help="TOML file declaring the training and validation chips",
+    )
+    drawn.add_argument(
+        "--series-config",
+        type=Path,
+        default=DEFAULT_SERIES_CONFIG,
+        help="TOML file declaring which dates a series takes",
+    )
+    drawn.add_argument(
+        "--chip",
+        action="append",
+        dest="chips",
+        metavar="NAME",
+        help="training chip to cut pairs from, repeatable (default: every "
+        "training chip)",
+    )
+    drawn.add_argument(
+        "--n-pairs", type=int, default=200, help="pairs to draw and time"
+    )
+    drawn.add_argument(
+        "--sheet-pairs",
+        type=int,
+        default=36,
+        help="how many of them, the first ones, go on the contact sheet",
+    )
+    drawn.add_argument(
+        "--cross-date",
+        type=float,
+        help="share of cross-date pairs (default: the pairs config's)",
+    )
+    drawn.add_argument(
+        "--seed", type=int, help="seed of the pairs (default: the pairs config's)"
+    )
+    _add_data_arguments(drawn)
+    drawn.add_argument("--out", type=Path, default=Path("outputs/train-pairs"))
     if run_config:
         {"benchmark": bench, "cycle": closing, "false-change": changes}[
             command
@@ -1286,6 +1343,70 @@ def fetch_train(args: argparse.Namespace) -> str:
     return table
 
 
+def train_pairs(args: argparse.Namespace) -> str:
+    """Draw training pairs, save a contact sheet and measure their throughput.
+
+    Args:
+        args: Parsed ``train-pairs`` arguments.
+
+    Returns:
+        A markdown table of the pairs drawn, by kind and scenario, with the
+        time they take. Also written to ``args.out`` with ``pairs.csv``, one
+        row per pair, and ``contact-sheet.png``.
+
+    Raises:
+        SystemExit: If a configuration is missing or invalid, a chip asked for
+            is not a training chip, or no pair is asked for.
+    """
+    if args.n_pairs < 1 or not 0 <= args.sheet_pairs <= args.n_pairs:
+        raise SystemExit("satreg: need --n-pairs >= 1 and --sheet-pairs within it")
+    sites = load_sites(args.sites_config)
+    try:
+        config = trainchips.load_training_chips(args.train_config, sites)
+        series = load_series_config(args.series_config)
+        pairs_config = trainpairs.load_pairs_config(args.pairs_config)
+        ranges = trainpairs.load_ranges(args.degradations_config)
+        overrides = {
+            key: value
+            for key in ("cross_date", "seed")
+            if (value := getattr(args, key)) is not None
+        }
+        pairs_config = dataclasses.replace(pairs_config, **overrides)
+        chips = trainpairs.load_training_series(
+            config, series, args.data_dir, args.chips
+        )
+        generator = trainpairs.PairGenerator(chips, pairs_config, ranges)
+    except FileNotFoundError as exc:
+        raise SystemExit(
+            f"satreg: no configuration at {exc.filename} (run from the repository "
+            "root or pass the configuration files)"
+        ) from None
+    except ValueError as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+
+    pairs, rows = trainpairs.timed_pairs(generator, range(args.n_pairs))
+    context = environment()
+    table = (
+        f"{args.n_pairs} training pairs of {pairs_config.size} px from "
+        f"{len(chips)} chips ({', '.join(chips)}), seed {pairs_config.seed}, "
+        f"cross-date share {pairs_config.cross_date:g}.\n\n"
+        + trainpairs.to_markdown(rows)
+        + f"\nMeasured on {describe(context)}.\n"
+    )
+    args.out.mkdir(parents=True, exist_ok=True)
+    write_csv(rows, args.out / "pairs.csv")
+    if args.sheet_pairs:
+        sheet = args.out / "contact-sheet.png"
+        trainpairs.contact_sheet(pairs[: args.sheet_pairs], sheet)
+        table += f"\nContact sheet of the first {args.sheet_pairs} pairs: {sheet}\n"
+    (args.out / "summary.md").write_text(table)
+    context["pairs"] = dataclasses.asdict(pairs_config)
+    context["ranges"] = dataclasses.asdict(ranges)
+    context_json = json.dumps(context, indent=2, default=str)
+    (args.out / "context.json").write_text(context_json + "\n")
+    return table
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Parse arguments and run the requested command."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -1312,3 +1433,5 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(false_change(args), end="")
     elif args.command == "fetch-train":
         print(fetch_train(args), end="")
+    elif args.command == "train-pairs":
+        print(train_pairs(args), end="")

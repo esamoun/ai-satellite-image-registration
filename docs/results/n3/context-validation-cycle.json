@@ -1,0 +1,86 @@
+{
+  "recorded_at": "2026-10-02T14:31:12+00:00",
+  "code": {
+    "commit": "d4d47ea1b4eccffc70e449bdefe022fb88dcd262",
+    "dirty": true
+  },
+  "machine": {
+    "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "cpu": "Apple M1",
+    "memory_gib": 8.0
+  },
+  "gpu": null,
+  "threads": {
+    "cpu_count": 8,
+    "usable_cpus": 8,
+    "opencv": 8,
+    "torch": 4,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+  },
+  "python": "3.13.7",
+  "libraries": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "scikit-image": "0.26.0",
+    "opencv-python-headless": "5.0.0.93",
+    "rasterio": "1.5.1",
+    "arosics": "1.13.2",
+    "GDAL": "3.13.3",
+    "torch": "2.14.0",
+    "torchvision": "0.29.0"
+  },
+  "cost": {
+    "warmup": 1,
+    "repeats": 1,
+    "process_peak_rss_mib": 965.375,
+    "memory": {
+      "raft": "none",
+      "raft_small": "none"
+    },
+    "run_seconds": 476.46540733403526
+  },
+  "devices": {
+    "raft": "mps",
+    "raft_small": "mps"
+  },
+  "held_out_sites": [],
+  "run": {
+    "chips": null,
+    "config": "configs/validation.toml",
+    "data_dir": "data",
+    "device": "mps",
+    "failure_threshold": 1.0,
+    "methods": [
+      "raft",
+      "raft_small"
+    ],
+    "methods_config": "configs/methods.toml",
+    "out": "outputs/validation-cycle",
+    "repeats": 1,
+    "seed": 0,
+    "series_config": "configs/real.toml",
+    "sites_config": "configs/sites.toml",
+    "train_config": "configs/train-sites.toml",
+    "warmup": 1
+  },
+  "validation": {
+    "chips": {
+      "santerre": "validation",
+      "lyon": "validation",
+      "morvan": "validation",
+      "sete": "validation",
+      "champagne": "train",
+      "boerde": "train",
+      "bordeaux": "train",
+      "milan": "train",
+      "landes": "train",
+      "foret_noire": "train",
+      "giens": "train",
+      "costa_brava": "train"
+    }
+  }
+}

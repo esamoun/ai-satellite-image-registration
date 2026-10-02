@@ -1,6 +1,7 @@
 """Command-line entry point: ``satreg fetch``, ``satreg benchmark``, ``satreg
 merge``, ``satreg real-pairs``, ``satreg check-presets``, ``satreg cycle``,
-``satreg false-change``, ``satreg fetch-train`` and ``satreg train-pairs``."""
+``satreg false-change``, ``satreg fetch-train``, ``satreg train-pairs``,
+``satreg validate`` and ``satreg validate-cycle``."""
 
 import argparse
 import dataclasses
@@ -13,8 +14,14 @@ from time import perf_counter
 
 import numpy as np
 
-from . import cycle, falsechange, trainchips, trainpairs
-from .benchmark import SCENARIOS, BenchmarkConfig, method_device, run_benchmark
+from . import cycle, falsechange, trainchips, trainpairs, validation
+from .benchmark import (
+    SCENARIOS,
+    BenchmarkConfig,
+    PairResult,
+    method_device,
+    run_benchmark,
+)
 from .compute import describe, environment, process_peak_rss_mib
 from .degrade import Preset, load_presets
 from .georef import NOMINAL, Georef
@@ -45,6 +52,7 @@ from .presetcheck import summarize as summarize_appearance
 from .presetcheck import to_markdown as appearance_markdown
 from .real import (
     ANCHOR,
+    Acquisition,
     SeriesConfig,
     fetch_series,
     load_series,
@@ -76,6 +84,8 @@ RUN_TABLES = {
     "benchmark": "benchmark",
     "cycle": "cycle",
     "false-change": "false_change",
+    "validate": "validate",
+    "validate-cycle": "validate_cycle",
 }
 
 
@@ -154,27 +164,6 @@ def _parser(
         "the table and context.json name them",
     )
     bench.add_argument(
-        "--degradations",
-        nargs="+",
-        metavar="PRESET",
-        help="degradation presets to run (default: every configured preset)",
-    )
-    bench.add_argument(
-        "--degradations-config",
-        type=Path,
-        default=DEFAULT_DEGRADATIONS_CONFIG,
-        help="TOML file declaring the degradation presets",
-    )
-    bench.add_argument("--pairs", type=int, default=defaults.n_pairs)
-    bench.add_argument("--size", type=int, default=defaults.size)
-    bench.add_argument(
-        "--scenarios",
-        nargs="+",
-        choices=SCENARIOS,
-        default=list(defaults.scenarios),
-        help="geometric models to simulate (default: all)",
-    )
-    bench.add_argument(
         "--band-pair",
         action="append",
         nargs=2,
@@ -185,85 +174,7 @@ def _parser(
         f"among {', '.join(TEN_METRE_BANDS)} (default: single-band pairs from "
         "each site's own band)",
     )
-    bench.add_argument(
-        "--max-shift",
-        type=float,
-        default=defaults.max_shift,
-        help="largest shift of the pair centre, per component, in px",
-    )
-    bench.add_argument(
-        "--max-rotation",
-        type=float,
-        default=defaults.max_rotation_deg,
-        help="largest affine rotation, in degrees",
-    )
-    bench.add_argument(
-        "--max-scale-change",
-        type=float,
-        default=defaults.max_scale_change,
-        help="largest affine scale change, as a fraction (0.002 is 0.2 %%)",
-    )
-    bench.add_argument(
-        "--max-shear",
-        type=float,
-        default=defaults.max_shear,
-        help="largest affine shear, in px per px",
-    )
-    bench.add_argument(
-        "--max-local-shift",
-        type=float,
-        default=defaults.max_local_shift,
-        help="largest magnitude of the local field of a dense pair, in px: "
-        "orthorectification residuals such as relief seen through an elevation "
-        "model error",
-    )
-    bench.add_argument(
-        "--local-length",
-        type=float,
-        default=defaults.local_length,
-        help="correlation length of the local field of a dense pair, in px",
-    )
-    bench.add_argument("--seed", type=int, default=defaults.seed)
-    bench.add_argument(
-        "--failure-threshold",
-        type=float,
-        default=FAILURE_EPE_PX,
-        help="mean end-point error above which a pair failed, in px",
-    )
-    bench.add_argument(
-        "--warmup",
-        type=int,
-        default=defaults.warmup,
-        help="untimed calls of each method before timing it",
-    )
-    bench.add_argument(
-        "--repeats",
-        type=int,
-        default=defaults.repeats,
-        help="timed calls of a method on each pair, whose median is reported",
-    )
-    bench.add_argument(
-        "--methods",
-        nargs="+",
-        metavar="METHOD",
-        default=default_methods(),
-        help=f"methods to run, among {', '.join(sorted(METHODS))} and the variants "
-        "declared in the methods config (default: every built-in method whose "
-        f"dependencies are installed, except {', '.join(sorted(OPT_IN))})",
-    )
-    bench.add_argument(
-        "--methods-config",
-        type=Path,
-        default=DEFAULT_METHODS_CONFIG,
-        help="TOML file setting the methods' parameters",
-    )
-    bench.add_argument(
-        "--device",
-        choices=DEVICES,
-        help="device every deep-learning method runs on, in place of the one its "
-        "parameters name (default: those parameters); the other methods run on "
-        "the CPU",
-    )
+    _add_scoring_arguments(bench, defaults)
     bench.add_argument("--out", type=Path, default=Path("outputs/benchmark"))
 
     merging = commands.add_parser(
@@ -321,24 +232,6 @@ def _parser(
         "out, and a table that has them says so",
     )
     closing.add_argument(
-        "--methods",
-        nargs="+",
-        metavar="METHOD",
-        default=default_methods(),
-        help="methods to run (default: as for benchmark)",
-    )
-    closing.add_argument(
-        "--methods-config",
-        type=Path,
-        default=DEFAULT_METHODS_CONFIG,
-        help="TOML file setting the methods' parameters",
-    )
-    closing.add_argument(
-        "--device",
-        choices=DEVICES,
-        help="device every deep-learning method runs on (default: as configured)",
-    )
-    closing.add_argument(
         "--simulated-triplets",
         type=int,
         default=5,
@@ -365,25 +258,7 @@ def _parser(
         default=DEFAULT_DEGRADATIONS_CONFIG,
         help="TOML file declaring the degradation presets",
     )
-    closing.add_argument("--seed", type=int, default=defaults.seed)
-    closing.add_argument(
-        "--failure-threshold",
-        type=float,
-        default=FAILURE_EPE_PX,
-        help="mean closure residual above which a triplet failed, in px",
-    )
-    closing.add_argument(
-        "--warmup",
-        type=int,
-        default=defaults.warmup,
-        help="untimed calls of each method before timing it",
-    )
-    closing.add_argument(
-        "--repeats",
-        type=int,
-        default=1,
-        help="timed calls of a method on each pair, whose median is reported",
-    )
+    _add_closure_arguments(closing, defaults)
     closing.add_argument("--out", type=Path, default=Path("outputs/cycle"))
 
     changes = commands.add_parser(
@@ -519,11 +394,215 @@ def _parser(
         "--seed", type=int, help="seed of the pairs (default: the pairs config's)"
     )
     drawn.add_argument("--out", type=Path, default=Path("outputs/train-pairs"))
+
+    validating = commands.add_parser(
+        "validate",
+        help="score methods on the validation set: simulated pairs cut from the "
+        "validation chips, scored as benchmark scores its own",
+    )
+    _add_config_argument(validating, "validate")
+    _add_training_arguments(
+        validating,
+        "validation chip to cut pairs from, repeatable (default: every validation "
+        "chip)",
+    )
+    _add_scoring_arguments(validating, defaults)
+    validating.add_argument(
+        "--light",
+        action="store_true",
+        help="run the light validation set, the first --light-pairs pairs of every "
+        "cell, and write it next to --out, in a directory named after it with "
+        "-light",
+    )
+    validating.add_argument(
+        "--light-pairs",
+        type=int,
+        default=10,
+        help="pairs per chip, scenario and preset of the light validation set",
+    )
+    validating.add_argument(
+        "--subset-sizes",
+        nargs="+",
+        type=int,
+        default=[5, 10, 20, 50],
+        metavar="PAIRS",
+        help="light sets to compare with the full one, in pairs per cell",
+    )
+    validating.add_argument("--out", type=Path, default=Path("outputs/validation"))
+
+    validating_closure = commands.add_parser(
+        "validate-cycle",
+        help="score how well each method's displacements close on the real "
+        "triplets of the training and validation chips",
+    )
+    _add_config_argument(validating_closure, "validate-cycle")
+    _add_training_arguments(
+        validating_closure,
+        "training or validation chip to run, repeatable (default: every chip of "
+        "the train config)",
+    )
+    _add_closure_arguments(validating_closure, defaults)
+    validating_closure.add_argument(
+        "--out", type=Path, default=Path("outputs/validation-cycle")
+    )
     if run_config:
-        {"benchmark": bench, "cycle": closing, "false-change": changes}[
-            command
-        ].set_defaults(**run_config)
+        {
+            "benchmark": bench,
+            "cycle": closing,
+            "false-change": changes,
+            "validate": validating,
+            "validate-cycle": validating_closure,
+        }[command].set_defaults(**run_config)
     return parser
+
+
+def _add_scoring_arguments(
+    parser: argparse.ArgumentParser, defaults: BenchmarkConfig
+) -> None:
+    """Add the options of a command that scores methods on simulated pairs."""
+    parser.add_argument(
+        "--degradations",
+        nargs="+",
+        metavar="PRESET",
+        help="degradation presets to run (default: every configured preset)",
+    )
+    parser.add_argument(
+        "--degradations-config",
+        type=Path,
+        default=DEFAULT_DEGRADATIONS_CONFIG,
+        help="TOML file declaring the degradation presets",
+    )
+    parser.add_argument("--pairs", type=int, default=defaults.n_pairs)
+    parser.add_argument("--size", type=int, default=defaults.size)
+    parser.add_argument(
+        "--scenarios",
+        nargs="+",
+        choices=SCENARIOS,
+        default=list(defaults.scenarios),
+        help="geometric models to simulate (default: all)",
+    )
+    parser.add_argument(
+        "--max-shift",
+        type=float,
+        default=defaults.max_shift,
+        help="largest shift of the pair centre, per component, in px",
+    )
+    parser.add_argument(
+        "--max-rotation",
+        type=float,
+        default=defaults.max_rotation_deg,
+        help="largest affine rotation, in degrees",
+    )
+    parser.add_argument(
+        "--max-scale-change",
+        type=float,
+        default=defaults.max_scale_change,
+        help="largest affine scale change, as a fraction (0.002 is 0.2 %%)",
+    )
+    parser.add_argument(
+        "--max-shear",
+        type=float,
+        default=defaults.max_shear,
+        help="largest affine shear, in px per px",
+    )
+    parser.add_argument(
+        "--max-local-shift",
+        type=float,
+        default=defaults.max_local_shift,
+        help="largest magnitude of the local field of a dense pair, in px: "
+        "orthorectification residuals such as relief seen through an elevation "
+        "model error",
+    )
+    parser.add_argument(
+        "--local-length",
+        type=float,
+        default=defaults.local_length,
+        help="correlation length of the local field of a dense pair, in px",
+    )
+    parser.add_argument("--seed", type=int, default=defaults.seed)
+    parser.add_argument(
+        "--failure-threshold",
+        type=float,
+        default=FAILURE_EPE_PX,
+        help="mean end-point error above which a pair failed, in px",
+    )
+    parser.add_argument(
+        "--warmup",
+        type=int,
+        default=defaults.warmup,
+        help="untimed calls of each method before timing it",
+    )
+    parser.add_argument(
+        "--repeats",
+        type=int,
+        default=defaults.repeats,
+        help="timed calls of a method on each pair, whose median is reported",
+    )
+    parser.add_argument(
+        "--methods",
+        nargs="+",
+        metavar="METHOD",
+        default=default_methods(),
+        help=f"methods to run, among {', '.join(sorted(METHODS))} and the variants "
+        "declared in the methods config (default: every built-in method whose "
+        f"dependencies are installed, except {', '.join(sorted(OPT_IN))})",
+    )
+    parser.add_argument(
+        "--methods-config",
+        type=Path,
+        default=DEFAULT_METHODS_CONFIG,
+        help="TOML file setting the methods' parameters",
+    )
+    parser.add_argument(
+        "--device",
+        choices=DEVICES,
+        help="device every deep-learning method runs on, in place of the one its "
+        "parameters name (default: those parameters); the other methods run on "
+        "the CPU",
+    )
+
+
+def _add_closure_arguments(
+    parser: argparse.ArgumentParser, defaults: BenchmarkConfig
+) -> None:
+    """Add the options of a command that scores closure on real triplets."""
+    parser.add_argument(
+        "--methods",
+        nargs="+",
+        metavar="METHOD",
+        default=default_methods(),
+        help="methods to run (default: as for benchmark)",
+    )
+    parser.add_argument(
+        "--methods-config",
+        type=Path,
+        default=DEFAULT_METHODS_CONFIG,
+        help="TOML file setting the methods' parameters",
+    )
+    parser.add_argument(
+        "--device",
+        choices=DEVICES,
+        help="device every deep-learning method runs on (default: as configured)",
+    )
+    parser.add_argument("--seed", type=int, default=defaults.seed)
+    parser.add_argument(
+        "--failure-threshold",
+        type=float,
+        default=FAILURE_EPE_PX,
+        help="mean closure residual above which a triplet failed, in px",
+    )
+    parser.add_argument(
+        "--warmup",
+        type=int,
+        default=defaults.warmup,
+        help="untimed calls of each method before timing it",
+    )
+    parser.add_argument(
+        "--repeats",
+        type=int,
+        default=1,
+        help="timed calls of a method on each pair, whose median is reported",
+    )
 
 
 def _add_training_arguments(parser: argparse.ArgumentParser, chip_help: str) -> None:
@@ -569,7 +648,8 @@ def load_run_config(path: Path, command: str = "benchmark") -> dict[str, object]
 
     Args:
         path: TOML file with a table named after the command (``[benchmark]``,
-            ``[cycle]``, ``[false_change]``). Its keys are that command's options
+            ``[cycle]``, ``[false_change]``, ``[validate]``,
+            ``[validate_cycle]``). Its keys are that command's options
             by destination name (``max_shift`` for ``--max-shift``). Paths are
             read relative to the working directory, like the command-line
             options. The file's other tables are not read.
@@ -821,16 +901,10 @@ def configured_methods(args: argparse.Namespace) -> dict[str, Method]:
     return chosen
 
 
-def benchmark(args: argparse.Namespace) -> str:
-    """Run the benchmark on the requested sites and write its tables.
-
-    Args:
-        args: Parsed ``benchmark`` arguments.
-
-    Returns:
-        The results table as markdown, followed by the machine it was measured on.
-    """
-    config = BenchmarkConfig(
+def _benchmark_config(args: argparse.Namespace) -> BenchmarkConfig:
+    """Build the run parameters of a command that scores simulated pairs."""
+    band_pairs = getattr(args, "band_pairs", None) or []
+    return BenchmarkConfig(
         n_pairs=args.pairs,
         size=args.size,
         max_shift=args.max_shift,
@@ -840,21 +914,33 @@ def benchmark(args: argparse.Namespace) -> str:
         max_local_shift=args.max_local_shift,
         local_length=args.local_length,
         scenarios=tuple(dict.fromkeys(args.scenarios)),
-        band_pairs=tuple(dict.fromkeys(tuple(p) for p in args.band_pairs or [])),
+        band_pairs=tuple(dict.fromkeys(tuple(p) for p in band_pairs)),
         seed=args.seed,
         failure_threshold=args.failure_threshold,
         warmup=args.warmup,
         repeats=args.repeats,
     )
-    degradations = degradation_presets(args)
-    held_out = held_out_sites(args)
-    sites, georefs, bands = site_images(args)
-    methods = configured_methods(args)
 
-    started = perf_counter()
-    results = run_benchmark(sites, methods, config, degradations, georefs, bands)
-    run_seconds = perf_counter() - started
-    summary = summarize(results)
+
+def _run_context(
+    args: argparse.Namespace,
+    config: BenchmarkConfig,
+    methods: dict[str, Method],
+    run_seconds: float,
+    held_out: list[str],
+) -> tuple[dict[str, object], dict[str, str]]:
+    """Describe a run for its ``context.json``.
+
+    Args:
+        args: Parsed arguments of the command.
+        config: Run parameters, for the warm-up and repeats.
+        methods: The methods that ran.
+        run_seconds: How long the run took, without the chips fetched before it.
+        held_out: Held-out sites the run looked at.
+
+    Returns:
+        The context, and each method's memory meter by method name.
+    """
     context = environment()
     meters = {name: cost_meter(method).name for name, method in methods.items()}
     context["cost"] = {
@@ -862,8 +948,6 @@ def benchmark(args: argparse.Namespace) -> str:
         "repeats": config.repeats,
         "process_peak_rss_mib": process_peak_rss_mib(),
         "memory": meters,
-        # The whole run, pairs simulated and scored included, but not the
-        # chips fetched before it.
         "run_seconds": run_seconds,
     }
     # Where each method ran: the deep-learning ones name their device, the
@@ -874,19 +958,79 @@ def benchmark(args: argparse.Namespace) -> str:
     # Every option the run used, whether from the command line, a run config or
     # a default, so the tables can be reproduced from this file alone.
     context["run"] = {k: v for k, v in sorted(vars(args).items()) if k != "command"}
-    table = to_markdown(summary) + (
+    return context, meters
+
+
+def _write_context(context: dict[str, object], out: Path) -> None:
+    # Paths in the run options are written as text.
+    context_json = json.dumps(context, indent=2, default=str)
+    (out / "context.json").write_text(context_json + "\n")
+
+
+def _score(
+    args: argparse.Namespace,
+    config: BenchmarkConfig,
+    degradations: dict[str, Preset],
+    sites: dict[str, np.ndarray],
+    georefs: dict[str, Georef],
+    bands: dict[str, dict[str, np.ndarray]],
+    methods: dict[str, Method],
+    held_out: list[str],
+) -> tuple[list[PairResult], dict[str, object], str]:
+    """Simulate and score pairs: what ``benchmark`` and ``validate`` both run.
+
+    Args:
+        args: Parsed arguments of the command.
+        config: Run parameters.
+        degradations: Preset name to preset.
+        sites: Site name to the image pairs are cut from.
+        georefs: Site name to its map grid.
+        bands: Site name to band name to band, empty for a single-band run.
+        methods: Method name to method.
+        held_out: Held-out sites among ``sites``.
+
+    Returns:
+        Per-pair results, the run's context, and the footnote of its table: how
+        and on what machine cost was measured.
+    """
+    started = perf_counter()
+    results = run_benchmark(sites, methods, config, degradations, georefs, bands)
+    # The whole run, pairs simulated and scored included.
+    run_seconds = perf_counter() - started
+    context, meters = _run_context(args, config, methods, run_seconds, held_out)
+    footnote = (
         f"\nMeasured on {describe(context)}. Time is the median of {config.repeats} "
         f"calls per pair, after {config.warmup} warm-up call(s) per method; "
         f"{memory_note(meters)}. Details in `context.json`.\n"
     )
-    table += held_out_note(held_out)
+    return results, context, footnote
+
+
+def benchmark(args: argparse.Namespace) -> str:
+    """Run the benchmark on the requested sites and write its tables.
+
+    Args:
+        args: Parsed ``benchmark`` arguments.
+
+    Returns:
+        The results table as markdown, followed by the machine it was measured on.
+    """
+    config = _benchmark_config(args)
+    degradations = degradation_presets(args)
+    held_out = held_out_sites(args)
+    sites, georefs, bands = site_images(args)
+    methods = configured_methods(args)
+
+    results, context, footnote = _score(
+        args, config, degradations, sites, georefs, bands, methods, held_out
+    )
+    summary = summarize(results)
+    table = to_markdown(summary) + footnote + held_out_note(held_out)
 
     write_csv(results, args.out / "pairs.csv")
     write_csv(summary, args.out / "summary.csv")
     (args.out / "summary.md").write_text(table)
-    # Paths in the run options are written as text.
-    context_json = json.dumps(context, indent=2, default=str)
-    (args.out / "context.json").write_text(context_json + "\n")
+    _write_context(context, args.out)
     return table
 
 
@@ -1025,6 +1169,107 @@ def check_presets(args: argparse.Namespace) -> str:
     return table
 
 
+def _closure(
+    series: dict[str, list[Acquisition]],
+    methods: dict[str, Method],
+    config: BenchmarkConfig,
+    degradations: dict[str, Preset],
+) -> tuple[list[cycle.LegRow], list[cycle.TripletRow], float]:
+    """Score closure on each series: what ``cycle`` and ``validate-cycle`` run.
+
+    Args:
+        series: Site or chip name to its acquisitions.
+        methods: Method name to method.
+        config: Run parameters; ``n_pairs`` is the number of simulated triplets.
+        degradations: Presets of the simulated triplets, cut from each anchor;
+            none if empty.
+
+    Returns:
+        Leg rows, triplet rows, and how long the run took, in seconds.
+
+    Raises:
+        SystemExit: If no window of any triplet is clear.
+    """
+    started = perf_counter()
+    legs, rows = [], []
+    warmed: set[str] = set()
+    for name, acquisitions in series.items():
+        more_legs, more_rows = cycle.run_real(
+            name, acquisitions, methods, config, warmed
+        )
+        legs += more_legs
+        rows += more_rows
+        if not degradations:
+            continue
+        anchor = next(a for a in acquisitions if a.role == ANCHOR)
+        more_legs, more_rows = cycle.run_simulated(
+            name,
+            anchor.image.astype(float),
+            methods,
+            config,
+            degradations,
+            anchor.georef,
+            warmed,
+        )
+        legs += more_legs
+        rows += more_rows
+    run_seconds = perf_counter() - started
+    if not rows:
+        raise SystemExit(
+            f"satreg: no {cycle.WINDOW_PX} px window of any triplet is clear on "
+            "its three dates"
+        )
+    return legs, rows, run_seconds
+
+
+def _closure_note(
+    config: BenchmarkConfig,
+    meters: dict[str, str],
+    context: dict[str, object],
+    simulated: bool,
+) -> str:
+    """Say how the closure tables were measured."""
+    return (
+        "Each triplet of dates A < B < C is "
+        f"registered A to B, B to C and A to C on each {cycle.WINDOW_PX} px window "
+        f"hidden at most {100 * cycle.MAX_WINDOW_CLOUD:.0f} % on its three dates; "
+        "the closure is the distance between A to B then B to C, and A to C, "
+        "over pixels clear on all three. A triplet fails if a leg does, or if its "
+        f"mean closure exceeds {config.failure_threshold} px; closure columns "
+        "average the others. "
+        + (
+            "Simulated triplets show the true end-point error of "
+            "their legs, and the closure of their true legs, which is what composing "
+            "alone leaves. "
+            if simulated
+            else ""
+        )
+        + f"Time is the median of {config.repeats} call(s) per pair, "
+        f"after {config.warmup} warm-up call(s) per method; "
+        f"{memory_note(meters)}. Measured on {describe(context)}.\n"
+    )
+
+
+def _motion_note(
+    legs: Sequence[cycle.LegRow], series: SeriesConfig, simulated: bool
+) -> str:
+    """Render the displacements found between real dates, and how to read them."""
+    motion = cycle.motion_summary(legs, role_order(list(series.dates)))
+    return (
+        cycle.motion_markdown(motion)
+        + "\nDisplacements the methods find between real dates, across sites and "
+        "windows"
+        + (
+            ", next to the truths of the simulated pairs from A (the benchmark ranges)"
+            if simulated
+            else ""
+        )
+        + ". Translation is the median of the displacement over the window; "
+        f"the non-translation part is the {cycle.NON_TRANSLATION_PERCENTILE}th "
+        "percentile of what is left. Median (max) over registrations.\n"
+    )
+
+
 def cycle_consistency(args: argparse.Namespace) -> str:
     """Score the closure of each site's real triplets, and of simulated ones.
 
@@ -1051,82 +1296,28 @@ def cycle_consistency(args: argparse.Namespace) -> str:
         warmup=args.warmup,
         repeats=args.repeats,
     )
-
-    started = perf_counter()
-    legs, rows = [], []
-    warmed: set[str] = set()
-    for name in names:
-        site = sites.sites[name]
-        acquisitions = load_series(site, sites.catalogue, series, args.data_dir)
-        more_legs, more_rows = cycle.run_real(
-            name, acquisitions, methods, config, warmed
-        )
-        legs += more_legs
-        rows += more_rows
-        if not degradations:
-            continue
-        anchor = next(a for a in acquisitions if a.role == ANCHOR)
-        more_legs, more_rows = cycle.run_simulated(
-            name,
-            anchor.image.astype(float),
-            methods,
-            config,
-            degradations,
-            anchor.georef,
-            warmed,
-        )
-        legs += more_legs
-        rows += more_rows
-    run_seconds = perf_counter() - started
-    if not rows:
-        raise SystemExit(
-            f"satreg: no {cycle.WINDOW_PX} px window of any triplet is clear on "
-            "its three dates"
-        )
+    loaded = {
+        name: load_series(sites.sites[name], sites.catalogue, series, args.data_dir)
+        for name in names
+    }
+    legs, rows, run_seconds = _closure(loaded, methods, config, degradations)
 
     summary = cycle.summarize(rows)
-    motion = cycle.motion_summary(legs, role_order(list(series.dates)))
-    context = environment()
-    meters = {name: cost_meter(method).name for name, method in methods.items()}
-    context["cost"] = {
-        "warmup": config.warmup,
-        "repeats": config.repeats,
-        "process_peak_rss_mib": process_peak_rss_mib(),
-        "memory": meters,
-        "run_seconds": run_seconds,
-    }
-    context["devices"] = {name: method_device(m) for name, m in methods.items()}
-    context["held_out_sites"] = held_out
-    context["run"] = {k: v for k, v in sorted(vars(args).items()) if k != "command"}
+    context, meters = _run_context(args, config, methods, run_seconds, held_out)
     table = (
         cycle.to_markdown(summary)
-        + f"\nSites: {', '.join(names)}. Each triplet of dates A < B < C is "
-        f"registered A to B, B to C and A to C on each {cycle.WINDOW_PX} px window "
-        f"hidden at most {100 * cycle.MAX_WINDOW_CLOUD:.0f} % on its three dates; "
-        "the closure is the distance between A to B then B to C, and A to C, "
-        "over pixels clear on all three. A triplet fails if a leg does, or if its "
-        f"mean closure exceeds {config.failure_threshold} px; closure columns "
-        "average the others. Simulated triplets show the true end-point error of "
-        "their legs, and the closure of their true legs, which is what composing "
-        f"alone leaves. Time is the median of {config.repeats} call(s) per pair, "
-        f"after {config.warmup} warm-up call(s) per method; "
-        f"{memory_note(meters)}. Measured on {describe(context)}.\n"
+        + f"\nSites: {', '.join(names)}. "
+        + _closure_note(config, meters, context, simulated=True)
         + held_out_note(held_out)
         + "\n"
-        + cycle.motion_markdown(motion)
-        + "\nDisplacements the methods find between real dates, across sites and "
-        "windows, next to the truths of the simulated pairs from A (the benchmark "
-        "ranges). Translation is the median of the displacement over the window; "
-        f"the non-translation part is the {cycle.NON_TRANSLATION_PERCENTILE}th "
-        "percentile of what is left. Median (max) over registrations.\n"
+        + _motion_note(legs, series, simulated=True)
     )
 
     write_csv(legs, args.out / "legs.csv")
     write_csv(rows, args.out / "triplets.csv")
     write_csv(summary, args.out / "summary.csv")
     (args.out / "summary.md").write_text(table)
-    context_json = json.dumps(context, indent=2, default=str)
-    (args.out / "context.json").write_text(context_json + "\n")
+    _write_context(context, args.out)
     return table
 
 
@@ -1399,6 +1590,171 @@ def train_pairs(args: argparse.Namespace) -> str:
     return table
 
 
+def validate(args: argparse.Namespace) -> str:
+    """Score methods on the validation set and write its tables.
+
+    The pairs are cut from the validation chips, simulated and scored by the
+    code ``benchmark`` runs: a validation row reads like a row of the final
+    table. No benchmark chip and no held-out site is read.
+
+    Args:
+        args: Parsed ``validate`` arguments.
+
+    Returns:
+        The table over every chip, the table by chip and, for the full set, how
+        light sets compare with it, as markdown.
+
+    Raises:
+        SystemExit: If a configuration is missing or invalid, or a chip asked
+            for is not a validation chip.
+    """
+    training, series = _training(args)
+    config = _benchmark_config(args)
+    out = args.out
+    if args.light:
+        if not 0 < args.light_pairs <= args.pairs:
+            raise SystemExit("satreg: need --light-pairs between 1 and --pairs")
+        config = dataclasses.replace(config, n_pairs=args.light_pairs)
+        out = out.with_name(out.name + "-light")
+    degradations = degradation_presets(args)
+    try:
+        anchors = validation.load_validation_chips(
+            training, series, args.data_dir, args.chips
+        )
+    except ValueError as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+    methods = configured_methods(args)
+
+    results, context, footnote = _score(
+        args,
+        config,
+        degradations,
+        {name: anchor.image for name, anchor in anchors.items()},
+        {name: anchor.georef for name, anchor in anchors.items()},
+        {},
+        methods,
+        [],
+    )
+    context["validation"] = {
+        "chips": {name: anchor.item_id for name, anchor in anchors.items()},
+        "pairs_per_cell": config.n_pairs,
+        "light": args.light,
+    }
+    summary = summarize(results)
+    pooled = validation.pooled(results)
+    table = (
+        f"{'Light validation' if args.light else 'Validation'} set: "
+        f"{config.n_pairs} pairs per chip, scenario and preset, seed {config.seed}, "
+        f"cut from the validation chips {', '.join(anchors)}."
+        + (
+            f" These are the first {config.n_pairs} pairs of every cell of the "
+            f"full set, which has {args.pairs}."
+            if args.light
+            else ""
+        )
+        + "\n\nOver every chip:\n\n"
+        + to_markdown(pooled)
+        + "\nBy chip:\n\n"
+        + to_markdown(summary)
+        + footnote
+    )
+    subsets = (
+        [] if args.light else validation.subset_tracking(results, args.subset_sizes)
+    )
+    if subsets:
+        table += (
+            "\nLight sets, the first pairs of every cell, next to the full set:\n\n"
+            + validation.subsets_markdown(subsets)
+            + "\nOver every chip and scenario. EPE is the mean error over "
+            "non-failed pairs; gap is the mean difference of error with "
+            f"{next(iter(methods))} over the pairs neither fails. Spread is the "
+            f"standard deviation of the figure over {validation.SUBSET_DRAWS} "
+            "random sets of as many pair indices: how far a light set of that "
+            "size strays from the full one.\n"
+        )
+
+    write_csv(results, out / "pairs.csv")
+    write_csv(summary, out / "summary.csv")
+    write_csv(pooled, out / "pooled.csv")
+    if subsets:
+        write_csv(subsets, out / "subsets.csv")
+    (out / "summary.md").write_text(table)
+    _write_context(context, out)
+    return table
+
+
+def validate_cycle(args: argparse.Namespace) -> str:
+    """Score closure on the real triplets of the training and validation chips.
+
+    It is the closure ``cycle`` scores, on other chips: those of the train
+    config. No benchmark chip and no held-out site is read.
+
+    Args:
+        args: Parsed ``validate-cycle`` arguments.
+
+    Returns:
+        The closure table by role, the one by chip and the displacements table,
+        as markdown.
+
+    Raises:
+        SystemExit: If a configuration is missing or invalid, or a chip asked
+            for is not a chip of the train config.
+    """
+    training, series = _training(args)
+    methods = configured_methods(args)
+    config = BenchmarkConfig(
+        n_pairs=0,
+        size=cycle.WINDOW_PX,
+        seed=args.seed,
+        failure_threshold=args.failure_threshold,
+        warmup=args.warmup,
+        repeats=args.repeats,
+    )
+    try:
+        loaded = validation.load_closure_series(
+            training, series, args.data_dir, args.chips
+        )
+    except ValueError as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+    roles = {name: role for name, (role, _) in loaded.items()}
+    legs, rows, run_seconds = _closure(
+        {name: dates for name, (_, dates) in loaded.items()}, methods, config, {}
+    )
+
+    summary = cycle.summarize(rows)
+    by_role = validation.closure_by_role(rows, roles)
+    context, meters = _run_context(args, config, methods, run_seconds, [])
+    context["validation"] = {"chips": roles}
+    chips = {
+        role: ", ".join(name for name in roles if roles[name] == role)
+        for role in dict.fromkeys(roles.values())
+    }
+    table = (
+        "Closure on real triplets, every triplet and window of a role's chips "
+        "together:\n\n"
+        + cycle.to_markdown(by_role)
+        + "\n"
+        + " ".join(
+            f"{role.capitalize()} chips: {names}." for role, names in chips.items()
+        )
+        + " Choices are made on the validation chips; the training chips are the "
+        "ones a fine-tuned model has seen, and are reported, not chosen on. "
+        + _closure_note(config, meters, context, simulated=False)
+        + "\nBy chip and triplet:\n\n"
+        + cycle.to_markdown(summary)
+        + "\n"
+        + _motion_note(legs, series, simulated=False)
+    )
+
+    write_csv(legs, args.out / "legs.csv")
+    write_csv(rows, args.out / "triplets.csv")
+    write_csv(summary, args.out / "summary.csv")
+    write_csv(by_role, args.out / "by_role.csv")
+    (args.out / "summary.md").write_text(table)
+    _write_context(context, args.out)
+    return table
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Parse arguments and run the requested command."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -1427,3 +1783,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(fetch_train(args), end="")
     elif args.command == "train-pairs":
         print(train_pairs(args), end="")
+    elif args.command == "validate":
+        print(validate(args), end="")
+    elif args.command == "validate-cycle":
+        print(validate_cycle(args), end="")

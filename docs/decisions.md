@@ -3254,3 +3254,106 @@ dense pairs one process gives about 6 pairs per second, so a batch of 8 takes
 **Limits.** Measured on the laptop, not on Kaggle, whose CPUs differ. The time
 to read the chips from disk is not included.
 
+---
+
+## 2026-10-02: The validation set is 3,600 pairs scored by the benchmark's code, with a light set of 360
+
+**Decision.** The validation set is declared in `configs/validation.toml`: 100
+pairs per validation chip (Santerre, Lyon, Morvan, Sète), scenario (translation,
+affine, dense) and preset (clean, mild, hard), seed 0, with the ranges of the N2
+table. That is 3,600 pairs, cut from the anchor date of each chip.
+
+`satreg validate` loads the four chips by role and hands them to the functions
+`satreg benchmark` runs: the pairs are drawn, degraded, scored and summarized by
+the same code as the final table. `satreg validate-cycle` does the same with the
+code of `satreg cycle`, on the four date series of the twelve chips, and reports
+the validation chips and the training chips apart.
+
+During a training, the light validation set is scored instead: the first 10
+pairs of every cell, 360 pairs, with `--light`.
+
+Both run on the M1's GPU (`mps`).
+
+**Why.**
+
+- **100 pairs per cell**, as in the final table: a validation row is then as
+  noisy as the row it stands for, no more.
+- **Commands of their own, on the benchmark's code.** `satreg benchmark` takes
+  its chips from `configs/sites.toml`, where the benchmark chips and the
+  held-out sites are. The validation commands take theirs from
+  `configs/train-sites.toml` by role, and refuse any other name: a typo cannot
+  put a held-out site in a validation run.
+- **A prefix as light set.** Pair `i` of a cell depends on the seed, the chip
+  and `i`, not on how many pairs are asked for. The light set is therefore a
+  part of the full one, and its rows can be checked against it pair by pair.
+- **10 pairs per cell.** Measured on pretrained RAFT, against the full set, over
+  every chip, scenario and preset:
+
+  | pairs per cell | pairs | EPE, raft (px) | spread | gap raft_small to raft (px) | spread |
+  |---:|---:|---:|---:|---:|---:|
+  | 5 | 180 | 0.1239 | 0.0107 | +0.1399 | 0.0142 |
+  | 10 | 360 | 0.1243 | 0.0071 | +0.1348 | 0.0098 |
+  | 20 | 720 | 0.1251 | 0.0050 | +0.1308 | 0.0066 |
+  | 50 | 1,800 | 0.1256 | 0.0024 | +0.1342 | 0.0034 |
+  | 100 (full) | 3,600 | 0.1265 | | +0.1356 | |
+
+  The spread is the standard deviation of the figure over 1,000 random sets of
+  as many pair indices. At 10 pairs per cell the mean error of a model strays
+  from the full set's by 0.007 px, and the gap between two models by 0.01 px.
+  The gap between RAFT small and RAFT is 0.14 px, fourteen times that: a
+  fine-tuning that moves the error by a few hundredths of a pixel shows. The
+  light set takes 2.7 minutes on the M1 for both models, the full set 27.
+- **MPS.** RAFT's estimates on MPS equal those on CPU to four decimals, about
+  three times faster (entry of 2026-09-23 on devices).
+
+**Check against N2.** Pretrained RAFT on the four seen sites of the N2 table
+(T4) and on the validation set, over the three scenarios:
+
+| preset | method | N2 EPE (px) | N2 failures | validation EPE (px) | validation failures |
+|---|---|---:|---:|---:|---:|
+| clean | raft | 0.065 | 0.0 % | 0.063 | 0.0 % |
+| clean | raft_small | 0.145 | 0.0 % | 0.141 | 0.0 % |
+| mild | raft | 0.082 | 0.4 % | 0.081 | 0.0 % |
+| mild | raft_small | 0.173 | 0.6 % | 0.176 | 0.4 % |
+| hard | raft | 0.223 | 2.1 % | 0.242 | 5.8 % |
+| hard | raft_small | 0.426 | 21.3 % | 0.482 | 26.9 % |
+
+Clean and mild agree within 4 %. Under hard the validation set is 8 to 13 %
+worse, and the difference is Sète: 18 % of RAFT's pairs fail there, against 0 to
+3 % on the three other chips. Of its 100 windows, 19 fail in at least two of the
+three scenarios, and the same windows are fine without degradation (0.07 px).
+Without Sète the hard preset gives RAFT 1.7 % of failures and 0.225 px, against
+2.1 % and 0.223 px in N2. Sète is a lagoon and a sea coast; that the failing
+windows are the water ones is the likely reason and was not checked on the
+images.
+
+On real triplets, the validation chips behave like the seen sites of N2: nearly
+every triplet of Santerre fails (95 %), as on Beauce, both open fields that
+change between dates, and none fails on Lyon.
+
+**Rejected.**
+
+- Fewer pairs per cell in the full set (20 or 50): faster, but a validation row
+  could no longer be read next to a row of the final table.
+- A `--train-config` option on `satreg benchmark` instead of new commands: one
+  command would then read both the validation chips and the held-out sites,
+  depending on a flag.
+- A light set drawn at random among the 3,600 pairs: no closer to the full set
+  than a prefix, and a second list of pairs to keep.
+- Replacing Sète by another coast chip: it was accepted on the rule of the
+  training chips, before any score, and is not changed on one.
+
+**Limits.**
+
+- The failure rate of the light set is not reliable under the hard preset: 120
+  pairs per method, and RAFT fails 11.7 % of them against 5.8 % on the full set.
+  Failures are read on the full set.
+- The spread was measured on two pretrained models, whose errors are far apart.
+  Two checkpoints of one training may differ by less than 0.01 px, and the
+  light set cannot rank them: the checkpoint that is kept is confirmed on the
+  full set.
+- Sète weighs on every hard row. It is part of the set, and the by-chip table
+  shows it.
+- Closure on the validation chips is 241 triplets, 62 of them on Santerre where
+  pretrained RAFT fails almost always: a variant can win there by failing less
+  on one chip.

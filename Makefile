@@ -1,4 +1,4 @@
-.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs clean
+.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs validation validation-light validation-cycle clean
 
 install:
 	pip install -e ".[dev]"
@@ -112,6 +112,20 @@ train-dataset:
 # sheet to look at before any training, and how fast pairs are made.
 train-pairs:
 	satreg train-pairs
+
+# The N3 validation set of configs/validation.toml: simulated pairs cut from the
+# four validation chips and scored as the benchmark scores its own, its light
+# version (the first pairs of every cell), and the closure of the real triplets
+# of the twelve chips. What N3's choices are made on (docs/decisions.md). About
+# 27 minutes, 3 minutes and 8 minutes on the M1 for pretrained RAFT.
+validation:
+	satreg validate --config configs/validation.toml
+
+validation-light:
+	satreg validate --config configs/validation.toml --light
+
+validation-cycle:
+	satreg validate-cycle --config configs/validation.toml
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

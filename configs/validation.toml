@@ -1,0 +1,72 @@
+# The N3 validation set: what N3's choices are made on, and nothing else.
+#
+#   satreg validate --config configs/validation.toml          # -> outputs/validation
+#   satreg validate --config configs/validation.toml --light  # -> outputs/validation-light
+#   satreg validate-cycle --config configs/validation.toml    # -> outputs/validation-cycle
+#
+# Each command reads the table named after it, as with configs/n2.toml: keys are
+# its options, with underscores, and an option given on the command line
+# overrides its key here. Neither command can read a benchmark chip or a
+# held-out site: they take their chips from configs/train-sites.toml, by role.
+# The reasoning behind the values is in docs/decisions.md.
+
+# Simulated pairs cut from the anchor date of the four validation chips, drawn
+# and scored by the code `satreg benchmark` runs, with the ranges and presets of
+# the N2 table (configs/n2.toml). Every cell (chip, scenario, preset, method) is
+# 100 pairs, as in the final table: 4 chips x 3 scenarios x 3 presets x 100 =
+# 3,600 pairs. The methods here are the pretrained baselines; a fine-tuned
+# model is measured by naming its method instead.
+[validate]
+chips = ["santerre", "lyon", "morvan", "sete"]
+scenarios = ["translation", "affine", "dense"]
+degradations = ["clean", "mild", "hard"]
+methods = ["raft", "raft_small"]
+device = "mps"
+
+pairs = 100
+size = 256
+seed = 0
+
+# The light validation set, for use during a training: the first pairs of every
+# cell, 4 x 3 x 3 x 10 = 360 pairs. `subset_sizes` are the sizes the full run
+# compares with itself to say how well a light set tracks it.
+light_pairs = 10
+subset_sizes = [5, 10, 20, 50]
+
+max_shift = 4.0
+max_rotation = 0.2
+max_scale_change = 0.002
+max_shear = 0.002
+max_local_shift = 0.8
+local_length = 64.0
+
+failure_threshold = 1.0
+warmup = 1
+repeats = 1
+
+train_config = "configs/train-sites.toml"
+series_config = "configs/real.toml"
+sites_config = "configs/sites.toml"
+degradations_config = "configs/degradations.toml"
+methods_config = "configs/methods.toml"
+data_dir = "data"
+out = "outputs/validation"
+
+# Real triplets of the series of the twelve chips, as `satreg cycle` scores
+# those of the benchmark sites: 16 windows x 4 triplets = 64 per chip and
+# method. Choices are made on the four validation chips; the eight training
+# chips are reported next to them and decide nothing.
+[validate_cycle]
+methods = ["raft", "raft_small"]
+device = "mps"
+seed = 0
+failure_threshold = 1.0
+warmup = 1
+repeats = 1
+
+train_config = "configs/train-sites.toml"
+series_config = "configs/real.toml"
+sites_config = "configs/sites.toml"
+methods_config = "configs/methods.toml"
+data_dir = "data"
+out = "outputs/validation-cycle"

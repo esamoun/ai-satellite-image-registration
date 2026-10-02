@@ -292,6 +292,50 @@ parameters) and `contact-sheet.png` to `outputs/train-pairs/`. On the M1, one
 process makes 5.8 pairs per second: a translation or affine pair takes 11 to
 26 ms, a dense pair 0.4 s.
 
+### Validation set
+
+```bash
+make validation                   # pretrained RAFT on the validation set (M1, about 27 min)
+make validation-light             # its light version, the first 10 pairs of every cell
+make validation-cycle             # closure on the real triplets of the twelve chips
+```
+
+The validation set is what N3's choices are made on: 100 simulated pairs per
+validation chip (Santerre, Lyon, Morvan, Sète), scenario and preset, 3,600 in
+all, declared in [`configs/validation.toml`](configs/validation.toml).
+`satreg validate` cuts them from the chips' anchor date and hands them to the
+code `satreg benchmark` runs, with the ranges, presets and seed of the N2 table:
+a validation row is computed like a row of the final table, on other chips. The
+table comes over every chip, then by chip.
+
+`satreg validate-cycle` scores the closure of the real triplets, as
+`satreg cycle` does, on the four date series of the twelve chips: the validation
+chips, which choose, and the training chips, which are reported. Both commands
+take their chips from [`configs/train-sites.toml`](configs/train-sites.toml) by
+role, so neither can read a benchmark chip or a held-out site.
+
+Pair number `i` of a cell does not depend on how many pairs are asked for, so
+`--light` runs the first `light_pairs` pairs of every cell (360 pairs): the set
+scored during a training. The full run prints how light sets of several sizes
+compare with it.
+
+Pretrained RAFT, the bar a fine-tuned checkpoint is compared with, over the four
+chips and the three scenarios (M1, MPS):
+
+| preset | method | EPE (px) | failures |
+|---|---|---:|---:|
+| clean | raft | 0.063 | 0.0 % |
+| clean | raft_small | 0.141 | 0.0 % |
+| mild | raft | 0.081 | 0.0 % |
+| mild | raft_small | 0.176 | 0.4 % |
+| hard | raft | 0.242 | 5.8 % |
+| hard | raft_small | 0.482 | 26.9 % |
+
+On real triplets of the validation chips, RAFT closes at 0.21 px with 32 % of
+failures and RAFT small at 0.29 px with 42 %; almost all of Santerre fails, as
+Beauce does in N2. The full tables are in
+[`docs/results/n3/`](docs/results/n3/).
+
 ### Under degraded conditions
 
 Each pair is run clean and under named degradation presets, declared in

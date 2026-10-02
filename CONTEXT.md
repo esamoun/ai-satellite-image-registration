@@ -79,6 +79,10 @@ The fixed pairs cut from the validation chips, on which checkpoints and settings
 are chosen.
 _Avoid_: Dev set, test set
 
+**Light validation set**:
+The first pairs of every cell of the validation set, scored during a training.
+Checkpoints are compared on it; what is kept is confirmed on the validation set.
+
 **Final evaluation**:
 The single read of the held-out sites, made once training, checkpoint, export
 and quantization are frozen.

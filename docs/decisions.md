@@ -3456,6 +3456,11 @@ with uncommitted changes, and their `context.json` says so.
 
 ## 2026-10-02: A training keeps the checkpoint with the lowest selection score on the light validation set
 
+*My call* (on review, the options laid out): the mean error over every pair with
+a failed pair capped at the threshold, the three presets weighing the same,
+rather than the table's mean error, the `hard` preset alone or the last
+checkpoint.
+
 **Decision.** Written before the first real training, and not changed after one.
 
 - **When.** A run with `validate_every = N` scores its network on the light
@@ -3511,6 +3516,9 @@ report its worst point. The lowest score on `hard` alone: 120 pairs.
 ---
 
 ## 2026-10-02: Training pairs are made on the fly by worker processes, and a session stops itself on a checkpoint
+
+*My call* (on review): one GPU of a *T4 x2* session for a training, rather than
+both.
 
 **Decision.**
 

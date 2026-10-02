@@ -1,0 +1,39 @@
+# Overfit run (N3): the training loop checked on a few pairs. RAFT is trained on
+# the same 8 training pairs over and over, for a few hundred steps, on the M1:
+# its loss must fall and its error on those pairs drop below the pretrained
+# weights'. The checkpoint means nothing beyond that. `satreg train` reads this
+# file; the recipe is explained in docs/decisions.md.
+
+[train]
+# "large" or "small", as in the raft method; --model overrides it.
+model = "large"
+# Optimiser steps, and pairs per step.
+steps = 300
+batch_size = 2
+# AdamW under a one-cycle learning rate: 5 % of the steps rising to this peak,
+# then a linear descent.
+learning_rate = 1e-4
+weight_decay = 1e-5
+# Sequence loss: a refinement weighs gamma times the next one, the last one 1.
+gamma = 0.85
+# Recurrent refinements, as at inference.
+iterations = 12
+# Largest norm of the gradient.
+clip = 1.0
+# Batch normalisation keeps the statistics of the pretrained weights.
+freeze_batch_norm = true
+# Distinct pairs the run cycles over; 0 for a new pair at every draw.
+n_pairs = 8
+# Steps between two checkpoints.
+checkpoint_every = 100
+# "cpu", "mps" or "cuda"; --device overrides it.
+device = "mps"
+
+# What the pairs are made of, as in configs/train-pairs.toml. Its seed is the
+# run's only seed: the network starts from pretrained weights and has no
+# dropout, so nothing else is drawn.
+[pairs]
+size = 256
+scenarios = ["translation", "affine", "dense"]
+cross_date = 0.5
+seed = 0

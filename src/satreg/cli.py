@@ -1,7 +1,7 @@
 """Command-line entry point: ``satreg fetch``, ``satreg benchmark``, ``satreg
 merge``, ``satreg real-pairs``, ``satreg check-presets``, ``satreg cycle``,
 ``satreg false-change``, ``satreg fetch-train``, ``satreg train-pairs``,
-``satreg validate`` and ``satreg validate-cycle``."""
+``satreg train``, ``satreg validate`` and ``satreg validate-cycle``."""
 
 import argparse
 import dataclasses
@@ -15,6 +15,7 @@ from time import perf_counter
 import numpy as np
 
 from . import cycle, falsechange, trainchips, trainpairs, validation
+from . import train as training
 from .benchmark import (
     SCENARIOS,
     BenchmarkConfig,
@@ -45,7 +46,7 @@ from .methods import (
     load_methods,
     missing_dependencies,
 )
-from .methods.deep import DEVICES, check_available
+from .methods.deep import DEVICES, check_available, missing_modules
 from .metrics import FAILURE_EPE_PX
 from .presetcheck import preset_row, real_row, role_order
 from .presetcheck import summarize as summarize_appearance
@@ -78,6 +79,8 @@ DEFAULT_DATA_DIR = Path("data")
 DEFAULT_SERIES_CONFIG = Path("configs/real.toml")
 DEFAULT_TRAIN_CONFIG = Path("configs/train-sites.toml")
 DEFAULT_PAIRS_CONFIG = Path("configs/train-pairs.toml")
+DEFAULT_RUN_CONFIG = Path("configs/train-overfit.toml")
+DEFAULT_TRAIN_OUT = Path("outputs/train")
 
 # Commands a run configuration file can set, and the table each one reads.
 RUN_TABLES = {
@@ -401,6 +404,56 @@ def _parser(
     )
     drawn.add_argument("--out", type=Path, default=Path("outputs/train-pairs"))
 
+    tuning = commands.add_parser(
+        "train",
+        help="fine-tune RAFT on training pairs and write a checkpoint the "
+        "fine-tuned methods load",
+    )
+    tuning.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_RUN_CONFIG,
+        help="TOML file whose [train] table sets the run and whose [pairs] table "
+        "says what its pairs are made of",
+    )
+    tuning.add_argument(
+        "--degradations-config",
+        type=Path,
+        default=DEFAULT_DEGRADATIONS_CONFIG,
+        help="TOML file whose [training] table gives the degradation ranges",
+    )
+    _add_training_arguments(
+        tuning,
+        "training chip to cut pairs from, repeatable (default: every training chip)",
+    )
+    tuning.add_argument(
+        "--model",
+        choices=sorted(training.METHOD_NAMES),
+        help="model to train (default: the config's)",
+    )
+    tuning.add_argument(
+        "--device", choices=DEVICES, help="device to train on (default: the config's)"
+    )
+    tuning.add_argument(
+        "--resume",
+        action="store_true",
+        help="go on from the checkpoint in --out instead of starting a run",
+    )
+    tuning.add_argument(
+        "--stop-at",
+        type=int,
+        metavar="STEP",
+        help="stop at this step, short of the run's last, as a session that ends "
+        "does; --resume goes on from there",
+    )
+    tuning.add_argument(
+        "--out",
+        type=Path,
+        help="where the checkpoint, the log and the run's description go (default: "
+        f"{DEFAULT_TRAIN_OUT}/NAME, NAME being the fine-tuned method of the model, "
+        "raft_ft or raft_small_ft)",
+    )
+
     validating = commands.add_parser(
         "validate",
         help="score methods on the validation set: simulated pairs cut from the "
@@ -695,7 +748,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         The parsed arguments.
     """
     command_line = _parser().parse_args(argv)
-    if getattr(command_line, "config", None) is None:
+    # The train command reads its configuration file itself.
+    if (
+        command_line.command not in RUN_TABLES
+        or getattr(command_line, "config", None) is None
+    ):
         return command_line
     run_config = load_run_config(command_line.config, command_line.command)
     args = _parser(run_config, command_line.command).parse_args(argv)
@@ -886,6 +943,13 @@ def configured_methods(args: argparse.Namespace) -> dict[str, Method]:
             raise SystemExit(
                 f"satreg: method {name} needs {', '.join(missing)}, not installed "
                 "(see the README)"
+            )
+        # A fine-tuned method without its weights would fail every pair.
+        checkpoint = getattr(methods[name], "checkpoint", "")
+        if checkpoint and not Path(checkpoint).is_file():
+            raise SystemExit(
+                f"satreg: method {name} needs its checkpoint at {checkpoint}, not "
+                "there: train it with satreg train (see the README)"
             )
     chosen = {name: methods[name] for name in args.methods}
     if args.device:
@@ -1595,6 +1659,111 @@ def train_pairs(args: argparse.Namespace) -> str:
     return table
 
 
+def train(args: argparse.Namespace) -> str:
+    """Fine-tune RAFT on training pairs and write its checkpoint.
+
+    Args:
+        args: Parsed ``train`` arguments.
+
+    Returns:
+        A markdown summary of the session: the run, its loss by stretch of
+        steps and where the checkpoint is. Also written to the output
+        directory with ``log.csv``, one row per step, and ``context.json``,
+        the run's configuration and the commit and machine of each session.
+
+    Raises:
+        SystemExit: If a configuration is missing or invalid, a chip asked for
+            is not a training chip, the device is not available, or the
+            checkpoint to start or resume from is not as expected.
+    """
+    config, series = _training(args)
+    try:
+        run = training.load_train_config(args.config)
+        overrides = {
+            key: value
+            for key in ("model", "device")
+            if (value := getattr(args, key)) is not None
+        }
+        run = dataclasses.replace(run, **overrides)
+        pairs_config = trainpairs.load_pairs_config(args.config)
+        ranges = trainpairs.load_ranges(args.degradations_config)
+        chips = trainpairs.load_training_series(
+            config, series, args.data_dir, args.chips
+        )
+        generator = trainpairs.PairGenerator(chips, pairs_config, ranges)
+    except FileNotFoundError as exc:
+        raise SystemExit(
+            f"satreg: no configuration at {exc.filename} (run from the repository "
+            "root or pass --config and --degradations-config)"
+        ) from None
+    except ValueError as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+    if missing := missing_modules():
+        raise SystemExit(
+            f"satreg: training needs {', '.join(missing)}, not installed "
+            "(see the README)"
+        )
+    if args.stop_at is not None and args.stop_at < 1:
+        raise SystemExit("satreg: need --stop-at >= 1")
+
+    out = args.out or DEFAULT_TRAIN_OUT / training.METHOD_NAMES[run.model]
+    context = environment()
+    code = context["code"] or {}
+    described = {
+        "pairs": dataclasses.asdict(pairs_config),
+        "ranges": dataclasses.asdict(ranges),
+        "chips": list(chips),
+        "commit": code.get("commit"),
+        "dirty": code.get("dirty"),
+    }
+    try:
+        result = training.train(
+            generator, run, out, described, args.resume, args.stop_at
+        )
+    except (FileNotFoundError, FileExistsError, ValueError, RuntimeError) as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+
+    name = training.METHOD_NAMES[run.model]
+    session = [r for r in result.log if r.step > result.first_step]
+    seconds = sum(r.seconds for r in session)
+    cycled = (
+        f"the first {run.n_pairs} pairs, over and over" if run.n_pairs else "new pairs"
+    )
+    table = (
+        f"RAFT {run.model} fine-tuned on {cycled}, of {pairs_config.size} px, from "
+        f"{len(chips)} chips ({', '.join(chips)}): steps {result.first_step + 1} to "
+        f"{result.last_step} of {run.steps}, batches of {run.batch_size}, on "
+        f"{run.device}, in {seconds:.0f} s.\n\n" + training.log_markdown(result.log)
+    )
+    if result.epe_after is not None:
+
+        def errors(values: list[float]) -> str:
+            each = ", ".join(f"{v:.3f}" for v in values)
+            return f"{np.nanmean(values):.4f} px (pair by pair: {each})"
+
+        table += (
+            f"\nMean end-point error on those {run.n_pairs} pairs, over the pixels "
+            "of the loss mask, as at inference:\n\n"
+        )
+        if result.epe_before is not None:
+            table += f"- pretrained weights: {errors(result.epe_before)}\n"
+        table += f"- after step {result.last_step}: {errors(result.epe_after)}\n"
+    table += (
+        f"\nCheckpoint: {result.checkpoint}, which the method {name} loads if "
+        f"that is its path in the methods config.\n"
+        f"\nMeasured on {describe(context)}.\n"
+    )
+    (out / "summary.md").write_text(table)
+    # One entry per session: the commit and the machine may change on resuming.
+    context_path = out / "context.json"
+    sessions = json.loads(context_path.read_text())["sessions"] if args.resume else []
+    context["steps"] = [result.first_step, result.last_step]
+    context["epe"] = {"before": result.epe_before, "after": result.epe_after}
+    described = {"train": dataclasses.asdict(run), **described}
+    _write_context({**described, "sessions": [*sessions, context]}, out)
+    return table
+
+
 def validate(args: argparse.Namespace) -> str:
     """Score methods on the validation set and write its tables.
 
@@ -1786,6 +1955,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(fetch_train(args), end="")
     elif args.command == "train-pairs":
         print(train_pairs(args), end="")
+    elif args.command == "train":
+        print(train(args), end="")
     elif args.command == "validate":
         print(validate(args), end="")
     elif args.command == "validate-cycle":

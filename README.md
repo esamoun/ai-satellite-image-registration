@@ -292,6 +292,78 @@ parameters) and `contact-sheet.png` to `outputs/train-pairs/`. On the M1, one
 process makes 5.8 pairs per second: a translation or affine pair takes 11 to
 26 ms, a dense pair 0.4 s.
 
+### Training
+
+```bash
+make train-overfit                # the overfit run: RAFT large, then small, on 8 pairs (M1, about 11 min)
+satreg train --config configs/train-overfit.toml --resume   # go on from the checkpoint
+satreg validate --config configs/validation.toml --light --methods raft raft_ft
+```
+
+`satreg train` fine-tunes RAFT on training pairs ([`train.py`](src/satreg/train.py)).
+The run is declared in one file: the model, the steps, the batch size, the
+learning rate and the other settings under `[train]`, what the pairs are made
+of, with their seed, under `[pairs]`. The recipe is the one of RAFT's own
+fine-tuning stages, read from the original training script and torchvision's:
+
+- **Sequence loss**: the L1 error of each of the 12 refinements, later ones
+  weighing more, on the pixels of the loss mask.
+- **AdamW under a one-cycle learning rate**, the gradient's norm clipped to 1.
+- **Every parameter trains**; the batch-normalisation layers of RAFT large keep
+  the statistics of the pretrained weights (RAFT small has none).
+- **Same inputs as at inference**: the conversion of the `raft` method, 12
+  refinements, 32-bit floats.
+
+The output directory holds `checkpoint.pt` (weights, optimiser, schedule, step
+and configuration), `log.csv` (one row per step), `summary.md` and
+`context.json` (the configuration, and the commit and machine of each session).
+A session that stops is resumed with `--resume`: pair number `i` depends on its
+index alone, so a resumed run ends on the weights an uninterrupted one gives,
+and a test pins it.
+
+The methods `raft_ft` and `raft_small_ft` of
+[`configs/methods.toml`](configs/methods.toml) are RAFT with the weights of a
+checkpoint at a local path, `outputs/train/<method>/checkpoint.pt`, where
+`satreg train` writes by default. They run through the same commands as any
+method; without the checkpoint, a command says where it is expected and their
+tests are skipped.
+
+The overfit run ([`configs/train-overfit.toml`](configs/train-overfit.toml))
+checks the loop, it does not make a model: 300 steps on the same 8 training
+pairs, on the M1 (MPS).
+
+| model | s/step | loss, first 30 steps | loss, last 30 | EPE on the 8 pairs, pretrained | after 300 steps |
+|---|---:|---:|---:|---:|---:|
+| large | 1.80 | 1.572 | 0.054 | 4.241 px | 0.009 px |
+| small | 0.33 | 3.380 | 0.140 | 6.248 px | 0.018 px |
+
+The pretrained error is high because of one pair with a cloud on both images,
+where the pretrained weights are 31 px off (46 px for small); the others are
+between 0.04 and 3.1 px, and every pair ends under 0.03 px.
+
+Both checkpoints then went through `satreg validate --light` like any method
+(360 pairs of the validation chips, which the training never saw):
+
+| preset | method | EPE (px) | failures |
+|---|---|---:|---:|
+| clean | raft | 0.062 | 0.0 % |
+| clean | raft_ft | 0.067 | 0.0 % |
+| clean | raft_small | 0.145 | 0.0 % |
+| clean | raft_small_ft | 0.183 | 0.0 % |
+| mild | raft | 0.073 | 0.0 % |
+| mild | raft_ft | 0.076 | 0.0 % |
+| mild | raft_small | 0.191 | 0.8 % |
+| mild | raft_small_ft | 0.188 | 0.0 % |
+| hard | raft | 0.253 | 11.7 % |
+| hard | raft_ft | 0.242 | 0.0 % |
+| hard | raft_small | 0.463 | 30.0 % |
+| hard | raft_small_ft | 0.544 | 24.2 % |
+
+These rows show that a checkpoint reaches the table by the normal path, and
+nothing else: 8 pairs and 300 steps are not a training, the light set's failure
+rate is not reliable under `hard`, and no conclusion is drawn from them. The
+tables are in [`docs/results/n3/`](docs/results/n3/).
+
 ### Validation set
 
 ```bash

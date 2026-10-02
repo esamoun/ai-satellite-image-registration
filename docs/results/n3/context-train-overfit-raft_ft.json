@@ -1,0 +1,136 @@
+{
+  "train": {
+    "model": "large",
+    "steps": 300,
+    "batch_size": 2,
+    "learning_rate": 0.0001,
+    "weight_decay": 1e-05,
+    "gamma": 0.85,
+    "iterations": 12,
+    "clip": 1.0,
+    "freeze_batch_norm": true,
+    "n_pairs": 8,
+    "checkpoint_every": 100,
+    "device": "mps"
+  },
+  "pairs": {
+    "size": 256,
+    "scenarios": [
+      "translation",
+      "affine",
+      "dense"
+    ],
+    "cross_date": 0.5,
+    "seed": 0,
+    "max_shift": 4.0,
+    "max_rotation_deg": 0.2,
+    "max_scale_change": 0.002,
+    "max_shear": 0.002,
+    "max_local_shift": 0.8,
+    "local_length": 64.0
+  },
+  "ranges": {
+    "gain": [
+      0.6,
+      1.67
+    ],
+    "offset": [
+      -0.7,
+      0.7
+    ],
+    "gamma": [
+      0.6,
+      1.7
+    ],
+    "cover": [
+      0.0,
+      0.4
+    ],
+    "sigma": [
+      0.0,
+      1.3
+    ],
+    "snr_db": [
+      12.0,
+      40.0
+    ],
+    "cloudy_moving": 0.5,
+    "cloudy_reference": 0.3
+  },
+  "chips": [
+    "champagne",
+    "boerde",
+    "bordeaux",
+    "milan",
+    "landes",
+    "foret_noire",
+    "giens",
+    "costa_brava"
+  ],
+  "commit": "34a100f227670f3143ef25bbbbdfb3ca3020b321",
+  "dirty": true,
+  "sessions": [
+    {
+      "recorded_at": "2026-10-02T15:04:21+00:00",
+      "code": {
+        "commit": "34a100f227670f3143ef25bbbbdfb3ca3020b321",
+        "dirty": true
+      },
+      "machine": {
+        "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+        "architecture": "arm64",
+        "cpu": "Apple M1",
+        "memory_gib": 8.0
+      },
+      "gpu": null,
+      "threads": {
+        "cpu_count": 8,
+        "usable_cpus": 8,
+        "opencv": 8,
+        "torch": null,
+        "OMP_NUM_THREADS": null,
+        "OPENBLAS_NUM_THREADS": null,
+        "MKL_NUM_THREADS": null,
+        "VECLIB_MAXIMUM_THREADS": null
+      },
+      "python": "3.13.7",
+      "libraries": {
+        "numpy": "2.5.3",
+        "scipy": "1.18.1",
+        "scikit-image": "0.26.0",
+        "opencv-python-headless": "5.0.0.93",
+        "rasterio": "1.5.1",
+        "arosics": "1.13.2",
+        "GDAL": "3.13.3",
+        "torch": "2.14.0",
+        "torchvision": "0.29.0"
+      },
+      "steps": [
+        0,
+        300
+      ],
+      "epe": {
+        "before": [
+          0.04098230227828026,
+          0.22040876746177673,
+          0.06494352221488953,
+          31.290321350097656,
+          0.0654633492231369,
+          0.13948221504688263,
+          0.1430150419473648,
+          1.9622251987457275
+        ],
+        "after": [
+          0.005109160672873259,
+          0.006656448356807232,
+          0.007598177529871464,
+          0.009878147393465042,
+          0.0062656765803694725,
+          0.007964616641402245,
+          0.010814230889081955,
+          0.018019899725914
+        ]
+      }
+    }
+  ]
+}

@@ -3363,3 +3363,91 @@ change between dates, and none fails on Lyon.
 - Closure on the validation chips is 241 triplets, 58 of them on Santerre where
   pretrained RAFT fails almost always: a variant can win there by failing less
   on one chip.
+
+---
+
+## 2026-10-02: Fine-tuning follows RAFT's own recipe, read from its training scripts
+
+**Decision.** `satreg train` fine-tunes RAFT with the recipe of its original
+fine-tuning stages. It was read from the training script of the original
+repository (`princeton-vl/RAFT`, `train.py` and its two shell scripts) and from
+torchvision's reference script (`references/optical_flow/train.py`), not written
+from memory.
+
+- **Loss.** The sequence loss: the L1 error between the truth and the flow after
+  each of the 12 refinements, summed with weights `gamma ** (12 - 1 - i)`, so
+  the last refinement weighs 1. A pixel outside the loss mask counts for zero.
+  As in both scripts, the error is averaged over every pixel, masked ones
+  included, not over the pixels the mask keeps. The scripts also leave out
+  pixels whose true flow is 400 px or longer; the rule is kept and never
+  applies, motions here being a few pixels.
+- **`gamma` is 0.85**, the value of the original Sintel and KITTI stages, the
+  ones that fine-tune on a small real dataset. The earlier stages and
+  torchvision's default use 0.8.
+- **Optimiser.** AdamW (epsilon 1e-8), peak learning rate 1e-4 and weight decay
+  1e-5, the values of the original KITTI stage. The learning rate follows one
+  cycle: 5 % of the steps rising linearly to the peak, then a linear descent.
+  The norm of the gradient is clipped to 1.
+- **What trains.** Every parameter. The 15 batch-normalisation layers of RAFT
+  large, all in its context encoder, are frozen: they keep the running
+  statistics of the pretrained weights, and their scale and offset still train.
+  This is what both scripts do in every stage after the first. RAFT small has
+  no batch normalisation, only instance normalisation, which has no running
+  statistics: the setting changes nothing for it.
+- **Start and inputs.** The torchvision weights the pretrained methods run
+  (`C_T_SKHT_V2` large, `C_T_V2` small), the image conversion of the `raft`
+  method, 12 refinements, 32-bit floats.
+- **Seed.** The only seed is the one of the pairs. The network starts from
+  pretrained weights and has no dropout, so nothing else is drawn.
+- **Checkpoint.** One file with the weights, the optimiser, the schedule, the
+  step and the configuration, written every `checkpoint_every` steps and at the
+  end, replaced in one move. Batch `k` takes pairs `k * batch_size` and up, and a
+  pair depends on its index alone: the state of the pair generator is the step.
+  A test checks that a run cut and resumed ends on the same weights, bit for bit
+  on the CPU, as an uninterrupted one. The configuration, the commit and the
+  machine of each session are in `context.json` next to it.
+- **Methods.** `raft_ft` and `raft_small_ft` are the `raft` method with a
+  `checkpoint` parameter, a local path under `outputs/train/`. A command asked
+  for one without its file stops with the path it expects; their tests are
+  skipped.
+
+**Why.** A recipe that is the published one needs no search, and the trainings
+are too few to tune it (one per variant, one seed). Freezing batch normalisation
+matters with batches of a few pairs, whose statistics are noisy. Averaging the
+loss over every pixel gives a pair half hidden by cloud half the weight of a
+clear one, which is what its information is worth.
+
+**Left out, deliberately.**
+
+- Mixed precision: 32-bit floats everywhere, so that the M1 and the Kaggle GPU
+  run the same arithmetic and a checkpoint means the same on both.
+- Several seeds: one training per variant (see the entry on it).
+- Other bands: pairs are cut from the band the benchmark's main table uses.
+- Augmentations of the reference scripts (crops, flips, colour jitter, erasing):
+  the pair generator already draws the window, the motion and the degradation.
+- Validation during the training, the choice of the checkpoint that is kept and
+  the step budget: the next ticket.
+
+**Limits.**
+
+- The learning rate, weight decay and `gamma` are those of a stage that trained
+  on driving scenes with motions of tens of pixels. Nothing says they are the
+  best for sub-pixel motions on satellite images, and N3 does not search.
+- The one-cycle schedule spans exactly the run's steps (torchvision's script);
+  the original adds 100. A run's length is therefore part of its recipe: a
+  resumed run must keep the same `steps`, and the command refuses otherwise.
+- Resuming is exact on one machine. Between the M1 and a CUDA GPU the arithmetic
+  differs in the last bits, as for any run.
+
+**Checked on the M1.** The overfit run trains on the same 8 pairs for 300 steps
+(`configs/train-overfit.toml`). RAFT large: the loss goes from 1.57 over the
+first 30 steps to 0.054 over the last 30, and the error on the 8 pairs from
+4.24 px with the pretrained weights to 0.009 px, at 1.80 s per step on MPS. RAFT
+small: 3.38 to 0.140, 6.25 px to 0.018 px, 0.33 s per step. One of the 8 pairs
+has a cloud on both images and the pretrained weights are 31 px off on it (46 px
+for small), which is most of the pretrained mean; every pair ends under 0.03 px.
+Both checkpoints were then scored by `satreg validate --light` as `raft_ft` and
+`raft_small_ft`, next to the pretrained rows
+(`docs/results/n3/validation-overfit-light.md`). Those rows prove the path, not
+a model: nothing is concluded from them. The runs were made from a working tree
+with uncommitted changes, and their `context.json` says so.

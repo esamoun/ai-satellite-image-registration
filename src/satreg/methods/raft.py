@@ -1,11 +1,15 @@
 """RAFT optical flow, with torchvision's pretrained weights, as a dense field.
 
-RAFT was trained on RGB video frames, not on satellite bands, and is used here
-as shipped: no fine-tuning. Its flow, one vector per pixel, is returned as a
+RAFT was trained on RGB video frames, not on satellite bands. It runs as
+shipped, or, given a checkpoint written by ``satreg train``, with weights
+fine-tuned on training pairs. Its flow, one vector per pixel, is returned as a
 ``Dense`` displacement and scored like any other. Needs the ``dl`` extra.
 """
 
+import functools
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -86,19 +90,67 @@ def network_input(image: np.ndarray) -> np.ndarray:
     return np.repeat(band[np.newaxis], 3, axis=0)
 
 
+def builder(model: str) -> Any:
+    """The torchvision function that builds a model of ``MODELS``."""
+    from torchvision.models import optical_flow
+
+    return getattr(optical_flow, MODELS[model][0])
+
+
+def read_checkpoint(path: str) -> dict[str, Any]:
+    """Read a checkpoint written by ``satreg train``, on the CPU.
+
+    The file is read as plain data: tensors, numbers and text, no code.
+
+    Args:
+        path: The checkpoint file.
+
+    Returns:
+        Its content: the network's weights under ``model``, the training
+        configuration under ``train``, and what resuming the run needs.
+
+    Raises:
+        FileNotFoundError: If there is no file at ``path``.
+    """
+    import torch
+
+    if not Path(path).is_file():
+        raise FileNotFoundError(f"no checkpoint at {path}: train it with satreg train")
+    return torch.load(path, map_location="cpu", weights_only=True)
+
+
+@functools.cache
+def _fine_tuned(model: str, checkpoint: str, device: str) -> Any:
+    """Build a network with a checkpoint's weights once per process."""
+    deep.check_available(device)
+    state = read_checkpoint(checkpoint)
+    if (trained := state["train"]["model"]) != model:
+        raise ValueError(
+            f"{checkpoint} holds a {trained} model, the method asks for {model}"
+        )
+    network = builder(model)(weights=None)
+    network.load_state_dict(state["model"])
+    network.eval().to(device).requires_grad_(False)
+    return network
+
+
 @dataclass(frozen=True)
 class Raft:
-    """RAFT, torchvision's pretrained optical-flow network.
+    """RAFT, torchvision's optical-flow network, pretrained or fine-tuned.
 
     Attributes:
         model: ``"large"`` (5.3 M parameters) or ``"small"`` (1.0 M).
         iterations: Recurrent refinements of the flow, at least one.
         device: ``"cpu"``, ``"mps"`` or ``"cuda"``.
+        checkpoint: Path of a checkpoint written by ``satreg train`` whose
+            weights replace the pretrained ones; empty for the pretrained
+            weights.
     """
 
     model: str = "large"
     iterations: int = 12
     device: str = "cpu"
+    checkpoint: str = ""
 
     def __post_init__(self) -> None:
         if self.model not in MODELS:
@@ -115,18 +167,22 @@ class Raft:
         return TorchMeter(self.device)
 
     def weights(self) -> object:
-        """The torchvision weights of the model, an enum member."""
+        """The pretrained torchvision weights of the model, an enum member."""
         from torchvision.models import optical_flow
 
         _, enum, name = MODELS[self.model]
         return getattr(optical_flow, enum)[name]
 
     def network(self) -> object:
-        """The pretrained network on the method's device, built once per process."""
-        from torchvision.models import optical_flow
+        """The network on the method's device, built once per process.
 
-        builder = getattr(optical_flow, MODELS[self.model][0])
-        return deep.load_network(builder, self.weights(), self.device)
+        Raises:
+            FileNotFoundError: If the method's checkpoint is not there.
+            ValueError: If the checkpoint holds the other model.
+        """
+        if self.checkpoint:
+            return _fine_tuned(self.model, self.checkpoint, self.device)
+        return deep.load_network(builder(self.model), self.weights(), self.device)
 
     def __call__(self, reference: np.ndarray, moving: np.ndarray) -> Dense:
         """Estimate the displacement at every pixel.

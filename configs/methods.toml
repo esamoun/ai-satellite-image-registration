@@ -89,6 +89,19 @@ min_reliability = 60.0
 method = "raft"
 model = "small"
 
+# RAFT fine-tuned on training pairs (N3): the weights of a checkpoint written
+# by `satreg train`, at a local path, in place of the pretrained ones.
+#   checkpoint  path of the checkpoint, relative to the working directory
+[methods.raft_ft]
+method = "raft"
+checkpoint = "outputs/train/raft_ft/checkpoint.pt"
+
+# The same for the small model.
+[methods.raft_small_ft]
+method = "raft"
+model = "small"
+checkpoint = "outputs/train/raft_small_ft/checkpoint.pt"
+
 # LightGlue on DISK keypoints, which sit on whole pixels.
 [methods.lightglue_disk]
 method = "lightglue"

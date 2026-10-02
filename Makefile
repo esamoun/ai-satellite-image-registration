@@ -1,4 +1,4 @@
-.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs validation validation-light validation-cycle clean
+.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle clean
 
 install:
 	pip install -e ".[dev]"
@@ -112,6 +112,14 @@ train-dataset:
 # sheet to look at before any training, and how fast pairs are made.
 train-pairs:
 	satreg train-pairs
+
+# The overfit run of configs/train-overfit.toml (N3): RAFT large then small
+# trained on the same 8 pairs for 300 steps, to check the training loop, not to
+# make a model. About 9 minutes and 2 minutes on the M1. A run does not start
+# over a checkpoint: remove outputs/train/ first, or pass --resume.
+train-overfit:
+	satreg train --config configs/train-overfit.toml
+	satreg train --config configs/train-overfit.toml --model small
 
 # The N3 validation set of configs/validation.toml: simulated pairs cut from the
 # four validation chips and scored as the benchmark scores its own, its light

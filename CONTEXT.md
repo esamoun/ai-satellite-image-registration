@@ -97,3 +97,14 @@ _Avoid_: Off-the-shelf, zero-shot
 **Fine-tuned model**:
 A pretrained network trained further on this project's simulated pairs.
 _Avoid_: Retrained, custom model
+
+**Checkpoint**:
+The file a training writes: the network's weights, with what resuming the
+training needs and the configuration it ran with. A fine-tuned method loads its
+weights from it.
+_Avoid_: Snapshot, model file
+
+**Overfit run**:
+A short training on a few pairs seen over and over, which checks that the
+training loop learns. Its checkpoint is not a model to report.
+_Avoid_: Smoke training, toy training

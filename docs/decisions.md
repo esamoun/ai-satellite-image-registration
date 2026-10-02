@@ -2776,3 +2776,203 @@ with `make n2`.
 and the tables of `evaluation.md` must be refreshed together, and nothing checks
 that they match.
 
+---
+
+## 2026-10-02: What N3 must show: fine-tuned RAFT beats pretrained RAFT on the held-out sites
+
+*My call*: accuracy on simulated pairs as the target, rather than ground change
+on real pairs or inter-band pairs.
+
+**Decision.** N3 fine-tunes RAFT on simulated Sentinel-2 pairs. This entry and
+the four that follow were scoped on 2026-10-01 and are written before any
+training code exists, so that the result cannot bend them. N3 succeeds if, on
+the two held-out sites, the fine-tuned large model (`raft_ft`) beats the
+pretrained one (`raft`) in mean end-point error without failing more often. The
+criterion is read on these rows and on no others:
+
+- **Pairs.** Sites `alps` and `libya4`; scenarios translation, affine and dense;
+  presets clean, mild and hard; 100 pairs a cell: 1,800 pairs, made with the
+  settings of the N2 table (256 px windows, seed 0, the same motion ranges, a
+  failure above 1 px of mean error). Both models run on the same pairs, at 12
+  refinements, in float32, in PyTorch.
+- **Failing no more often.** Over the 1,800 pairs, `raft_ft` fails at most as
+  many pairs as `raft`.
+- **Beating in mean EPE.** Over the pairs that neither model fails, the mean EPE
+  of `raft_ft` is lower than that of `raft`.
+
+The answer is yes only if both hold. It is written in one sentence, before any
+interpretation. The same figures per site and per cell are published next to it,
+with the cells where the fine-tuned model loses, and they do not change the
+answer. The difference in mean EPE comes with a 95 % interval from resampling
+the pairs. The small model (`raft_small_ft` against `raft_small`) is read the
+same way and reported; it is not the criterion.
+
+**Why.** N2 left pretrained RAFT with three weaknesses: its accuracy on
+simulated pairs (0.047 px on clean translations, where phase correlation with a
+Hann window is at 0.004 px), ground change on real pairs (95 % of the real
+Beauce triplets failed) and red against near infrared (four clean pairs in five
+failed). One model aimed at all three would give a result nobody can read. The
+first is what the spec asks of N3, and the only one whose ground truth is exact,
+so it is the target, over every scenario and preset and not clean translations
+alone. The bar is pretrained RAFT and not the classic methods: no network is
+expected at 0.004 px on a clean translation, and the question N3 can answer is
+what training on this data buys the same architecture.
+
+The published tables average each method over the pairs it did not fail, so a
+model that fails more drops its worst pairs and its mean improves. Comparing the
+two models on the pairs neither fails removes that, and the failure count
+catches what is left. Pooling the 1,800 pairs gives one number that cannot be
+picked among 18 cells after the fact. Errors are largest on `hard` pairs, so
+they weigh most in it.
+
+**Limits.** There is no margin: any lower mean counts as beating. The interval
+covers the draw of the pairs, not the seed of the training (entry below), so a
+yes by a few thousandths of a pixel is a weak yes and will be written as one.
+
+**Against the spec.** The spec asks for "seen vs held-out sites" and gives no
+success criterion; this entry adds one. A seen site here is a site whose
+landscape was trained on, on other pixels: training uses twelve new chips, none
+of them among the spec's six sites, and no network is trained on a benchmark
+chip.
+
+---
+
+## 2026-10-02: Real-triplet closure is read next to the criterion; inter-band pairs are not a target
+
+**Decision.** The closure of the real triplets is a mandatory second measure of
+N3. It is read on the six sites, on the triplets of each site's date series as
+in N2 (64 per site and method on the four N2 sites), for `raft_ft` next to
+`raft`: the failure rate, and the mean closure over the triplets neither model
+fails. It is written in the paragraph that gives the answer to the criterion, as
+better, equal or worse. Worse means more failed triplets, or as many and a
+higher mean closure. It does not change the answer to the criterion, but a yes
+with a worse closure is reported as a gain on simulated pairs that did not carry
+to real ones.
+
+Inter-band pairs are not a target. The fine-tuned models are trained on B04
+only; they are run on the B04/B08 and B04/B03 pairs of Beauce and Toulouse and
+the rows are reported as they come. False change is reported for the fine-tuned
+models on simulated pairs only.
+
+**Why.** Every training pair comes out of this project's simulator: one
+resampling, one family of dense fields, one set of degradations. A model can
+learn those rather than registration. It would then win on simulated pairs,
+held-out sites included, since their pairs come from the same simulator, and
+gain nothing on real images. Closure on real triplets is the only measure the
+project has that the simulator did not make. It is a consistency measure and not
+an accuracy (entry of 2026-09-28, "What the closure cannot see"), and nothing is
+promised on it: fixing RAFT on the Beauce triplets would be the most interesting
+result, and it is the least certain. Inter-band pairs are left out of the target
+because training on one band is not expected to help across bands; running them
+says whether it hurt.
+
+**Against the spec.** Inter-band registration is the spec's second case. N3
+measures it and does not train for it.
+
+---
+
+## 2026-10-02: The held-out sites are read once, after everything is frozen
+
+**Decision.** `alps` and `libya4` are run and read once, in the final
+evaluation. Before that run, a dated entry in this log freezes what it
+evaluates: the checkpoints and ONNX files by SHA-256, the points of the accuracy
+against compute curve, the quantized models, the configs and the commit. After
+it, nothing upstream changes: no new checkpoint, calibration or curve point. The
+result is published whatever it is, including a fine-tuned model that gains
+nothing or loses. No choice of any kind is made on the rows of these two sites,
+and that covers their simulated pairs, their real triplets and their cost
+figures.
+
+Until the freeze, `satreg benchmark` keeps refusing them (entry of 2026-09-28),
+and `--allow-held-out` is used for the final run only. The run is rehearsed on
+the seen sites first, so that it does not stop halfway for a plumbing reason. If
+a bug is found after the read, it is fixed, the run is made again, and both
+dates and both results stay in this log.
+
+**Why.** A site stops being held out the moment a choice is made knowing its
+score. N3 has many choices to make after training (which checkpoint, how many
+refinements, which quantization), and reading the held-out rows at each step
+would let each of them fit those rows. One read after the freeze makes the order
+checkable from the dates of this log and of the commits.
+
+So far, the only look at these sites is the check of 2026-09-28: the failure
+column of 20 clean translation pairs per site, which showed no failure. Their
+date series were fetched and measured nowhere.
+
+**Limits.** The four seen sites are not untouched in the same way. Their N2 rows
+were read, and N3 was designed knowing them: the target comes from RAFT's
+weaknesses on those rows. Their benchmark chips are never trained on and no N3
+choice is made on them, but only the held-out rows are free of every earlier
+look.
+
+**Rejected.** Reading the held-out sites after the fine-tuning and again after
+the quantization: simpler to run, but the quantization would then be chosen
+knowing those rows.
+
+---
+
+## 2026-10-02: N3's choices are made on validation chips, and on real triplets of the training chips
+
+**Decision.** Every choice of N3 is made on two things, and on nothing else:
+
+- **The validation set.** Of the twelve chips fetched for training, three per
+  landscape (open fields, urban, forest, coast), one per landscape is set aside
+  whole and never trained on. Fixed, seeded pairs are cut from these four chips,
+  under the three test presets, and scored by the benchmark's own code. The
+  checkpoint kept from a training, the number of refinements, the calibration of
+  the quantization and the points of the curve are chosen there.
+- **Real-triplet closure on the twelve chips.** Each has four dates, picked by
+  the rule of the benchmark sites. The choice between the two variants of the
+  ablation (same-date pairs only, or same-date and cross-date pairs) is made on
+  the validation set and on this closure, read on the four validation chips. The
+  closure on the eight trained chips is reported next to it and decides nothing.
+
+Before the final evaluation, the benchmark chips of the four seen sites are
+scored only to rehearse its run.
+
+**Why.** A checkpoint picked on the pairs it was trained on would be picked for
+memorising them. Chips set aside whole are places the model never saw, which is
+what the benchmark chips will be, and pairs under the three test presets make a
+validation score read like a row of the final table. The validation set is
+simulated, so it cannot say whether cross-date pairs help on real images:
+closure on real triplets is what the ablation is about. A model trained on
+cross-date pairs has seen the dates of the eight trained chips, so its closure
+there is a training score; the four validation chips are the ones that can
+choose.
+
+**Rejected.**
+
+- Validation windows cut from the chips that are trained on: more pixels to
+  train on, but a validation that looks like the training.
+- Registering the two dates of a cross-date pair with phase correlation
+  beforehand, to clean its ground truth of the residual misregistration between
+  dates (about 0.1 px, 0.2 to 0.3 px a season apart): the model would learn to
+  reproduce a method it is compared with. The residual stays in the truth, and
+  the ablation measures what it costs.
+- Choosing on the benchmark chips of the seen sites: their rows would then be a
+  tuned score, and the seen against held-out comparison would lose its meaning.
+
+**Limits.** Four chips and four date series are a small set to choose on, and
+all of it is in western Europe. A choice that is right there can be wrong on a
+mountain or a desert. That gap is what the held-out sites measure.
+
+---
+
+## 2026-10-02: One training per variant, with one seed
+
+**Decision.** N3 runs three trainings: RAFT large on same-date pairs, RAFT large
+on same-date and cross-date pairs, and RAFT small with the variant kept. Each is
+run once, with one fixed seed. This limit is written now, before any result.
+
+**Why.** Trainings run on Kaggle's free GPU quota, and the time one takes is not
+measured yet. Three seeds per variant would be nine trainings, for a quota that
+may not hold three.
+
+**Limits.** Two trainings that differ only by their seed do not give the same
+model, and N3 will not know by how much. So a small gap between the two variants
+of the ablation, or between a fine-tuned model and the pretrained one, cannot be
+told apart from the seed. The answer to the criterion is a statement about these
+checkpoints, not about the recipe: another seed could give another answer when
+the gap is small. The limits of the N3 results will say so next to the answer,
+whichever way it goes.
+

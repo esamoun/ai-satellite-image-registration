@@ -315,6 +315,8 @@ reading are in [`docs/evaluation.md`](docs/evaluation.md).
 - [`docs/decisions.md`](docs/decisions.md): each choice and why it was made.
 - [`docs/failures.md`](docs/failures.md): what did not work, and what it taught.
 - [`docs/kaggle.md`](docs/kaggle.md): running the benchmark on a Kaggle GPU.
+- [`CONTEXT.md`](CONTEXT.md): the glossary, what each word means in the code and
+  the docs (chip, pair, seen and held-out site, validation set).
 
 ## How this was built
 

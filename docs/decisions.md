@@ -3151,6 +3151,9 @@ the entry that records the replacement must say which choices were already made.
 
 ## 2026-10-02: Training degradations are continuous, the test stays on three presets
 
+*My call*: ranges a bit beyond `hard`, rather than stopping at `hard` or going
+much wider (cloud cover 0.6, SNR 6 dB).
+
 **Decision.** A training pair draws its degradation at random in ranges declared
 under `[training]` in `configs/degradations.toml`, next to the presets. The
 benchmark keeps `clean`, `mild` and `hard` and its seeded pairs, unchanged.
@@ -3190,6 +3193,11 @@ almost no usable pixel teach nothing and cost the same.
 ---
 
 ## 2026-10-02: A training pair is the benchmark's pair, with a cloud on the reference and a loss mask
+
+*My call*: opaque cloud is left out of the loss for every scenario, rather than
+kept for translation and affine as the benchmark's valid mask does; and half of
+the pairs are cross-date by default (`cross_date = 0.5`), rather than a quarter
+or three quarters.
 
 **Decision.** `trainpairs.py` builds a pair with `draw_pair` and the `Preset` of
 the benchmark. Three things are added around them.

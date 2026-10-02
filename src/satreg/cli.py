@@ -1,6 +1,6 @@
 """Command-line entry point: ``satreg fetch``, ``satreg benchmark``, ``satreg
-merge``, ``satreg real-pairs``, ``satreg check-presets``, ``satreg cycle`` and
-``satreg false-change``."""
+merge``, ``satreg real-pairs``, ``satreg check-presets``, ``satreg cycle``,
+``satreg false-change`` and ``satreg fetch-train``."""
 
 import argparse
 import dataclasses
@@ -13,7 +13,7 @@ from time import perf_counter
 
 import numpy as np
 
-from . import cycle, falsechange
+from . import cycle, falsechange, trainchips
 from .benchmark import SCENARIOS, BenchmarkConfig, method_device, run_benchmark
 from .compute import describe, environment, process_peak_rss_mib
 from .degrade import Preset, load_presets
@@ -68,6 +68,7 @@ DEFAULT_DEGRADATIONS_CONFIG = Path("configs/degradations.toml")
 DEFAULT_METHODS_CONFIG = Path("configs/methods.toml")
 DEFAULT_DATA_DIR = Path("data")
 DEFAULT_SERIES_CONFIG = Path("configs/real.toml")
+DEFAULT_TRAIN_CONFIG = Path("configs/train-sites.toml")
 
 # Commands a run configuration file can set, and the table each one reads.
 RUN_TABLES = {
@@ -462,6 +463,39 @@ def _parser(
         help="timed calls of a method on each pair, whose median is reported",
     )
     changes.add_argument("--out", type=Path, default=Path("outputs/false-change"))
+    train = commands.add_parser(
+        "fetch-train",
+        help="fetch the series of the training and validation chips, and check "
+        "each chip against the acceptance rule",
+    )
+    train.add_argument(
+        "--train-config",
+        type=Path,
+        default=DEFAULT_TRAIN_CONFIG,
+        help="TOML file declaring the training and validation chips",
+    )
+    train.add_argument(
+        "--series-config",
+        type=Path,
+        default=DEFAULT_SERIES_CONFIG,
+        help="TOML file declaring which dates a series takes",
+    )
+    train.add_argument(
+        "--chip",
+        action="append",
+        dest="chips",
+        metavar="NAME",
+        help="chip to fetch, repeatable (default: every chip of the train config)",
+    )
+    _add_data_arguments(train)
+    train.add_argument("--out", type=Path, default=Path("outputs/train-chips"))
+    train.add_argument(
+        "--export",
+        type=Path,
+        metavar="DIR",
+        help="also copy the accepted chips to DIR, laid out as a data directory, "
+        "with the manifest: what is uploaded for the training runs",
+    )
     if run_config:
         {"benchmark": bench, "cycle": closing, "false-change": changes}[
             command
@@ -1193,6 +1227,65 @@ def false_change(args: argparse.Namespace) -> str:
     return table
 
 
+def fetch_train(args: argparse.Namespace) -> str:
+    """Fetch the series of the training and validation chips, and check them.
+
+    Args:
+        args: Parsed ``fetch-train`` arguments.
+
+    Returns:
+        A markdown table of each chip's land cover and verdict, then one of its
+        dates. Also written to ``args.out`` with a ``chips.json`` manifest.
+
+    Raises:
+        SystemExit: If a chip is refused by the acceptance rule; the tables are
+            written first, and the message gives the chip's shares.
+    """
+    sites = load_sites(args.sites_config)
+    try:
+        config = trainchips.load_training_chips(args.train_config, sites)
+        series = load_series_config(args.series_config)
+    except FileNotFoundError as exc:
+        raise SystemExit(
+            f"satreg: no configuration at {exc.filename} (run from the repository "
+            "root or pass --train-config and --series-config)"
+        ) from None
+    except ValueError as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+    names = args.chips or list(config.chips)
+    for name in names:
+        if name not in config.chips:
+            known = ", ".join(config.chips)
+            raise SystemExit(f"satreg: unknown chip {name!r} (declared: {known})")
+
+    checks = [
+        trainchips.check_chip(config.chips[name], config, series, args.data_dir)
+        for name in names
+    ]
+    table = trainchips.to_markdown(checks)
+    manifest = json.dumps(trainchips.manifest(checks, args.data_dir), indent=2)
+    args.out.mkdir(parents=True, exist_ok=True)
+    (args.out / "summary.md").write_text(table)
+    (args.out / "chips.json").write_text(manifest + "\n")
+
+    if refused := [check for check in checks if not check.accepted]:
+        print(table, end="")
+        raise SystemExit(
+            "satreg: "
+            + "\n".join(
+                f"{check.chip.name} is refused: {'; '.join(check.failures)}"
+                for check in refused
+            )
+        )
+    if args.export:
+        size = trainchips.export(checks, args.data_dir, args.export)
+        (args.export / "chips.json").write_text(manifest + "\n")
+        table += (
+            f"\nExported {len(checks)} chips to {args.export}: {size / 1e6:.0f} MB.\n"
+        )
+    return table
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Parse arguments and run the requested command."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -1217,3 +1310,5 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(cycle_consistency(args), end="")
     elif args.command == "false-change":
         print(false_change(args), end="")
+    elif args.command == "fetch-train":
+        print(fetch_train(args), end="")

@@ -227,6 +227,25 @@ def read_landcover(path: Path) -> np.ndarray:
         return src.read(1)
 
 
+def class_shares(classes: np.ndarray) -> dict[str, float]:
+    """Share of each WorldCover class over a chip.
+
+    Args:
+        classes: WorldCover class of each pixel.
+
+    Returns:
+        Class name of ``CLASSES`` to its share of the pixels, in percent, for
+        the classes present, in the order of their values. Pixels without data
+        are counted under ``"no data"``.
+    """
+    names = {NO_DATA: "no data", **CLASSES}
+    values, counts = np.unique(classes, return_counts=True)
+    return {
+        names.get(int(value), f"class {int(value)}"): 100 * int(count) / classes.size
+        for value, count in zip(values, counts, strict=True)
+    }
+
+
 def stable_ground(
     classes: np.ndarray,
     stable: tuple[int, ...] = STABLE_CLASSES,

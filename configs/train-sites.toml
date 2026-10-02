@@ -1,0 +1,136 @@
+# Training and validation chips (N3). Fine-tuning cuts its pairs from these
+# twelve chips and from nothing else: three per landscape type, one of the three
+# set aside whole as the validation chip. They are declared apart from
+# configs/sites.toml, so no benchmark command sees them, and the loader refuses
+# a chip that takes the name of a benchmark site or could share a pixel with
+# one. No mountain and no desert: those landscapes are held out.
+#
+# Each chip is fetched like a benchmark chip (catalogue, band and cloud rule of
+# configs/sites.toml) and gets the four dates of configs/real.toml. A chip is
+# accepted if its four dates are found and its land cover, read from ESA
+# WorldCover 2021 on the chip's grid, passes the rule of its landscape below.
+# `satreg fetch-train` fetches and checks them all. See docs/decisions.md.
+
+# Shares of WorldCover classes over the chip, in percent of its pixels.
+[acceptance.urban]
+min = { "built-up" = 55.0 }
+
+[acceptance.coast]
+max = { "permanent water bodies" = 40.0 }
+
+# Keys every chip takes unless it sets its own.
+[defaults]
+chip_px = 1024
+start = 2025-04-01
+end = 2025-09-30
+max_cloud = 5.0
+band = "B04"
+
+# --- Open fields -------------------------------------------------------------
+
+# Champagne crayeuse, east of Épernay: very large chalk-plain parcels of cereals
+# and beet, hardly a hedge. The range stops in mid-July: with an August anchor
+# the season date falls in November, which has no clear date here.
+[chips.champagne]
+landscape = "open fields"
+role = "train"
+lon = 4.25
+lat = 48.85
+end = 2025-07-15
+
+# Magdeburger Börde, west of Magdeburg: loess plain with some of the largest
+# fields in Germany, another parcel geometry than the French plains.
+[chips.boerde]
+landscape = "open fields"
+role = "train"
+lon = 11.50
+lat = 52.00
+
+# Santerre, in the Somme: open plateau of cereals, beet and potatoes, close in
+# kind to the Beauce without being it. Same shortened range as Champagne, for
+# the same reason.
+[chips.santerre]
+landscape = "open fields"
+role = "validation"
+lon = 2.85
+lat = 49.85
+end = 2025-07-15
+
+# --- Urban -------------------------------------------------------------------
+
+# Bordeaux: dense stone centre on a bend of the Garonne, with docks and bridges.
+# It shares its tile and scene date with Landes; the two chips are 72 km apart.
+[chips.bordeaux]
+landscape = "urban"
+role = "train"
+lon = -0.58
+lat = 44.84
+
+# Milan: a large, continuous, radial city, more built-up than any French centre
+# tried. It replaces Essen, where urban trees leave under 40 % built-up.
+[chips.milan]
+landscape = "urban"
+role = "train"
+lon = 9.19
+lat = 45.47
+
+# Lyon: the Presqu'île between Rhône and Saône, two rivers and hills in a dense
+# fabric.
+[chips.lyon]
+landscape = "urban"
+role = "validation"
+lon = 4.85
+lat = 45.75
+
+# --- Forest ------------------------------------------------------------------
+
+# Landes de Gascogne: planted maritime pine on flat sand, in large stands cut by
+# straight firebreaks and clear-cuts.
+[chips.landes]
+landscape = "forest"
+role = "train"
+lon = -0.75
+lat = 44.20
+
+# Northern Black Forest: continuous spruce and fir on steep hills, the relief
+# the Landes lack. Same shortened range as Champagne, for the same reason.
+[chips.foret_noire]
+landscape = "forest"
+role = "train"
+lon = 8.25
+lat = 48.55
+end = 2025-07-15
+
+# Morvan: mixed broadleaf and conifer forest on low granite hills, with
+# clearings and pasture.
+[chips.morvan]
+landscape = "forest"
+role = "validation"
+lon = 4.05
+lat = 47.10
+
+# --- Coast -------------------------------------------------------------------
+
+# Giens peninsula and the Hyères salt marshes: a double sand spit, lagoons and a
+# rocky headland.
+[chips.giens]
+landscape = "coast"
+role = "train"
+lon = 6.15
+lat = 43.10
+
+# Costa Brava, around Palafrugell: rocky coves and pine hills with small towns
+# behind. The centre is inland of the shore so that land stays the larger part.
+[chips.costa_brava]
+landscape = "coast"
+role = "train"
+lon = 3.08
+lat = 41.85
+
+# Sète and the Étang de Thau: a low sand coast, a lagoon and a harbour town. The
+# centre is moved inland for the same reason.
+[chips.sete]
+landscape = "coast"
+role = "validation"
+lon = 3.66
+lat = 43.45

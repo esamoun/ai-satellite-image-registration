@@ -7,6 +7,7 @@ from rasterio.warp import transform_bounds
 from satreg.georef import NOMINAL
 from satreg.landcover import (
     NO_DATA,
+    class_shares,
     fetch_landcover,
     read_landcover,
     read_on_grid,
@@ -99,3 +100,19 @@ def test_stable_ground_is_eroded_away_from_other_classes_but_not_the_border():
     assert stable[:, 8].all() and not stable[:, 7].any()
     assert stable.sum() == 6 + 9
     assert stable_ground(classes, erosion_px=0).sum() == 20 + 18
+
+
+def test_class_shares_name_the_classes_present_and_sum_to_a_hundred():
+    classes = np.full((10, 10), 50, np.uint8)
+    classes[:3] = 80
+    classes[9, :5] = NO_DATA
+    classes[9, 5:] = 7  # not a WorldCover value
+
+    shares = class_shares(classes)
+
+    assert shares == {
+        "no data": 5.0,
+        "class 7": 5.0,
+        "built-up": 60.0,
+        "permanent water bodies": 30.0,
+    }

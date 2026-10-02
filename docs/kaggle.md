@@ -92,6 +92,52 @@ classic methods, run on the M1 by `make n2-bands`. The notebook does not install
 AROSICS (its GDAL bindings must match a system GDAL), so a config run on Kaggle
 lists deep-learning methods only; a test checks every config on `cuda`.
 
+## The training chips, as a Kaggle dataset
+
+The N3 trainings read their pixels from a private Kaggle dataset, uploaded once,
+instead of fetching 48 dates from the Sentinel-2 COGs at the start of every
+session. The dataset is the twelve chips of
+[`configs/train-sites.toml`](../configs/train-sites.toml), four dates each.
+
+1. **Build the folder** on the M1. It fetches what is not in `data/` yet, checks
+   every chip against the acceptance rule and stops if one is refused:
+
+   ```bash
+   make train-dataset
+   ```
+
+   `outputs/train-chips-dataset/` then holds `real/<chip>/<band>_<role>_<hash>.tif`,
+   laid out as under `data/`, and `chips.json` (role, landscape, land-cover
+   shares, and the scene id, date, satellite and hidden share of each date).
+   `outputs/satreg-training-chips.zip` is the same two, zipped for the upload.
+2. **Upload it**, once, on Kaggle's site: *Create → New Dataset*, drop the zip,
+   title it `satreg training chips`, keep the visibility on *Private*. Kaggle
+   derives the dataset's name from the title: `<user>/satreg-training-chips`.
+   The subtitle and the description, which carries the Copernicus attribution,
+   are pasted from [`dataset-metadata.json`](../kaggle/dataset-metadata.json).
+   If a chip is ever replaced, the new zip is uploaded as a new version of the
+   same dataset (*New Version*).
+
+   The Kaggle CLI does the same from the folder, which holds a copy of
+   `dataset-metadata.json` for it, once the `id` in that file carries the
+   account's own user name: `kaggle datasets create -p
+   outputs/train-chips-dataset --dir-mode zip`.
+3. **Use it** from a notebook: *Add Input* in Kaggle's editor, or
+   `<user>/satreg-training-chips` in `dataset_sources` of its kernel metadata.
+   Kaggle mounts it read-only under
+   `/kaggle/input/satreg-training-chips/`. Given as `--data-dir`, that folder has
+   every series in the cache, so nothing is fetched. The cache names hash the
+   chip's parameters, the catalogue and the series configuration: the notebook
+   must run a commit whose `configs/train-sites.toml`, `configs/sites.toml`
+   (`[stac]`) and `configs/real.toml` are the ones the folder was built with,
+   or the dates are looked for under another name and fetched again.
+
+**Data volume.** 48 GeoTIFFs, 95 MB: each is a 1024 x 1024 chip with two uint16
+bands, B04 and the scene classification on the same grid.
+
+The dataset contains modified Copernicus Sentinel data 2025-2026, free to
+redistribute with that attribution, which its description carries.
+
 ## What `context.json` records
 
 Besides the machine, the thread settings and the library versions:
@@ -130,5 +176,10 @@ methods and the run swaps, so close other applications while it runs.
 - Kaggle's image ships `opencv-python`; this package depends on
   `opencv-python-headless`, and pip installs it next to it. Both provide `cv2`.
   If an import of `cv2` fails after the install, uninstall `opencv-python`.
+- Kaggle unpacked the uploaded zip with `real/` and `chips.json` at the
+  dataset's root (49 files, seen in its Data Explorer). The path a notebook
+  sees it under is not checked until the first training notebook runs: if it
+  is not `/kaggle/input/satreg-training-chips/`, the notebook passes the path
+  it finds as `--data-dir`.
 - `pip install -e ".[dl]"` keeps Kaggle's own PyTorch, built for its CUDA, since
   it meets `torch>=2.0`. Installing another torch there would lose CUDA support.

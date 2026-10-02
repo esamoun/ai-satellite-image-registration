@@ -235,6 +235,27 @@ function of the residual. On real pairs the count is made on stable ground,
 built-up and bare ground in ESA WorldCover. Output goes to
 `outputs/false-change/`, with the figure `false_change.png`.
 
+### Training chips
+
+```bash
+satreg fetch-train                # fetch and check the twelve training chips
+```
+
+Fine-tuning (N3) does not train on the benchmark chips. Its pixels are twelve
+other chips, declared in [`configs/train-sites.toml`](configs/train-sites.toml):
+three per landscape (open fields, urban, forest, coast), one of the three set
+aside whole for validation, none in mountain or desert. Each gets the four dates
+of the series rule above. `satreg fetch-train` fetches them and checks each
+chip: its four dates are found, an urban chip is at least 55 % built-up and a
+coast chip at most 40 % water in ESA WorldCover. A chip that fails is reported
+with its shares and the command exits with an error. The tables go to
+`outputs/train-chips/`, with the scene ids, dates and hidden shares in
+`chips.json`. The configuration refuses a chip that could overlap a benchmark
+chip or a held-out site, and training code gets its chips by role, through a
+call that raises for any other chip. `--export DIR` copies the accepted chips to
+a directory laid out like `data/`, which is what is uploaded to Kaggle
+([docs/kaggle.md](docs/kaggle.md)).
+
 ### Under degraded conditions
 
 Each pair is run clean and under named degradation presets, declared in

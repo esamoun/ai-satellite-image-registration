@@ -2976,3 +2976,173 @@ checkpoints, not about the recipe: another seed could give another answer when
 the gap is small. The limits of the N3 results will say so next to the answer,
 whichever way it goes.
 
+
+---
+
+## 2026-10-02: Training chips are declared in their own file, apart from the benchmark sites
+
+*My call*: a separate `configs/train-sites.toml`, rather than a `role` key on
+the sites of `configs/sites.toml`.
+
+**Decision.** The twelve chips N3 trains and validates on are declared in
+`configs/train-sites.toml` and read by `trainchips.py` as `TrainingChip`: a
+`Site`, a role (`train` or `validation`) and a landscape. `Site` and
+`configs/sites.toml` do not change. Three checks keep training off the
+benchmark:
+
+- The configuration is refused if a chip takes the name of a benchmark site, or
+  could share a pixel with a benchmark chip, a held-out site or another training
+  chip.
+- `TrainingConfig.select(role, names)` is the call training code gets its chips
+  from. It raises for a benchmark chip, a held-out site, a chip of the other
+  role or an unknown name.
+- No benchmark command reads the file, so a training chip cannot appear in a
+  results table by accident either.
+
+The overlap check runs on footprints, before anything is fetched: each chip is
+inside a circle around its centre (half the diagonal of `chip_px` pixels of
+10 m, plus a pixel), and two chips are told apart only if the two circles do not
+touch, with 1 % of margin for the sphere and the UTM scale. For two 1024 px
+chips that is 14.7 km between centres.
+
+**Why.** A `role` on `Site` would put benchmark chips and training chips in one
+list, and every command that loops over the sites would need to filter it: one
+forgotten filter trains on the benchmark or benchmarks a training chip. It would
+also change `Site`, whose fields are hashed into the cache names, so every
+cached chip would be fetched again. With two files and two types, the mistake
+needs a deliberate call.
+
+**Limits.** The circle test is stricter than the footprints: two chips side by
+side between 10.3 and 14.7 km apart do not overlap and are refused all the
+same. No chip is near that: the closest pairs are Giens and the Marseille
+benchmark chip (59 km) and Bordeaux and Landes (72 km), which are cut from the
+same scene. The guard covers chips asked for through `select`; code that builds
+a `Site` by hand and reads it bypasses it, as it could bypass anything.
+
+**Rejected.** A `role` key in `configs/sites.toml`, for the reasons above.
+
+---
+
+## 2026-10-02: Twelve training chips, accepted on their dates and on ESA WorldCover
+
+**Decision.** N3 trains on eight chips and validates on four, three per
+landscape, none in mountain or desert, which are the landscapes of the held-out
+sites:
+
+| landscape | train | train | validation |
+|---|---|---|---|
+| open fields | Champagne crayeuse | Magdeburger Börde | Santerre |
+| urban | Bordeaux | Milan | Lyon |
+| forest | Landes de Gascogne | northern Black Forest | Morvan |
+| coast | Giens | Costa Brava | Sète |
+
+Each is a 1024 px chip of B04, fetched like a benchmark chip, with the four
+dates of `configs/real.toml`. `configs/train-sites.toml` says in a comment why
+each place. Champagne, Santerre and the Black Forest search their anchor up to
+2025-07-15 only: with an August anchor their season date falls in November,
+which has no clear date there.
+
+A chip is accepted if:
+
+- the date series rule finds its four dates;
+- for an urban chip, at least 55 % of its pixels are built-up in ESA WorldCover
+  2021;
+- for a coast chip, at most 40 % are permanent water.
+
+`satreg fetch-train` fetches the twelve series, applies the rule and exits with
+an error naming each refused chip and its shares. As fetched on 2026-10-02, all
+twelve pass:
+
+| chip | tree cover | grassland | cropland | built-up | water |
+|---|---:|---:|---:|---:|---:|
+| champagne | 4.9 | 5.2 | 88.2 | 1.7 | 0.0 |
+| boerde | 3.5 | 7.2 | 85.5 | 3.6 | 0.2 |
+| santerre | 8.4 | 4.6 | 83.1 | 3.9 | 0.0 |
+| bordeaux | 22.0 | 7.2 | 1.3 | 62.4 | 6.5 |
+| milan | 24.3 | 6.0 | 2.6 | 66.5 | 0.2 |
+| lyon | 25.7 | 4.1 | 0.3 | 65.0 | 4.8 |
+| landes | 63.1 | 28.2 | 8.7 | 0.1 | 0.0 |
+| foret_noire | 93.6 | 5.4 | 0.0 | 0.9 | 0.1 |
+| morvan | 83.7 | 15.0 | 0.8 | 0.4 | 0.1 |
+| giens | 20.8 | 12.9 | 2.5 | 14.1 | 39.9 |
+| costa_brava | 49.1 | 8.5 | 3.2 | 10.1 | 22.6 |
+| sete | 20.0 | 16.6 | 3.0 | 17.1 | 29.4 |
+
+Percent of the chip's pixels; the other classes are in
+`outputs/train-chips/summary.md`, with the scene, date, satellite and hidden
+share of the 48 dates.
+
+**Why.** Three places per landscape, in more than one region, so that a
+landscape is not one field pattern or one city. The landscapes are those of the
+four seen benchmark sites, so the seen rows of the final table are read on
+familiar ground and the held-out rows on ground of a kind never trained on.
+
+*Why a land-cover check.* A name is not a landscape: a chip centred on a city
+can be half parks and river, and a coast chip can be mostly sea, which has no
+texture to register on. Essen was tried as an urban chip and replaced by Milan
+for that reason: its trees leave under 40 % built-up.
+
+*Why WorldCover.* It is already read by `landcover.py` for stable ground, on the
+chip's own grid, so the check adds no dependency and no new download path. It is
+a 10 m map, the resolution of the chip, and it is global, so the same rule can
+be applied to a chip anywhere. It is external to every method compared.
+
+**Limits.**
+
+- Giens passes the water limit by 0.1 point (39.9 % for 40 %). *My call*: it
+  is kept, rather than replaced by a coast chip with more margin, because it
+  passes; it is the chip the replacement rule would apply to first.
+- The places were looked at against WorldCover on 2026-10-01, before the rule
+  was coded, and were known to pass when the thresholds were written. The rule
+  does not test the choice of these places; it catches a change of centre, of
+  chip size or of map.
+- WorldCover is a 2021 map and the images are from 2025 and 2026. Built-up area
+  and coastline hardly move in four years at these shares.
+- Open fields and forest have no land-cover rule. Landes is 63 % tree cover:
+  clear-cuts and young stands are classed as grassland. This is what that forest
+  looks like.
+- Pixels WorldCover gives no data for are counted under no class. None of the
+  twelve chips has any: the map classes open sea as permanent water where a tile
+  exists.
+- All twelve chips are in western Europe.
+
+**Rejected.** CORINE Land Cover as the check: it is European only, its latest
+inventory is 2018, and it maps units of 25 ha at least, so a 10 km chip of a
+city is a few hundred polygons where WorldCover has a million pixels. Its urban
+classes are finer than WorldCover's single built-up class, which this rule does
+not need.
+
+---
+
+## 2026-10-02: A training chip that stops passing is replaced without looking at any score
+
+**Decision.** If a chip is refused (a date of its series is no longer found, or
+its land cover fails its landscape's rule), it is replaced as follows:
+
+1. First, another centre in the same place: the centre is moved by whole
+   kilometres until the chip passes, and stays clear of every benchmark chip and
+   training chip.
+2. If no centre nearby passes, another place of the same landscape, outside
+   mountain and desert, with the same role (a validation chip is replaced by a
+   validation chip).
+3. The date range of the chip may be narrowed, as for Champagne, if the anchor
+   is what prevents a date from being found.
+4. The acceptance rule is the only test of the new chip. No method is run on it
+   before it is accepted, and no score, of a pretrained or a fine-tuned model,
+   takes part in the choice.
+5. The replacement is written in this file, with what failed and the shares of
+   the old and the new chip, and the Kaggle dataset gets a new version.
+
+A chip is not replaced once a training has used it, except for a failure of the
+rule: a chip that trains badly or validates badly stays.
+
+**Why.** The catalogue can change under a chip: a scene is reprocessed, an item
+disappears, and a date that was found is not found again. Without a rule written
+before any training, a replacement could be chosen among several candidates by
+which one helps the result, and nobody could tell afterwards. The thresholds do
+not move for the same reason.
+
+**Limits.** "The same place" and "the same landscape" are judged by a person,
+within the rule. A replaced validation chip changes the validation set, so
+choices made before and after the replacement are not made on the same pixels;
+the entry that records the replacement must say which choices were already made.

@@ -1,4 +1,4 @@
-.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change clean
+.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset clean
 
 install:
 	pip install -e ".[dev]"
@@ -91,6 +91,22 @@ cycle:
 
 false-change:
 	satreg false-change
+
+# The twelve training and validation chips of configs/train-sites.toml (N3):
+# their four dates, checked against the acceptance rule (docs/decisions.md).
+fetch-train:
+	satreg fetch-train
+
+# The same chips, laid out as a data directory with Kaggle's dataset metadata,
+# and zipped, ready to upload once (docs/kaggle.md).
+TRAIN_DATASET = outputs/train-chips-dataset
+TRAIN_ZIP = outputs/satreg-training-chips.zip
+
+train-dataset:
+	rm -rf $(TRAIN_DATASET) $(TRAIN_ZIP)
+	satreg fetch-train --export $(TRAIN_DATASET)
+	cp kaggle/dataset-metadata.json $(TRAIN_DATASET)/
+	cd $(TRAIN_DATASET) && zip -qr $(abspath $(TRAIN_ZIP)) real chips.json
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

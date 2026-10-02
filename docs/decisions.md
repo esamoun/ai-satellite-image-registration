@@ -3241,7 +3241,7 @@ the loss. The scene classification misses some clouds and shadows.
 
 **Decision.** Measured on the M1 (8 GB) over 200 pairs of 256 px, one process,
 chips already in memory, up to the network's inputs, the flow and the mask:
-5.8 pairs per second. A translation or affine pair takes 10 to 25 ms; a dense
+5.8 pairs per second. A translation or affine pair takes 11 to 26 ms; a dense
 pair takes 0.4 s, almost all of it in drawing and applying the smooth random
 field. Ticket 06 decides between generating on the fly and caching with these
 numbers.

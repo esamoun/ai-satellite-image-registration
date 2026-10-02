@@ -54,7 +54,8 @@ _Avoid_: Multi-temporal pair (which also names real pairs)
 **Loss mask**:
 The pixels of a training pair the training loss may use: those whose true
 position stays inside the moving image and that no opaque cloud covers, on
-either image.
+either image. On a cross-date pair, the pixels the scene classification hides
+on either date are left out too.
 _Avoid_: Valid mask (the benchmark's, which keeps cloud pixels for a global
 motion)
 

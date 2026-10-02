@@ -178,6 +178,35 @@ def test_clouds_fall_on_both_images_and_the_mask_follows_them():
     assert pair.reference[opaque].mean() > pair.reference[~opaque].mean() + 400
 
 
+@pytest.mark.parametrize("scenario", ["translation", "affine", "dense"])
+def test_the_mask_follows_a_cloud_of_the_moving_image_through_the_motion(scenario):
+    cloudy = ranges(cover=(0.3, 0.3), cloudy_moving=1.0)
+    config = pairs_config(scenarios=(scenario,))
+
+    pair = PairGenerator(chips(1), config, cloudy)(1)
+
+    # Where each reference pixel truly is in the moving image, and the cloud there.
+    rows, cols = np.indices((SIZE, SIZE)) + pair.flow
+    inside = (rows >= 0) & (rows <= SIZE - 1) & (cols >= 0) & (cols <= SIZE - 1)
+    r0 = np.clip(np.floor(rows).astype(int), 0, SIZE - 2)
+    c0 = np.clip(np.floor(cols).astype(int), 0, SIZE - 2)
+    fr, fc = np.clip(rows - r0, 0, 1), np.clip(cols - c0, 0, 1)
+    cloud = pair.pair.cloud
+    there = (
+        cloud[r0, c0] * (1 - fr) * (1 - fc)
+        + cloud[r0, c0 + 1] * (1 - fr) * fc
+        + cloud[r0 + 1, c0] * fr * (1 - fc)
+        + cloud[r0 + 1, c0 + 1] * fr * fc
+    )
+    # Pixels a rounding could tip either way are not compared.
+    sure = (np.abs(there - 0.9) > 1e-6) & inside
+    assert np.abs(pair.flow).max() > 0.5
+    assert np.array_equal(pair.mask[sure], there[sure] < 0.9)
+    assert not pair.mask[~inside].any()
+    # The cloud read in place, without the motion, is another mask.
+    assert not np.array_equal(pair.mask[sure], cloud[sure] < 0.9)
+
+
 def test_clouding_the_reference_changes_nothing_else():
     config = pairs_config(scenarios=("dense",))
     base = ranges(cover=(0.2, 0.2), cloudy_moving=1.0, snr_db=(20.0, 20.0))

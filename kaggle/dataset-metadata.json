@@ -1,5 +1,5 @@
 {
-  "id": "esamoun/satreg-training-chips",
+  "id": "<user>/satreg-training-chips",
   "title": "satreg training chips",
   "subtitle": "Sentinel-2 L2A chips, four dates each, for fine-tuning",
   "description": "Twelve 1024 px chips of Sentinel-2 L2A band B04 with their scene classification, four dates each, written by `satreg fetch-train --export`. `chips.json` lists every chip, its role, its land cover and the scene of each date. Contains modified Copernicus Sentinel data 2025-2026.",

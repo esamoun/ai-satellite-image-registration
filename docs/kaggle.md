@@ -119,8 +119,8 @@ session. The dataset is the twelve chips of
    same dataset (*New Version*).
 
    The Kaggle CLI does the same from the folder, which holds a copy of
-   `dataset-metadata.json` for it, once the `id` in that file carries the
-   account's own user name: `kaggle datasets create -p
+   `dataset-metadata.json` for it, once `<user>` in the `id` of that file is
+   replaced by the account's user name: `kaggle datasets create -p
    outputs/train-chips-dataset --dir-mode zip`.
 3. **Use it** from a notebook: *Add Input* in Kaggle's editor, or
    `<user>/satreg-training-chips` in `dataset_sources` of its kernel metadata.

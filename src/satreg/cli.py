@@ -469,26 +469,9 @@ def _parser(
         help="fetch the series of the training and validation chips, and check "
         "each chip against the acceptance rule",
     )
-    train.add_argument(
-        "--train-config",
-        type=Path,
-        default=DEFAULT_TRAIN_CONFIG,
-        help="TOML file declaring the training and validation chips",
+    _add_training_arguments(
+        train, "chip to fetch, repeatable (default: every chip of the train config)"
     )
-    train.add_argument(
-        "--series-config",
-        type=Path,
-        default=DEFAULT_SERIES_CONFIG,
-        help="TOML file declaring which dates a series takes",
-    )
-    train.add_argument(
-        "--chip",
-        action="append",
-        dest="chips",
-        metavar="NAME",
-        help="chip to fetch, repeatable (default: every chip of the train config)",
-    )
-    _add_data_arguments(train)
     train.add_argument("--out", type=Path, default=Path("outputs/train-chips"))
     train.add_argument(
         "--export",
@@ -514,25 +497,9 @@ def _parser(
         default=DEFAULT_DEGRADATIONS_CONFIG,
         help="TOML file whose [training] table gives the degradation ranges",
     )
-    drawn.add_argument(
-        "--train-config",
-        type=Path,
-        default=DEFAULT_TRAIN_CONFIG,
-        help="TOML file declaring the training and validation chips",
-    )
-    drawn.add_argument(
-        "--series-config",
-        type=Path,
-        default=DEFAULT_SERIES_CONFIG,
-        help="TOML file declaring which dates a series takes",
-    )
-    drawn.add_argument(
-        "--chip",
-        action="append",
-        dest="chips",
-        metavar="NAME",
-        help="training chip to cut pairs from, repeatable (default: every "
-        "training chip)",
+    _add_training_arguments(
+        drawn,
+        "training chip to cut pairs from, repeatable (default: every training chip)",
     )
     drawn.add_argument(
         "--n-pairs", type=int, default=200, help="pairs to draw and time"
@@ -551,13 +518,32 @@ def _parser(
     drawn.add_argument(
         "--seed", type=int, help="seed of the pairs (default: the pairs config's)"
     )
-    _add_data_arguments(drawn)
     drawn.add_argument("--out", type=Path, default=Path("outputs/train-pairs"))
     if run_config:
         {"benchmark": bench, "cycle": closing, "false-change": changes}[
             command
         ].set_defaults(**run_config)
     return parser
+
+
+def _add_training_arguments(parser: argparse.ArgumentParser, chip_help: str) -> None:
+    """Add the options of a command that reads the training chips."""
+    parser.add_argument(
+        "--train-config",
+        type=Path,
+        default=DEFAULT_TRAIN_CONFIG,
+        help="TOML file declaring the training and validation chips",
+    )
+    parser.add_argument(
+        "--series-config",
+        type=Path,
+        default=DEFAULT_SERIES_CONFIG,
+        help="TOML file declaring which dates a series takes",
+    )
+    parser.add_argument(
+        "--chip", action="append", dest="chips", metavar="NAME", help=chip_help
+    )
+    _add_data_arguments(parser)
 
 
 def _add_series_arguments(parser: argparse.ArgumentParser) -> None:
@@ -1284,6 +1270,24 @@ def false_change(args: argparse.Namespace) -> str:
     return table
 
 
+def _training(
+    args: argparse.Namespace,
+) -> tuple[trainchips.TrainingConfig, SeriesConfig]:
+    """Read the configurations of a command that reads the training chips."""
+    sites = load_sites(args.sites_config)
+    try:
+        config = trainchips.load_training_chips(args.train_config, sites)
+        series = load_series_config(args.series_config)
+    except FileNotFoundError as exc:
+        raise SystemExit(
+            f"satreg: no configuration at {exc.filename} (run from the repository "
+            "root or pass --train-config and --series-config)"
+        ) from None
+    except ValueError as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+    return config, series
+
+
 def fetch_train(args: argparse.Namespace) -> str:
     """Fetch the series of the training and validation chips, and check them.
 
@@ -1298,17 +1302,7 @@ def fetch_train(args: argparse.Namespace) -> str:
         SystemExit: If a chip is refused by the acceptance rule; the tables are
             written first, and the message gives the chip's shares.
     """
-    sites = load_sites(args.sites_config)
-    try:
-        config = trainchips.load_training_chips(args.train_config, sites)
-        series = load_series_config(args.series_config)
-    except FileNotFoundError as exc:
-        raise SystemExit(
-            f"satreg: no configuration at {exc.filename} (run from the repository "
-            "root or pass --train-config and --series-config)"
-        ) from None
-    except ValueError as exc:
-        raise SystemExit(f"satreg: {exc}") from None
+    config, series = _training(args)
     names = args.chips or list(config.chips)
     for name in names:
         if name not in config.chips:
@@ -1360,10 +1354,8 @@ def train_pairs(args: argparse.Namespace) -> str:
     """
     if args.n_pairs < 1 or not 0 <= args.sheet_pairs <= args.n_pairs:
         raise SystemExit("satreg: need --n-pairs >= 1 and --sheet-pairs within it")
-    sites = load_sites(args.sites_config)
+    config, series = _training(args)
     try:
-        config = trainchips.load_training_chips(args.train_config, sites)
-        series = load_series_config(args.series_config)
         pairs_config = trainpairs.load_pairs_config(args.pairs_config)
         ranges = trainpairs.load_ranges(args.degradations_config)
         overrides = {
@@ -1379,7 +1371,7 @@ def train_pairs(args: argparse.Namespace) -> str:
     except FileNotFoundError as exc:
         raise SystemExit(
             f"satreg: no configuration at {exc.filename} (run from the repository "
-            "root or pass the configuration files)"
+            "root or pass --pairs-config and --degradations-config)"
         ) from None
     except ValueError as exc:
         raise SystemExit(f"satreg: {exc}") from None

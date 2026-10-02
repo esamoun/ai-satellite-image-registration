@@ -270,8 +270,8 @@ and degradations, it does not copy them: with the exact parameters of a preset
 it returns the benchmark's pair, and a test pins it. What differs from the
 benchmark:
 
-- **Degradations are drawn in continuous ranges**, from clean to a bit beyond
-  `hard`, declared under `[training]` in
+- **Degradations are drawn in continuous ranges**, from clean (the noise from
+  nearly none, a ratio of 40 dB) to a bit beyond `hard`, declared under `[training]` in
   [`configs/degradations.toml`](configs/degradations.toml). The three presets
   stay the test's.
 - **Clouds may fall on both images**: half of the pairs have a cloud on the
@@ -289,8 +289,8 @@ inputs are made by the conversion the `raft` method uses.
 
 The command writes `summary.md`, `pairs.csv` (one row per pair, with its drawn
 parameters) and `contact-sheet.png` to `outputs/train-pairs/`. On the M1, one
-process makes 5.8 pairs per second: a translation or affine pair takes 10 to
-25 ms, a dense pair 0.4 s.
+process makes 5.8 pairs per second: a translation or affine pair takes 11 to
+26 ms, a dense pair 0.4 s.
 
 ### Under degraded conditions
 

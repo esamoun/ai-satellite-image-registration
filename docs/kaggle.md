@@ -159,8 +159,8 @@ on the first GPU. Each run's directory is saved as the notebook's output, under
 2. **Import the notebook** in Kaggle's editor (*File → Import notebook*).
    `kernel-metadata.json` describes the benchmark notebook only; the training
    notebook's settings are set in the editor.
-3. **Settings**: internet on, accelerator *GPU T4 x2* or *GPU T4* (a training
-   uses one GPU either way).
+3. **Settings**: internet on, accelerator *GPU T4 x2*, the only T4 choice the
+   editor offers (a training uses one of the two GPUs).
 4. **Inputs** (*Add Input*): the private dataset `<user>/satreg-training-chips`.
    The notebook finds it by its `chips.json`, wherever Kaggle mounts it, and
    stops if it is missing.
@@ -201,11 +201,10 @@ are the timing run: [`configs/train-timing.toml`](../configs/train-timing.toml)
 is 300 steps at the planned batch (8 pairs of 256 px), with a validation on the
 light set at steps 0, 150 and 300.
 
-**Session 1, on *GPU T4 x2*.** Run the notebook as it is. `RUNS` trains
-`timing-large`, `timing-small`, and `timing-large-cut`, which is RAFT large
-stopped at step 150.
+**Session 1.** Run the notebook as it is. `RUNS` trains `timing-large`,
+`timing-small`, and `timing-large-cut`, which is RAFT large stopped at step 150.
 
-**Session 2, on *GPU T4*.** Add the output of session 1 as an input, and set:
+**Session 2.** Add the output of session 1 as an input, and set:
 
 ```python
 RUNS = {"timing-large-cut": ["--model", "large"]}
@@ -215,17 +214,20 @@ COMPARE = [("timing-large", "timing-large-cut")]
 The cut run resumes from its checkpoint to step 300, and the last cell prints
 its loss next to the uninterrupted run's, by stretches of 25 steps.
 
-**The quota.** Before and after each session, read the GPU hours used this week
-on the account's settings page, and note the session's duration (the report
-cell prints it). The two sessions use the two accelerators, so the difference
-says what an hour of each one removes.
+**The quota.** Before and after each session, read the GPU time used this week
+(*Session options*, under the accelerator, as `hh:mm / 30 hrs`), and note the
+session's duration (the report cell prints it). Read on 2026-10-04: a *T4 x2*
+version that ran 46 min took the quota from 00:00 to 00:46, so an hour of
+*T4 x2* removes one hour, not two. The editor offers no single T4 to compare
+with.
 
 **What to read.** The report cell prints, per run: the median seconds per step,
 the share of the time spent getting the pairs (`pair_share`), the pairs consumed
 per second and the peak GPU memory. It also lists the files fetched besides the
 dataset, which must be none. The time of one validation is the `seconds` column
-of each run's `validation.csv`. The step budget drawn from these numbers is in
-[`decisions.md`](decisions.md).
+of each run's `validation.csv`. The numbers read on 2026-10-04 and the step
+budget drawn from them (10,000 steps a training, a validation every 500, a
+checkpoint every 250) are in [`decisions.md`](decisions.md).
 
 ### Bring a run back
 
@@ -276,12 +278,17 @@ methods and the run swaps, so close other applications while it runs.
   sees it under is not checked until the training notebook's first run, so the
   notebook does not rely on it: it looks for `chips.json` next to `real/` under
   `/kaggle/input` and prints the folder it found.
-- The training notebook was run on the M1 against a fake `/kaggle` tree, both
-  sessions of the timing run, not on Kaggle yet. Kaggle's session limit and the
-  way the weekly quota counts a *T4 x2* session come from third-party pages
-  until the timing run reads them.
+- The timing run's two sessions ran on Kaggle on 2026-10-04 (commit `ee4ed40`),
+  with the dataset found under `/kaggle/input` and nothing fetched besides it.
+  The weekly quota (30 h) and the way it counts a *T4 x2* session were read
+  there. The 12 h session limit is the one in Kaggle's notebooks documentation;
+  no session here has come near it.
 - On a GPU, two runs of the same training differ in the last digits from the
   first step on, so a resumed run follows the uninterrupted one closely, not bit
-  for bit. They are equal on a CPU, which a test checks.
+  for bit. They are equal on a CPU, which a test checks. On the T4, over 300
+  steps, the run resumed at step 150 in a second session and the uninterrupted
+  one have the same mean loss per stretch of 25 steps to 0.002, and no step
+  differs by more than 0.03; they already differ by 0.004 within the first 25
+  steps, before the cut.
 - `pip install -e ".[dl]"` keeps Kaggle's own PyTorch, built for its CUDA, since
   it meets `torch>=2.0`. Installing another torch there would lose CUDA support.

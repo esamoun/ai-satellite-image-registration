@@ -3563,3 +3563,98 @@ result. A Kaggle session has 4 CPU cores: 3 make pairs, one runs the loop.
 **Rejected.** A cache of pairs on disk: the first measurement does not ask for
 it. Using both GPUs of a *T4 x2* session for one training: batches of 8 split in
 two change the recipe, for a loop that would have to be written and tested.
+
+---
+
+## 2026-10-04: Every N3 training gets 10,000 steps, with pairs still made on the fly
+
+*My call* (three options laid out with their arithmetic): 10,000 steps with
+pairs made on the fly, rather than 6,000 steps on the fly or 10,000 steps fed
+from a cache of pairs; a validation every 500 steps and a checkpoint every 250.
+
+**Decision.**
+
+- **Step budget.** 10,000 steps of 8 pairs of 256 px for each of the three
+  trainings: the two RAFT large variants and RAFT small. It is fixed here,
+  before any real training, and does not move.
+- **Pairs.** Made on the fly by 3 worker processes, as in the timing run. The
+  entry of 2026-10-02 left this to the timing run's `pair_share`: it is high,
+  and the answer taken is to pay the time, not to build a cache.
+- **During a training.** A validation on the light set every 500 steps (step 0,
+  then 20 of them), a checkpoint every 250 steps.
+- **Order.** The two large variants first, one session each. Small comes after
+  the choice between them, since it is trained with the retained pair mix.
+
+**The timing run.** Kaggle, *GPU T4 x2* with one GPU used, commit `ee4ed40`,
+[`configs/train-timing.toml`](../configs/train-timing.toml): 300 steps, batch 8,
+256 px, 3 workers. The machine has 4 CPUs (Intel Xeon at 2.00 GHz) and 31 GiB.
+
+| run | s/step (median) | steps/s | waiting for pairs | pairs/s | peak GPU memory | a validation |
+|---|---:|---:|---:|---:|---:|---:|
+| RAFT large | 3.13 | 0.32 | 70 % | 2.6 | 4357 MiB | 18 to 25 s |
+| RAFT small | 3.22 | 0.31 | 89 % | 2.7 | 1883 MiB | 12 to 20 s |
+| RAFT large, steps 151 to 300 in a second session | 3.10 | 0.32 | 69 % | 2.7 | 4354 MiB | 18 s |
+
+A step lasts as long as its 8 pairs take to make: the workers make about 2.6
+pairs a second there, against 13 on the M1. What is left to the GPU is about
+0.95 s a step for large and 0.35 s for small.
+
+The quota is 30 h of GPU a week. The first session ran 46 min and took it from
+00:00 to 00:46: an hour of *T4 x2* removes one hour, not two.
+
+The run cut at step 150 and resumed in a second session follows the
+uninterrupted one: same mean loss per stretch of 25 steps to 0.002, largest gap
+on one step 0.026, and the same kept checkpoint (step 300, 0.1024 px against
+0.1026 px). The two already differ by 0.004 in the first 25 steps, before the
+cut.
+
+**The arithmetic.**
+
+- One training: 10,000 steps × 3.13 s = 31,300 s, 8.7 h. Its 21 validations add
+  about 7 min, and the start of a session (clone, install, drawing the
+  validation pairs) about 2 min: 8.9 h.
+- Sessions: one per training. A Kaggle session lasts 12 h at most and the
+  notebook stops the trainings at 10 h (`MAX_MINUTES = 600`), on a checkpoint.
+- Quota: 26.6 h for the three, 17.7 h for the two large variants, out of 30 h a
+  week of which the timing run took about one.
+- That is about 1,150 steps an hour, for large and small alike.
+
+**Why.** Nothing measured says how many steps the fine-tuning needs, so the
+budget is what the quota holds: 10,000 steps is one session per training with an
+hour to spare before the notebook's own limit, and the three trainings in less
+than one week of quota. A cache of pairs would bring the three trainings down to
+about 6.3 h of GPU, and its cost was measured: a pair is 0.75 MB on disk with no
+loss (one channel in float32, compressed), so the 80,000 pairs of a training are
+60 GB, twice, since the two large variants do not see the same pairs. The output
+of a Kaggle notebook version is limited to 20 GB, so that is six versions, about
+17 h of making pairs at the rate measured, a reader and a writer to code, and a
+test that the cached pairs are the ones made on the fly. All of it to save a
+quota that the three trainings do not exceed.
+
+**Limits.**
+
+- 10,000 is not a tuned number. In the timing run the light validation score
+  went from 0.158 px (pretrained) to 0.103 px in 300 steps for large, and from
+  0.322 to 0.218 px for small, on a learning rate brought to zero within those
+  300 steps: it says that the loop learns on the T4, not how many steps are
+  enough.
+- The GPU waits for pairs 70 % of the time with large and 89 % with small.
+  Small costs as much quota as large, although its own work is nearly three
+  times shorter. This waste is known and accepted.
+- The time of a step moved between 2.2 and 4.8 s from one stretch of 15 steps
+  to the next. Above 3.5 s a step on average, a training does not end within
+  the notebook's 10 h: it stops on a checkpoint and a second session resumes
+  it, which the timing run tested.
+- The quota was read before and after the first session only. The editor
+  offers no single T4 (*None*, *GPU T4 x2*, *TPU v5e-8*), so what an hour of
+  one T4 removes cannot be read.
+- The cache figures come from the M1 (240 pairs) and from Kaggle's notebooks
+  documentation for the 20 GB. The rate of 2.6 pairs a second is that of 3
+  workers next to a training, not of a session that only makes pairs.
+
+**Rejected.** 6,000 steps on the fly (5.2 h a training, 15.7 h in all): it
+leaves half of a week's quota unused with nothing to spend it on. A cache with
+no loss: above. A cache in float16 (0.25 MB a pair): it rounds the images and
+the displacement, up to 0.002 px, so the pairs are no longer the benchmark's.
+A cache of 20,000 pairs seen four times: it changes what the training is fed.
+A smaller share of dense pairs, the slow ones: the same.

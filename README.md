@@ -342,7 +342,11 @@ The real trainings run on a Kaggle GPU, from
 [`kaggle/satreg-train.ipynb`](kaggle/satreg-train.ipynb). Its first use is the
 timing run, [`configs/train-timing.toml`](configs/train-timing.toml): 300 steps
 of RAFT large and small on a T4, to measure what the step budget is set from
-([`docs/kaggle.md`](docs/kaggle.md#training-on-a-kaggle-gpu)).
+([`docs/kaggle.md`](docs/kaggle.md#training-on-a-kaggle-gpu)). There, a step of
+8 pairs takes 3.1 s for both networks, 70 % of it waiting for the pairs with
+large and 89 % with small: Kaggle's 4 CPUs make 2.6 pairs a second. Each
+training gets 10,000 steps, about 8.9 h, one session
+([`docs/decisions.md`](docs/decisions.md), 2026-10-04).
 
 The methods `raft_ft` and `raft_small_ft` of
 [`configs/methods.toml`](configs/methods.toml) are RAFT with the weights of a

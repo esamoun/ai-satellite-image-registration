@@ -11,6 +11,7 @@ from test_real import CONFIG
 from test_trainchips import SITES_TOML, scenes  # noqa: F401
 from test_trainpairs import cached, chips, pairs_config, ranges
 
+from satreg import cli, compute
 from satreg import train as training
 from satreg.cli import main
 from satreg.methods import deep, load_methods
@@ -328,6 +329,27 @@ def train_args(tmp_path, scenes):  # noqa: F811
     )
     args[args.index("--pairs-config")] = "--config"
     return ["train"] + args[1:]
+
+
+@needs_raft
+def test_the_machine_of_a_session_is_described_once_it_has_trained(
+    tmp_path,
+    monkeypatch,
+    scenes,  # noqa: F811
+):
+    # PyTorch is loaded by the training: described before it, the session has
+    # no GPU and no PyTorch threads (seen on Kaggle, "gpu": null on a T4).
+    described_after = []
+
+    def environment():
+        described_after.append((tmp_path / "out" / CHECKPOINT).is_file())
+        return compute.environment()
+
+    monkeypatch.setattr(cli, "environment", environment)
+
+    main(train_args(tmp_path, scenes))
+
+    assert described_after == [True]
 
 
 @needs_raft

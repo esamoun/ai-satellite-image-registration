@@ -23,7 +23,7 @@ from .benchmark import (
     method_device,
     run_benchmark,
 )
-from .compute import describe, environment, process_peak_rss_mib
+from .compute import code_version, describe, environment, process_peak_rss_mib
 from .degrade import Preset, load_presets
 from .georef import NOMINAL, Georef
 from .ingest import (
@@ -1785,8 +1785,7 @@ def train(args: argparse.Namespace) -> str:
     budget = None if args.max_minutes is None else 60 * args.max_minutes
 
     out = args.out or DEFAULT_TRAIN_OUT / training.METHOD_NAMES[run.model]
-    context = environment()
-    code = context["code"] or {}
+    code = code_version() or {}
     described = {
         "pairs": dataclasses.asdict(pairs_config),
         "ranges": dataclasses.asdict(ranges),
@@ -1800,6 +1799,8 @@ def train(args: argparse.Namespace) -> str:
         )
     except (FileNotFoundError, FileExistsError, ValueError, RuntimeError) as exc:
         raise SystemExit(f"satreg: {exc}") from None
+    # After the training: the GPU and PyTorch are described once it is loaded.
+    context = environment()
 
     name = training.METHOD_NAMES[run.model]
     session = [r for r in result.log if r.step > result.first_step]

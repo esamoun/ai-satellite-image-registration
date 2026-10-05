@@ -12,7 +12,10 @@ from satreg import ablation, trainval
 from satreg.ablation import (
     ALL,
     BETTER,
+    CLOSURE,
+    CLOSURE_BY_CHIP,
     EQUAL,
+    VALIDATION_SET,
     WORSE,
     Paired,
     Score,
@@ -22,7 +25,14 @@ from satreg.ablation import (
     compare,
 )
 from satreg.benchmark import PairResult
-from satreg.cli import ABLATION_BASELINE, ABLATION_VARIANTS, _checkpoints, main
+from satreg.cli import (
+    ABLATION_BASELINE,
+    ABLATION_CLOSURE,
+    ABLATION_VALIDATION,
+    ABLATION_VARIANTS,
+    _checkpoints,
+    main,
+)
 from satreg.cycle import REAL, TripletRow
 from satreg.methods import load_methods
 from satreg.report import write_csv
@@ -31,7 +41,8 @@ from satreg.trainchips import TRAIN, VALIDATION
 from satreg.trainpairs import load_pairs_config
 from satreg.trainval import ALL_PRESETS, ValidationRow
 
-CONFIGS = Path(__file__).parents[1] / "configs"
+ROOT = Path(__file__).parents[1]
+CONFIGS = ROOT / "configs"
 SAME_DATE, CROSS_DATE = ABLATION_VARIANTS
 
 
@@ -127,7 +138,8 @@ def test_nothing_is_retained_if_neither_variant_beats_the_pretrained_model():
 @pytest.mark.parametrize("winner", VARIANTS)
 def test_the_only_variant_that_beats_the_pretrained_model_is_retained(winner):
     validation = {v: BEATS if v == winner else LOSES for v in VARIANTS}
-    # Closure and mean error favour the first variant, whichever is eligible.
+    # The closure favours the first variant and the mean error the second:
+    # neither is consulted, whichever variant is eligible.
     choice = choose(VARIANTS, validation, paired(5, 0, 0.3, 0.1), LOSES)
 
     assert (choice.retained, choice.eligible) == (winner, (winner,))
@@ -158,11 +170,26 @@ def test_an_equal_closure_leaves_the_choice_to_the_mean_error_then_to_the_simple
     both = {"simple": BEATS, "mixed": BEATS}
     tie = paired(2, 2, 0.2, 0.2)
 
-    assert choose(VARIANTS, both, tie, paired(0, 0, 0.1, 0.2)).retained == "mixed"
-    assert choose(VARIANTS, both, tie, paired(0, 0, 0.3, 0.2)).retained == "simple"
+    lower = choose(VARIANTS, both, tie, paired(0, 0, 0.1, 0.2))
+    assert lower.retained == "mixed"
+    assert "mixed has a lower mean error than simple" in lower.reason
+    higher = choose(VARIANTS, both, tie, paired(0, 0, 0.3, 0.2))
+    assert higher.retained == "simple"
+    assert "simple has a lower mean error than mixed" in higher.reason
     nothing = choose(VARIANTS, both, tie, paired(0, 0, 0.2, 0.2))
     assert nothing.retained == "simple"
     assert "the simpler recipe" in nothing.reason
+
+
+def test_a_mean_error_over_no_pair_separates_nothing():
+    both = {"simple": BEATS, "mixed": BEATS}
+    tie = paired(2, 2, 0.2, 0.2)
+
+    # No pair that neither variant fails: neither mean exists.
+    choice = choose(VARIANTS, both, tie, paired(5, 5, math.nan, math.nan))
+
+    assert choice.retained == "simple"
+    assert "neither closure nor mean error separates them" in choice.reason
 
 
 def pair_result(method, pair, epe, scenario="translation", degradation="clean"):
@@ -286,7 +313,7 @@ def test_the_validation_set_is_read_by_cell_then_as_a_whole(tmp_path):
 
     assert [(r.scope, r.degradation) for r in rows] == [*CELLS, (ALL, ALL)]
     assert {(r.measure, r.method, r.reference) for r in rows} == {
-        ("validation", SAME_DATE, ABLATION_BASELINE)
+        (VALIDATION_SET, SAME_DATE, ABLATION_BASELINE)
     }
     dense = rows[2]
     # The pair the pretrained model fails is left out of both means.
@@ -300,11 +327,15 @@ def test_the_validation_set_is_read_by_cell_then_as_a_whole(tmp_path):
 def test_closure_is_read_on_the_validation_chips_then_on_the_training_chips(tmp_path):
     _, triplets = read_tables(tmp_path)
 
-    validation, train = ablation.closure_rows(
+    validation, train, chip = ablation.closure_rows(
         triplets, ROLES, CROSS_DATE, ABLATION_BASELINE
     )
 
     assert (validation.scope, train.scope) == ("validation chips", "training chips")
+    assert (validation.measure, train.measure) == (CLOSURE, CLOSURE)
+    # Then each validation chip: here the one there is, so the same reading.
+    assert (chip.measure, chip.scope) == (CLOSURE_BY_CHIP, "lyon")
+    assert ablation.paired_of(chip) == ablation.paired_of(validation)
     assert (validation.items, validation.failures, validation.reference_failures) == (
         2,
         0,
@@ -319,15 +350,30 @@ def test_closure_is_read_on_the_validation_chips_then_on_the_training_chips(tmp_
     assert train.difference == pytest.approx(-0.2)
 
 
+# The scene of the validation chip: what the trainings validated on.
+SCENES = {"lyon": "S2A_T31TFL_20250811T103955_L2A"}
+
+
 def training_run(path, method, cross_date, steps=4, budget=4, kept=0.2):
     """Write what a training leaves in its directory, and read it back."""
     path.mkdir(parents=True)
     (path / BEST).write_bytes(method.encode())
     context = {
-        "train": {"model": "large", "steps": budget, "batch_size": 8},
+        "train": {
+            "model": "large",
+            "steps": budget,
+            "batch_size": 8,
+            "workers": 3,
+            "device": "cuda",
+        },
         "pairs": {"cross_date": cross_date, "seed": 0},
         "ranges": {"gain": [0.6, 1.67]},
         "chips": ["milan"],
+        "validation": {
+            "chips": SCENES,
+            "pairs_per_cell": 1,
+            "kept": {"step": 2, "score": kept},
+        },
         "commit": "abcdef0123",
         "sessions": [{"code": {"commit": "abcdef0123", "dirty": False}}],
     }
@@ -369,6 +415,26 @@ def test_weights_that_are_not_a_run_s_kept_ones_are_refused(tmp_path):
         ablation.read_training("raft_ft", tmp_path / BEST, "")
 
 
+def test_weights_rewritten_since_they_were_scored_are_refused(tmp_path):
+    run, _ = runs(tmp_path)
+    # The training went on and kept a later step under the same name.
+    (run.path / BEST).write_bytes(b"later weights")
+
+    with pytest.raises(ValueError, match=f"not the file {SAME_DATE} was scored with"):
+        ablation.read_training(SAME_DATE, run.path / BEST, run.sha256)
+    (run.path / BEST).unlink()
+    with pytest.raises(ValueError, match="no weights at"):
+        ablation.read_training(SAME_DATE, run.path / BEST, run.sha256)
+
+
+def test_a_run_whose_context_gives_no_cross_date_share_is_refused(tmp_path):
+    run, _ = runs(tmp_path)
+    (run.path / "context.json").write_text(json.dumps({"train": {"steps": 4}}))
+
+    with pytest.raises(ValueError, match="no step budget or no cross-date share"):
+        ablation.read_training(SAME_DATE, run.path / BEST, run.sha256)
+
+
 def test_the_two_runs_of_the_ablation_differ_by_the_cross_date_share_alone(tmp_path):
     same, cross = runs(tmp_path)
 
@@ -385,17 +451,67 @@ def test_the_two_runs_of_the_ablation_differ_by_the_cross_date_share_alone(tmp_p
     ]
 
 
+def test_what_a_session_may_change_and_what_a_run_kept_are_not_differences(tmp_path):
+    same, cross = runs(tmp_path, kept=0.3)
+    # Resumed on another machine with fewer worker processes.
+    resumed = {**cross.context["train"], "workers": 2, "device": "cpu"}
+    cross = dataclasses.replace(cross, context={**cross.context, "train": resumed})
+
+    assert same.context["validation"]["kept"] != cross.context["validation"]["kept"]
+    assert ablation.differences(same, cross) == ["pairs.cross_date"]
+    assert ablation.departures(same, cross) == []
+
+
+def test_two_runs_validated_on_other_light_sets_were_not_given_alike(tmp_path):
+    same, cross = runs(tmp_path)
+    light = {**cross.context["validation"], "pairs_per_cell": 2}
+    cross = dataclasses.replace(cross, context={**cross.context, "validation": light})
+
+    assert ablation.differences(same, cross) == [
+        "pairs.cross_date",
+        "validation.pairs_per_cell",
+    ]
+    assert ablation.departures(same, cross) == [
+        "the two runs differ by more than the share of cross-date pairs "
+        "(validation.pairs_per_cell)"
+    ]
+
+
+def test_the_first_variant_is_the_one_trained_on_same_date_pairs_only(tmp_path):
+    same, cross = runs(tmp_path)
+
+    # The two weights swapped in the methods config.
+    swapped = ablation.departures(
+        dataclasses.replace(cross, method=SAME_DATE),
+        dataclasses.replace(same, method=CROSS_DATE),
+    )
+
+    assert swapped == [
+        f"{SAME_DATE} was trained with a cross-date share of 0.5, not on "
+        "same-date pairs only",
+        f"{CROSS_DATE} was trained with no cross-date pair",
+    ]
+
+
+def test_a_run_stopped_short_of_its_budget_is_a_departure(tmp_path):
+    same, cross = runs(tmp_path, steps=3)
+
+    assert ablation.departures(same, cross) == [f"{CROSS_DATE} stopped at step 3 of 4"]
+
+
 def test_the_ablation_reads_both_variants_and_applies_the_rule(tmp_path):
     pairs, triplets = read_tables(tmp_path)
 
     read = ablation.read(pairs, triplets, ROLES, ABLATION_BASELINE, runs(tmp_path))
 
     assert read.variants == ABLATION_VARIANTS
-    # 3 comparisons, each of 4 cells and the whole set, and of 2 roles.
-    assert len(read.rows) == 3 * (5 + 2)
-    assert len(read.of("validation", CROSS_DATE, SAME_DATE)) == 5
+    # 3 comparisons, each of 4 cells and the whole set, of 2 roles and of the
+    # validation chip.
+    assert len(read.rows) == 3 * (5 + 2 + 1)
+    assert len(read.of(VALIDATION_SET, CROSS_DATE, SAME_DATE)) == 5
     # Both beat the pretrained model; on the validation chip the cross-date
     # variant fails no triplet where the same-date one fails one.
+    assert read.departures == ()
     assert read.choice.eligible == ABLATION_VARIANTS
     assert read.choice.retained == CROSS_DATE
 
@@ -408,6 +524,15 @@ def test_a_run_without_a_method_of_the_ablation_is_refused(tmp_path):
         ablation.read(pairs, triplets, ROLES, ABLATION_BASELINE, runs(tmp_path))
 
 
+def test_a_triplet_of_a_chip_without_a_role_is_refused(tmp_path):
+    pairs, triplets = read_tables(tmp_path)
+
+    with pytest.raises(ValueError, match="closure run gives no role to milan"):
+        ablation.read(
+            pairs, triplets, {"lyon": VALIDATION}, ABLATION_BASELINE, runs(tmp_path)
+        )
+
+
 def test_the_report_gives_the_runs_the_tables_and_what_the_rule_gives(tmp_path):
     pairs, triplets = read_tables(tmp_path)
     read = ablation.read(pairs, triplets, ROLES, ABLATION_BASELINE, runs(tmp_path))
@@ -418,7 +543,7 @@ def test_the_report_gives_the_runs_the_tables_and_what_the_rule_gives(tmp_path):
     assert "| cross-date share | 0 | 0.5 |" in report
     assert "| steps done / budget | 4 / 4 | 4 / 4 |" in report
     assert "| kept step | 2 | 2 |" in report
-    assert "not given alike: pairs.cross_date. The two training losses" in report
+    assert "not given alike: pairs.cross_date. The device and" in report
     assert (
         f"{SAME_DATE} beats raft on the validation set: it fails 0 pairs where "
         "raft fails 1, and over the 7 pairs neither fails its mean error is "
@@ -430,6 +555,9 @@ def test_the_report_gives_the_runs_the_tables_and_what_the_rule_gives(tmp_path):
         f"The closure of {CROSS_DATE} is better than {SAME_DATE} on the validation "
         "chips and better than it on the training chips." in report
     )
+    assert "The same closure, one validation chip at a time:" in report
+    assert "| validation chip | triplets |" in report
+    assert "| lyon | 2 | 1 | 0 | 1 | 0.2000 | 0.1500 | -0.0500 |" in report
     assert report.endswith(f"**What the rule gives.** {read.choice.reason}\n")
     assert f"{CROSS_DATE} closes better than {SAME_DATE}" in read.choice.reason
 
@@ -442,19 +570,29 @@ def test_a_difference_too_small_for_four_decimals_keeps_its_sign(difference, wri
     assert ablation._px(difference, signed=True) == written
 
 
-def test_the_report_says_when_the_runs_are_not_the_ablation_s(tmp_path):
+def test_the_rule_is_not_applied_to_runs_that_are_not_the_ablation_s(tmp_path):
     pairs, triplets = read_tables(tmp_path)
     same, cross = runs(tmp_path, steps=3)
     cross = dataclasses.replace(
         cross, context={**cross.context, "pairs": same.context["pairs"]}
     )
 
-    report = ablation.to_markdown(
-        ablation.read(pairs, triplets, ROLES, ABLATION_BASELINE, (same, cross))
-    )
+    read = ablation.read(pairs, triplets, ROLES, ABLATION_BASELINE, (same, cross))
+    report = ablation.to_markdown(read)
 
-    assert "not given alike: none. The ablation expects pairs.cross_date" in report
-    assert f"{CROSS_DATE} stopped at step 3 of 4: it did not run to its" in report
+    assert read.choice is None
+    assert read.departures == (
+        f"{CROSS_DATE} was trained with no cross-date pair",
+        f"{CROSS_DATE} stopped at step 3 of 4",
+    )
+    assert "not given alike: none. The device and" in report
+    # The tables are still there, and nothing is chosen from them.
+    assert f"{CROSS_DATE} next to {SAME_DATE}, on the validation set:" in report
+    assert "What the rule gives" not in report
+    assert report.endswith(
+        f"and these are not: {CROSS_DATE} was trained with no cross-date pair; "
+        f"{CROSS_DATE} stopped at step 3 of 4. The tables above choose nothing.\n"
+    )
 
 
 def test_the_curves_of_the_two_runs_are_saved_as_a_figure(tmp_path):
@@ -464,7 +602,8 @@ def test_the_curves_of_the_two_runs_are_saved_as_a_figure(tmp_path):
 
 
 def scored_runs(tmp_path, trainings):
-    """Write the directories validate and validate-cycle leave for the ablation."""
+    """Write the directories make ablation leaves for the ablation to read."""
+    out = tmp_path / "ablation"
     weights = {
         run.method: {"path": str(run.path / BEST), "sha256": run.sha256}
         for run in trainings
@@ -473,23 +612,43 @@ def scored_runs(tmp_path, trainings):
         "recorded_at": "2026-10-05T10:00:00+00:00",
         "code": {"commit": "abcdef0123", "dirty": False},
         "checkpoints": weights,
-        "validation": {"chips": ROLES},
     }
-    for name, table, rows in (
-        ("validation", "pairs.csv", pair_results()),
-        ("validation-cycle", "triplets.csv", triplet_rows()),
+    config = tmp_path / "validation.toml"
+    config.write_text(
+        '[validate]\npairs = 2\nmethods = ["raft"]\n'
+        "[validate_cycle]\nfailure_threshold = 1.0\n"
+    )
+    methods = [ABLATION_BASELINE, *ABLATION_VARIANTS]
+    for name, table, rows, described, options in (
+        (
+            ABLATION_VALIDATION,
+            "pairs.csv",
+            pair_results(),
+            {"chips": SCENES, "pairs_per_cell": 2, "light": False},
+            {"pairs": 2},
+        ),
+        (
+            ABLATION_CLOSURE,
+            "triplets.csv",
+            triplet_rows(),
+            {"chips": ROLES},
+            {"failure_threshold": 1.0},
+        ),
     ):
-        write_csv(rows, tmp_path / name / table)
-        (tmp_path / name / "context.json").write_text(json.dumps(context))
-    return [
-        "ablation",
-        "--validation",
-        str(tmp_path / "validation"),
-        "--closure",
-        str(tmp_path / "validation-cycle"),
-        "--out",
-        str(tmp_path / "ablation"),
-    ]
+        write_csv(rows, out / name / table)
+        run = {"config": str(config), "methods": methods, **options}
+        (out / name / "context.json").write_text(
+            json.dumps({**context, "run": run, "validation": described})
+        )
+    return ["ablation", "--out", str(out)]
+
+
+def rewrite(tmp_path, name, change):
+    """Change what a scored run recorded about itself."""
+    path = tmp_path / "ablation" / name / "context.json"
+    context = json.loads(path.read_text())
+    change(context)
+    path.write_text(json.dumps(context))
 
 
 def test_ablation_writes_the_report_its_rows_the_curves_and_the_choice(
@@ -504,38 +663,166 @@ def test_ablation_writes_the_report_its_rows_the_curves_and_the_choice(
     assert printed == (out / "summary.md").read_text()
     assert printed.startswith("The ablation: RAFT large fine-tuned on same-date")
     assert "**What the rule gives.** Both variants beat the pretrained" in printed
-    assert len((out / "comparisons.csv").read_text().splitlines()) == 1 + 21
+    assert len((out / "comparisons.csv").read_text().splitlines()) == 1 + 24
     assert (out / "curves.png").is_file()
     context = json.loads((out / "context.json").read_text())
+    assert context["departures"] == []
     assert context["choice"]["retained"] == CROSS_DATE
     assert context["choice"]["eligible"] == list(ABLATION_VARIANTS)
     assert context["checkpoints"][SAME_DATE]["sha256"] == trainings[0].sha256
     assert context["read"]["closure"]["code"]["commit"] == "abcdef0123"
 
 
+def test_ablation_writes_no_choice_for_runs_that_are_not_the_ablation_s(
+    tmp_path, capsys
+):
+    # The second training stopped one step short of its budget.
+    main(scored_runs(tmp_path, runs(tmp_path, steps=3)))
+
+    stopped = f"{CROSS_DATE} stopped at step 3 of 4"
+    printed = capsys.readouterr().out
+    assert "**The rule is not applied.**" in printed
+    assert "What the rule gives" not in printed
+    context = json.loads((tmp_path / "ablation" / "context.json").read_text())
+    assert (context["choice"], context["departures"]) == (None, [stopped])
+
+
 def test_ablation_refuses_two_runs_that_did_not_score_the_same_weights(tmp_path):
     args = scored_runs(tmp_path, runs(tmp_path))
-    closure = tmp_path / "validation-cycle" / "context.json"
-    context = json.loads(closure.read_text())
-    context["checkpoints"][CROSS_DATE]["sha256"] = "0" * 64
-    closure.write_text(json.dumps(context))
+
+    def other_weights(context):
+        context["checkpoints"][CROSS_DATE]["sha256"] = "0" * 64
+
+    rewrite(tmp_path, ABLATION_CLOSURE, other_weights)
 
     with pytest.raises(SystemExit, match=f"same weights for {CROSS_DATE}"):
         main(args)
 
 
-def test_ablation_needs_the_two_scored_runs(tmp_path):
-    args = ["ablation", "--validation", str(tmp_path), "--closure", str(tmp_path)]
+def test_ablation_reads_weights_by_their_hash_whatever_the_path_they_had(tmp_path):
+    args = scored_runs(tmp_path, runs(tmp_path))
 
+    def other_path(context):
+        context["checkpoints"][CROSS_DATE]["path"] = "elsewhere/best.pt"
+
+    rewrite(tmp_path, ABLATION_CLOSURE, other_path)
+
+    main(args)
+
+    assert (tmp_path / "ablation" / "summary.md").is_file()
+
+
+def test_ablation_refuses_weights_rewritten_since_they_were_scored(tmp_path):
+    trainings = runs(tmp_path)
+    args = scored_runs(tmp_path, trainings)
+    (trainings[1].path / BEST).write_bytes(b"later weights")
+
+    with pytest.raises(SystemExit, match=f"not the file {CROSS_DATE} was scored"):
+        main(args)
+
+
+def test_ablation_needs_the_two_scored_runs(tmp_path):
     with pytest.raises(SystemExit, match=r"no pairs.csv and context.json in .*: run"):
+        main(["ablation", "--out", str(tmp_path)])
+
+
+def test_ablation_refuses_a_run_given_fewer_pairs_than_its_config_says(tmp_path):
+    args = scored_runs(tmp_path, runs(tmp_path))
+    # The methods are not those of the config either: that much is expected.
+    rewrite(tmp_path, ABLATION_VALIDATION, lambda c: c["run"].update(pairs=1))
+
+    with pytest.raises(SystemExit, match=r"was not run as .*toml says: pairs differ"):
+        main(args)
+
+
+def test_ablation_refuses_a_run_that_had_no_run_configuration(tmp_path):
+    args = scored_runs(tmp_path, runs(tmp_path))
+    rewrite(tmp_path, ABLATION_CLOSURE, lambda c: c["run"].update(config=None))
+
+    with pytest.raises(SystemExit, match="was not run from a run configuration"):
         main(args)
 
 
 def test_ablation_refuses_a_run_of_methods_without_weights(tmp_path):
     args = scored_runs(tmp_path, runs(tmp_path))
+    rewrite(tmp_path, ABLATION_VALIDATION, lambda c: c["checkpoints"].pop(SAME_DATE))
 
-    with pytest.raises(SystemExit, match="names no checkpoint for raft_small"):
-        main([*args, "--variants", "raft_small", CROSS_DATE])
+    with pytest.raises(SystemExit, match=f"names no checkpoint for {SAME_DATE}"):
+        main(args)
+
+
+def test_ablation_refuses_the_light_validation_set(tmp_path):
+    args = scored_runs(tmp_path, runs(tmp_path))
+    rewrite(tmp_path, ABLATION_VALIDATION, lambda c: c["validation"].update(light=True))
+
+    with pytest.raises(SystemExit, match="is the light validation set"):
+        main(args)
+
+
+@pytest.mark.parametrize(
+    ("name", "message"),
+    [
+        # What satreg benchmark and satreg cycle leave: no validation chips.
+        (ABLATION_VALIDATION, "validation run is not one of satreg validate"),
+        (ABLATION_CLOSURE, "closure run is not one of satreg validate-cycle"),
+    ],
+)
+def test_ablation_refuses_a_run_that_is_not_of_the_validation_chips(
+    tmp_path, name, message
+):
+    args = scored_runs(tmp_path, runs(tmp_path))
+    rewrite(tmp_path, name, lambda c: c.pop("validation"))
+
+    with pytest.raises(SystemExit, match=message):
+        main(args)
+
+
+@pytest.mark.parametrize(
+    "chips",
+    [
+        # A chip left out, and another scene of the chip.
+        {},
+        {"lyon": "S2B_T31TFL_20250701T103629_L2A"},
+    ],
+)
+def test_ablation_refuses_a_validation_run_on_other_chips_than_the_trainings(
+    tmp_path, chips
+):
+    args = scored_runs(tmp_path, runs(tmp_path))
+    rewrite(
+        tmp_path, ABLATION_VALIDATION, lambda c: c["validation"].update(chips=chips)
+    )
+
+    with pytest.raises(SystemExit, match="not on the chips .* validated on"):
+        main(args)
+
+
+@pytest.mark.parametrize(
+    ("roles", "unlike"),
+    [
+        ({"lyon": VALIDATION}, "milan"),
+        ({**ROLES, "giens": TRAIN}, "giens"),
+        ({"lyon": TRAIN, "milan": TRAIN}, "lyon"),
+    ],
+)
+def test_ablation_refuses_a_closure_run_on_other_chips_than_the_trainings(
+    tmp_path, roles, unlike
+):
+    args = scored_runs(tmp_path, runs(tmp_path))
+    rewrite(tmp_path, ABLATION_CLOSURE, lambda c: c["validation"].update(chips=roles))
+
+    with pytest.raises(SystemExit, match=f"{unlike} missing, added or under another"):
+        main(args)
+
+
+def test_make_ablation_scores_what_the_ablation_reads():
+    recipe = (ROOT / "Makefile").read_text()
+
+    methods = " ".join((ABLATION_BASELINE, *ABLATION_VARIANTS))
+    assert f"ABLATION_METHODS = {methods}\n" in recipe
+    assert f"--out $(ABLATION)/{ABLATION_VALIDATION}\n" in recipe
+    assert f"--out $(ABLATION)/{ABLATION_CLOSURE}\n" in recipe
+    assert "satreg ablation --out $(ABLATION)\n" in recipe
 
 
 def test_a_run_names_the_weights_of_its_fine_tuned_methods_by_hash(tmp_path):

@@ -452,9 +452,10 @@ of the ablation, then `satreg ablation` ([`ablation.py`](src/satreg/ablation.py)
 reads the two tables. Each variant is put next to `raft`, and the two next to
 each other, always on the same items: the mean error over the pairs neither of
 the two fails, the mean closure over the triplets neither fails, and the
-failure counts. It writes `summary.md`, `comparisons.csv`, the loss and
-validation curves of the two trainings (`curves.png`) and `context.json` in
-`outputs/ablation/`, and applies the rule written before the trainings:
+failure counts. It reads them from `validation/` and `validation-cycle/` under
+`outputs/ablation/`, writes `summary.md`, `comparisons.csv`, the loss and
+validation curves of the two trainings (`curves.png`) and `context.json` next
+to them, and applies the rule written before the trainings:
 
 1. a variant is eligible if it beats pretrained `raft` on the whole validation
    set (no more failed pairs, a lower mean error);
@@ -465,12 +466,22 @@ validation curves of the two trainings (`curves.png`) and `context.json` in
 5. if it is equal, the lower validation error, then the same-date variant.
 
 The closure on the eight training chips is reported and decides nothing: the
-cross-date variant was trained on their dates. A run of `satreg validate` or
-`satreg validate-cycle` records the SHA-256 of each fine-tuned method's
-checkpoint in its `context.json`, and `satreg ablation` refuses two runs that
-did not score the same weights. The rule and its limits (no margin, one seed)
-are in [`docs/decisions.md`](docs/decisions.md), 2026-10-05. The two trainings
-have not run yet.
+cross-date variant was trained on their dates. The report also gives the two
+variants' closure on each validation chip, since step 4 can come down to one.
+
+The rule is applied to the two trainings of the ablation only. If the two runs
+differ by more than `cross_date`, if the same-date variant's run has cross-date
+pairs, or if a run stopped short of its step budget, the report gives the
+tables, says why, and chooses nothing. `satreg ablation` also refuses what is
+not the rule's input: the light validation set, a run given other options than
+its run configuration says (fewer pairs, some chips), a validation run on other
+scenes than the trainings validated on, a closure run that misses a chip. A run
+of `satreg validate` or `satreg validate-cycle` records the SHA-256 of each
+fine-tuned method's checkpoint in its `context.json`; two runs that did not
+score the same weights are refused, and so are weights rewritten since. The
+rule and its limits (no margin, one seed) are in
+[`docs/decisions.md`](docs/decisions.md), 2026-10-05. The two trainings have
+not run yet.
 
 ### Under degraded conditions
 

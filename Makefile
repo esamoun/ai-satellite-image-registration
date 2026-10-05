@@ -141,6 +141,8 @@ validation-cycle:
 # then the two read next to the pretrained model and the rule that chooses
 # between them (docs/decisions.md). About an hour on the M1 is expected,
 # from the 27 and 8 minutes of two pretrained models; not measured yet.
+# `satreg ablation` reads these three methods, a test checks the list, from
+# validation/ and validation-cycle/ under the directory it is given.
 ABLATION = outputs/ablation
 ABLATION_METHODS = raft raft_ft_same_date raft_ft_cross_date
 

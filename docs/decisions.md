@@ -3706,7 +3706,18 @@ choosing alone.
   are in the report and do not enter the rule.
 - **Which weights.** Each scoring run records the SHA-256 of the checkpoint of
   its fine-tuned methods in `context.json`, and `satreg ablation` refuses two
-  runs that did not score the same file.
+  runs that did not score the same file, or a file that is no longer the one
+  on disk.
+- **Which runs.** The rule is applied to the two trainings above and to nothing
+  else. `satreg ablation` writes the tables and no choice if the two runs were
+  given anything but `cross_date` differently (the device and the number of
+  worker processes apart, which a session may change), if the same-date
+  variant's run has cross-date pairs or the other has none, or if a run stopped
+  short of its 10,000 steps. It refuses to read a validation run that is the
+  light set, that was given other options than
+  [`configs/validation.toml`](../configs/validation.toml) says (fewer pairs,
+  some chips), or that is not on the scenes the trainings validated on, and a
+  closure run that is not on the twelve chips.
 
 So when the validation error and the closure disagree: the validation error
 wins if it makes one variant alone eligible, the closure wins between two
@@ -3742,13 +3753,17 @@ eligible variants.
   They differ by 0.0004 px of validation error and 0.0003 px of closure, and
   the rule named one of them. A gap of that order between the two variants is
   not a finding: the entry that names the retained variant gives the gaps and
-  says when they are that small.
+  says when they are that small. The rehearsal's tables were not kept in the
+  repository, so these two figures cannot be checked from it, and it ran before
+  the checks of *Which runs* were written: `satreg ablation` now refuses its
+  inputs, a validation run of 3 pairs per cell and a closure run of two chips.
 - With one eligible variant, the closure is not consulted. A variant that
   misses the validation gate by a little and closes far better is not retained;
   the report shows both figures.
 - The closure on the validation chips is 241 triplets, 58 of them on Santerre
   where pretrained RAFT fails 95 % of the time. The choice at step 4 can come
-  down to one chip; the table by chip is published next to it.
+  down to one chip; the report gives the two variants' closure chip by chip
+  under the row that pools the four.
 - Failed triplets come before the mean: a variant with one failure fewer wins
   with a higher mean closure.
 - The pooled validation error is driven by the `hard` pairs, where errors are

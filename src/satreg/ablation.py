@@ -4,7 +4,10 @@ RAFT large is fine-tuned twice, on same-date pairs only and on same-date and
 cross-date pairs, and one of the two is retained. This module reads what
 ``satreg validate`` and ``satreg validate-cycle`` wrote for the pretrained model
 and the two variants, and applies the rule of docs/decisions.md, written before
-either training ran.
+either training ran. The rule is applied to the two trainings of the ablation
+and to nothing else: runs that differ by more than the share of cross-date
+pairs, or that stopped short of their step budget, are reported and choose
+nothing.
 
 Every reading is paired: two methods are compared on the same pairs, or the
 same triplets. A mean error is taken over the items neither method fails, as
@@ -26,7 +29,8 @@ from pathlib import Path
 import numpy as np
 
 from . import trainval
-from .train import BEST, LOG, VALIDATIONS, LogRow, read_log
+from .compute import file_sha256
+from .train import BEST, LOG, SESSION_KEYS, VALIDATIONS, LogRow, read_log
 from .trainchips import TRAIN, VALIDATION
 from .trainval import ValidationRow
 from .validation import ROLE_LABELS
@@ -41,8 +45,21 @@ BETTER = "better"
 EQUAL = "equal"
 WORSE = "worse"
 
+# What a paired reading is of: simulated pairs of the validation set, real
+# triplets by role of the chips, real triplets of each validation chip.
+VALIDATION_SET = "validation"
+CLOSURE = "closure"
+CLOSURE_BY_CHIP = "closure by chip"
+
 # Label of a row that pools every scenario or every preset.
 ALL = "all"
+
+# The one setting the two trainings of the ablation are not given alike.
+CROSS_DATE = "pairs.cross_date"
+
+# Settings of a run that do not say two trainings differ: those a session may
+# change on resuming, and the validation a run kept, which it found.
+NOT_GIVEN = {"train": SESSION_KEYS, "validation": ("kept",)}
 
 # Stretches a training loss is averaged over in the figure.
 CURVE_STRETCHES = 50
@@ -264,8 +281,12 @@ def choose(
             f"the real triplets of the validation chips, {retained} closes better "
             f"than {other}: it is retained.",
         )
-    if accuracy.mean != accuracy.reference_mean:
-        lower = accuracy.mean < accuracy.reference_mean
+    lower, higher = (
+        accuracy.mean < accuracy.reference_mean,
+        accuracy.mean > accuracy.reference_mean,
+    )
+    # Neither holds for two equal means, nor with no pair to take a mean over.
+    if lower or higher:
         retained, other = (second, first) if lower else (first, second)
         return Choice(
             retained,
@@ -288,11 +309,13 @@ class ComparisonRow:
     """One paired reading, as a row of ``comparisons.csv``.
 
     Attributes:
-        measure: ``"validation"`` for simulated pairs, ``"closure"`` for real
-            triplets.
+        measure: ``VALIDATION_SET`` for simulated pairs, ``CLOSURE`` for real
+            triplets by role of the chips, ``CLOSURE_BY_CHIP`` for those of
+            each validation chip.
         method: The method read.
         reference: The method it is read next to.
-        scope: Scenario of the pairs or ``ALL``; role of the chips for closure.
+        scope: Scenario of the pairs or ``ALL``; role of the chips, or the
+            chip, for closure.
         degradation: Degradation preset of the pairs or ``ALL``; empty for
             closure.
         items: Pairs or triplets both methods ran on.
@@ -355,7 +378,7 @@ def validation_rows(
     cells = list(dict.fromkeys((k[scenario], k[preset]) for k in pairs[method]))
     rows = [
         _row(
-            "validation",
+            VALIDATION_SET,
             method,
             reference,
             *cell,
@@ -368,7 +391,7 @@ def validation_rows(
         for cell in cells
     ]
     whole = compare(pairs[method], pairs[reference])
-    return [*rows, _row("validation", method, reference, ALL, ALL, whole)]
+    return [*rows, _row(VALIDATION_SET, method, reference, ALL, ALL, whole)]
 
 
 def closure_rows(
@@ -386,27 +409,28 @@ def closure_rows(
         reference: The method it is read next to.
 
     Returns:
-        One row for the validation chips, then one for the training chips.
+        One row for the validation chips, then one for the training chips,
+        then one for each validation chip, in the order of ``roles``.
 
     Raises:
-        ValueError: If a role has no triplet.
+        ValueError: If a role or a validation chip has no triplet.
     """
     site = TRIPLET_KEY.index("site")
-    return [
-        _row(
-            "closure",
-            method,
-            reference,
-            ROLE_LABELS[role],
-            "",
-            compare(
-                triplets[method],
-                triplets[reference],
-                lambda k, role=role: roles[k[site]] == role,
-            ),
-        )
+
+    def row(measure: str, scope: str, keep: Callable[[Key], bool]) -> ComparisonRow:
+        paired = compare(triplets[method], triplets[reference], keep)
+        return _row(measure, method, reference, scope, "", paired)
+
+    by_role = [
+        row(CLOSURE, ROLE_LABELS[role], lambda k, role=role: roles[k[site]] == role)
         for role in (VALIDATION, TRAIN)
     ]
+    by_chip = [
+        row(CLOSURE_BY_CHIP, chip, lambda k, chip=chip: k[site] == chip)
+        for chip, role in roles.items()
+        if role == VALIDATION
+    ]
+    return by_role + by_chip
 
 
 def paired_of(row: ComparisonRow) -> Paired:
@@ -469,8 +493,9 @@ def read_training(method: str, checkpoint: Path, sha256: str) -> TrainingRun:
         The run.
 
     Raises:
-        ValueError: If the weights are not a run's kept ones, or the run's
-            files are not next to them.
+        ValueError: If the weights are not a run's kept ones, the run's files
+            are not next to them, or the file is no longer the one the
+            validation run scored.
     """
     if checkpoint.name != BEST:
         raise ValueError(
@@ -486,6 +511,24 @@ def read_training(method: str, checkpoint: Path, sha256: str) -> TrainingRun:
     validations = trainval.read_validations(path / VALIDATIONS)
     if not log or not validations:
         raise ValueError(f"{path} is not a training run: no {LOG} or {VALIDATIONS}")
+    if "steps" not in context.get("train", {}) or "cross_date" not in context.get(
+        "pairs", {}
+    ):
+        raise ValueError(
+            f"{path} is not a training run: its context.json gives no step "
+            "budget or no cross-date share"
+        )
+    # A run that goes on rewrites its kept weights under the same name.
+    try:
+        on_disk = file_sha256(checkpoint)
+    except FileNotFoundError:
+        raise ValueError(f"no weights at {checkpoint}") from None
+    if on_disk != sha256:
+        raise ValueError(
+            f"{checkpoint} is not the file {method} was scored with: its SHA-256 "
+            f"starts with {on_disk[:16]}, the validation run recorded "
+            f"{sha256[:16]}. Score the three methods again (make ablation)"
+        )
     return TrainingRun(method, path, sha256, context, log, validations)
 
 
@@ -497,19 +540,130 @@ def differences(first: TrainingRun, second: TrainingRun) -> list[str]:
         second: Another.
 
     Returns:
-        The settings of the training, the pairs, the degradation ranges and the
-        chips that differ, as ``table.key``; ``pairs.cross_date`` alone for the
-        two runs of the ablation.
+        The settings of the training, the pairs, the degradation ranges, the
+        chips and the light validation set that differ, as ``table.key``;
+        ``CROSS_DATE`` alone for the two runs of the ablation. The settings of
+        ``NOT_GIVEN`` are left out.
     """
-    names = []
-    for table in ("train", "pairs", "ranges"):
-        a, b = first.context.get(table, {}), second.context.get(table, {})
-        names += [
+
+    def given(run: TrainingRun, table: str) -> dict[str, object]:
+        settings = run.context.get(table, {})
+        return {k: v for k, v in settings.items() if k not in NOT_GIVEN.get(table, ())}
+
+    def differing(table: str) -> list[str]:
+        a, b = given(first, table), given(second, table)
+        return [
             f"{table}.{k}" for k in sorted(a.keys() | b.keys()) if a.get(k) != b.get(k)
         ]
+
+    names = [
+        name for table in ("train", "pairs", "ranges") for name in differing(table)
+    ]
     if first.context.get("chips") != second.context.get("chips"):
         names.append("chips")
-    return names
+    return names + differing("validation")
+
+
+def departures(first: TrainingRun, second: TrainingRun) -> list[str]:
+    """Say what keeps two runs from being the two trainings of the ablation.
+
+    The ablation is two runs given alike but for the share of cross-date pairs,
+    none for the first, and both run to their step budget. The rule was written
+    for those and is applied to nothing else.
+
+    Args:
+        first: The run of the same-date variant.
+        second: The run of the cross-date variant.
+
+    Returns:
+        One phrase per departure; empty for the two trainings of the ablation.
+    """
+
+    def share(run: TrainingRun) -> float:
+        return float(run.context["pairs"]["cross_date"])
+
+    found = []
+    if other := [n for n in differences(first, second) if n != CROSS_DATE]:
+        found.append(
+            "the two runs differ by more than the share of cross-date pairs "
+            f"({', '.join(other)})"
+        )
+    if share(first) != 0:
+        found.append(
+            f"{first.method} was trained with a cross-date share of "
+            f"{share(first):g}, not on same-date pairs only"
+        )
+    if share(second) <= 0:
+        found.append(f"{second.method} was trained with no cross-date pair")
+    found += [
+        f"{run.method} stopped at step {run.steps} of {run.budget}"
+        for run in (first, second)
+        if run.steps < run.budget
+    ]
+    return found
+
+
+def check_scored(
+    validation: Mapping[str, object],
+    closure: Mapping[str, object],
+    runs: Sequence[TrainingRun],
+) -> dict[str, str]:
+    """Check the two scored runs are the ones the rule reads.
+
+    The rule reads the full validation set and the closure of every chip the
+    trainings used. What those chips are is taken from the trainings: the
+    validation chips, and their scenes, are those of the light validation set
+    each one validated on.
+
+    Args:
+        validation: The ``context.json`` of the validation run.
+        closure: The ``context.json`` of the closure run.
+        runs: The trainings.
+
+    Returns:
+        Chip name to its role, for the chips of the closure run.
+
+    Raises:
+        ValueError: If a run is not one of ``satreg validate`` or ``satreg
+            validate-cycle``, the validation run is the light set or is not on
+            the validation chips of the trainings, or the closure run misses a
+            chip or has one more.
+    """
+    scored = validation.get("validation")
+    if not isinstance(scored, dict) or "light" not in scored:
+        raise ValueError("the validation run is not one of satreg validate")
+    if scored["light"]:
+        raise ValueError(
+            "the validation run is the light validation set: the rule reads the "
+            "full one"
+        )
+    roles = (closure.get("validation") or {}).get("chips")
+    if not isinstance(roles, dict) or not set(roles.values()) <= {VALIDATION, TRAIN}:
+        raise ValueError("the closure run is not one of satreg validate-cycle")
+    for run in runs:
+        chips = run.context.get("validation", {}).get("chips", {})
+        if scored.get("chips") != chips:
+            raise ValueError(
+                f"the validation run is not on the chips {run.method} validated "
+                f"on during its training, scene for scene: it is on "
+                f"{', '.join(scored.get('chips') or {}) or 'none'}, the "
+                f"training on {', '.join(chips) or 'none'}"
+            )
+        expected = {
+            **dict.fromkeys(chips, VALIDATION),
+            **dict.fromkeys(run.context.get("chips", []), TRAIN),
+        }
+        if roles != expected:
+            unlike = sorted(
+                chip
+                for chip in roles.keys() | expected.keys()
+                if roles.get(chip) != expected.get(chip)
+            )
+            raise ValueError(
+                f"the closure run is not on the chips of {run.method}'s training: "
+                f"{', '.join(unlike)} missing, added or under another role"
+            )
+    return roles
 
 
 def _px(x: float, signed: bool = False) -> str:
@@ -544,9 +698,13 @@ def comparison_markdown(rows: Sequence[ComparisonRow]) -> str:
         The table, ending with a newline.
     """
     method, reference = rows[0].method, rows[0].reference
-    pairs = rows[0].measure == "validation"
+    pairs = rows[0].measure == VALIDATION_SET
     what = "EPE" if pairs else "closure"
-    lead = "| scenario | degradation |" if pairs else "| chips |"
+    lead = {
+        VALIDATION_SET: "| scenario | degradation |",
+        CLOSURE: "| chips |",
+        CLOSURE_BY_CHIP: "| validation chip |",
+    }[rows[0].measure]
     header = (
         f"{lead} {'pairs' if pairs else 'triplets'} | {reference}: failed "
         f"| {method}: failed | neither fails | {reference}: {what} (px) "
@@ -684,14 +842,18 @@ class Ablation:
         rows: Every paired reading: each variant next to the baseline, then the
             second variant next to the first, on the validation set and on
             closure.
-        choice: What the rule gives.
+        departures: What keeps the runs from being the two trainings of the
+            ablation; empty for those.
+        choice: What the rule gives; ``None`` with a departure, the rule being
+            applied to the two trainings of the ablation only.
     """
 
     baseline: str
     variants: tuple[str, str]
     runs: tuple[TrainingRun, TrainingRun]
     rows: list[ComparisonRow]
-    choice: Choice
+    departures: tuple[str, ...]
+    choice: Choice | None
 
     def of(self, measure: str, method: str, reference: str) -> list[ComparisonRow]:
         """The rows of one measure, one method and one reference."""
@@ -722,20 +884,24 @@ def read(
         The ablation.
 
     Raises:
-        ValueError: If a method is missing from a run, or the methods of a run
-            did not score the same items.
+        ValueError: If a method is missing from a run, the methods of a run
+            did not score the same items, or a triplet is of a chip without a
+            role.
     """
     first, second = variants = (runs[0].method, runs[1].method)
-    for name, scores in (("validation", pairs), ("closure", triplets)):
+    for name, scores in ((VALIDATION_SET, pairs), (CLOSURE, triplets)):
         if missing := [m for m in (baseline, *variants) if m not in scores]:
             raise ValueError(f"the {name} run has no row for {', '.join(missing)}")
+    site = TRIPLET_KEY.index("site")
+    if unknown := sorted({k[site] for k in triplets[baseline]} - roles.keys()):
+        raise ValueError(f"the closure run gives no role to {', '.join(unknown)}")
     rows = []
     for method, reference in ((first, baseline), (second, baseline), (second, first)):
         rows += validation_rows(pairs, method, reference)
         rows += closure_rows(triplets, roles, method, reference)
 
     def whole(measure: str, method: str, reference: str) -> Paired:
-        scope = ALL if measure == "validation" else ROLE_LABELS[VALIDATION]
+        scope = ALL if measure == VALIDATION_SET else ROLE_LABELS[VALIDATION]
         return next(
             paired_of(r)
             for r in rows
@@ -743,13 +909,18 @@ def read(
             == (measure, method, reference, scope)
         )
 
-    choice = choose(
-        variants,
-        {v: whole("validation", v, baseline) for v in variants},
-        whole("closure", second, first),
-        whole("validation", second, first),
+    found = tuple(departures(*runs))
+    choice = (
+        None
+        if found
+        else choose(
+            variants,
+            {v: whole(VALIDATION_SET, v, baseline) for v in variants},
+            whole(CLOSURE, second, first),
+            whole(VALIDATION_SET, second, first),
+        )
     )
-    return Ablation(baseline, variants, runs, rows, choice)
+    return Ablation(baseline, variants, runs, rows, found, choice)
 
 
 def to_markdown(ablation: Ablation) -> str:
@@ -761,34 +932,24 @@ def to_markdown(ablation: Ablation) -> str:
     Returns:
         The report, ending with a newline: the trainings, each variant next to
         the pretrained model on the validation set and on closure, the two
-        variants next to each other, and what the rule gives.
+        variants next to each other, and what the rule gives, or why it is not
+        applied.
     """
     baseline, (first, second) = ablation.baseline, ablation.variants
     differing = differences(*ablation.runs)
-    short = [r for r in ablation.runs if r.steps < r.budget]
     text = "The two trainings:\n\n" + runs_markdown(ablation.runs)
     text += (
         "\nSettings the two runs were not given alike: "
-        f"{', '.join(differing) or 'none'}."
-        + (
-            ""
-            if differing == ["pairs.cross_date"]
-            else " The ablation expects pairs.cross_date and nothing else: these "
-            "two runs are not the ablation's."
-        )
-        + "".join(
-            f" {r.method} stopped at step {r.steps} of {r.budget}: it did not run "
-            "to its step budget."
-            for r in short
-        )
-        + " The two training losses are not on the same pairs (a cross-date pair "
-        "has a truth off by what its two dates are misregistered by), so they "
-        "are not compared; the selection scores are, both being on the light "
-        "validation set.\n"
+        f"{', '.join(differing) or 'none'}. The device and the number of worker "
+        "processes are not compared: a session may change them. The two "
+        "training losses are not on the same pairs (a cross-date pair has a "
+        "truth off by what its two dates are misregistered by), so they are not "
+        "compared; the selection scores are, both being on the light validation "
+        "set.\n"
     )
     for variant in (first, second):
-        validation = ablation.of("validation", variant, baseline)
-        closure = ablation.of("closure", variant, baseline)
+        validation = ablation.of(VALIDATION_SET, variant, baseline)
+        closure = ablation.of(CLOSURE, variant, baseline)
         whole = paired_of(validation[-1])
         text += (
             f"\n{variant} next to {baseline}, on the validation set:\n\n"
@@ -805,10 +966,10 @@ def to_markdown(ablation: Ablation) -> str:
             f"validation chips and {_reads(closure[1])} it on the training "
             "chips.\n"
         )
-    closure = ablation.of("closure", second, first)
+    closure = ablation.of(CLOSURE, second, first)
     text += (
         f"\n{second} next to {first}, on the validation set:\n\n"
-        + comparison_markdown(ablation.of("validation", second, first))
+        + comparison_markdown(ablation.of(VALIDATION_SET, second, first))
         + "\nOn the real triplets:\n\n"
         + comparison_markdown(closure)
         + f"\nThe closure of {second} is {_reads(closure[0])} {first} on the "
@@ -816,11 +977,19 @@ def to_markdown(ablation: Ablation) -> str:
         "The validation chips decide. A model trained on cross-date pairs has "
         "seen the dates of the training chips, so its closure there is a "
         "training score: it is reported and decides nothing.\n"
-        "\nAn EPE or a closure is a mean over the pairs or triplets neither of "
+        "\nThe same closure, one validation chip at a time:\n\n"
+        + comparison_markdown(ablation.of(CLOSURE_BY_CHIP, second, first))
+        + "\nAn EPE or a closure is a mean over the pairs or triplets neither of "
         "the two methods of a table fails, so a method's figure changes with "
         "the method it is read next to. A difference is the method read minus "
         "the one it is read next to: negative is better. A closure is worse "
         "with more failed triplets, or with as many and a higher mean.\n"
-        f"\n**What the rule gives.** {ablation.choice.reason}\n"
     )
-    return text
+    if ablation.choice is None:
+        return text + (
+            "\n**The rule is not applied.** It was written for the two trainings "
+            "of the ablation, given alike but for the share of cross-date pairs "
+            "and run to their step budget, and these are not: "
+            f"{'; '.join(ablation.departures)}. The tables above choose nothing.\n"
+        )
+    return text + f"\n**What the rule gives.** {ablation.choice.reason}\n"

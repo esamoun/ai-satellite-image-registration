@@ -260,9 +260,11 @@ still going after 10 h stops on a checkpoint: go on with it in another session
 the week's 30 h of GPU; whether Kaggle runs two GPU sessions at once was not
 checked, one after the other works.
 
-Before leaving a session, check in its log the validation of the pretrained
-weights (step 0), then a line at each checkpoint: every 250 steps, about 13
-minutes apart.
+Before leaving a session, check its log. The validation of the pretrained
+weights (step 0) prints nothing, so the first line comes with the first
+checkpoint, at step 250, about 13 minutes in. There is then a line at each
+checkpoint, every 250 steps, with the loss, and every 500 steps one more with
+the validation score and the step kept so far.
 Anything that goes wrong (a loss that diverges, a session lost) is noted in
 [`failures.md`](failures.md).
 
@@ -270,6 +272,11 @@ Then bring both runs back (below), to `outputs/train/large-same-date/` and
 `outputs/train/large-cross-date/`, and run `make ablation` on the M1: it scores
 the two `best.pt` and pretrained RAFT on the validation set and on the real
 triplets, and applies the rule of [`decisions.md`](decisions.md) (2026-10-05).
+The rule is applied to two runs that went to step 10,000 and differ by the
+share of cross-date pairs alone; to anything else `satreg ablation` writes the
+tables and no choice. Bring the whole directory of each run, not `best.pt`
+alone: the report reads `context.json`, `log.csv` and `validation.csv` next to
+it.
 
 ### Bring a run back
 

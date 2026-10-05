@@ -102,6 +102,17 @@ method = "raft"
 model = "small"
 checkpoint = "outputs/train/raft_small_ft/checkpoint.pt"
 
+# The two variants of the ablation (N3), RAFT large trained by
+# configs/train-same-date.toml and configs/train-cross-date.toml: the weights
+# each run kept, its best.pt, brought back from Kaggle (docs/kaggle.md).
+[methods.raft_ft_same_date]
+method = "raft"
+checkpoint = "outputs/train/large-same-date/best.pt"
+
+[methods.raft_ft_cross_date]
+method = "raft"
+checkpoint = "outputs/train/large-cross-date/best.pt"
+
 # LightGlue on DISK keypoints, which sit on whole pixels.
 [methods.lightglue_disk]
 method = "lightglue"

@@ -229,6 +229,48 @@ of each run's `validation.csv`. The numbers read on 2026-10-04 and the step
 budget drawn from them (10,000 steps a training, a validation every 500, a
 checkpoint every 250) are in [`decisions.md`](decisions.md).
 
+### The two trainings of the ablation
+
+RAFT large, twice, 10,000 steps each: about 8.9 h, one session per training.
+The notebook's default parameters stay those of the timing run; for each
+session, change the parameters cell in Kaggle's editor.
+
+**Same-date pairs only.**
+
+```python
+COMMIT = "<the commit pushed for these trainings>"
+CONFIG = "configs/train-same-date.toml"
+RUNS = {"large-same-date": []}
+COMPARE = []
+```
+
+**Same-date and cross-date pairs.**
+
+```python
+COMMIT = "<the same commit>"
+CONFIG = "configs/train-cross-date.toml"
+RUNS = {"large-cross-date": []}
+COMPARE = []
+```
+
+Both sessions run the same commit: `context.json` records it, and the report of
+the ablation prints it for each run. `MAX_MINUTES` stays at 600. A training
+still going after 10 h stops on a checkpoint: go on with it in another session
+(above), with the same `CONFIG` and `RUNS`. The two sessions take about 18 h of
+the week's 30 h of GPU; whether Kaggle runs two GPU sessions at once was not
+checked, one after the other works.
+
+Before leaving a session, check in its log the validation of the pretrained
+weights (step 0), then a line at each checkpoint: every 250 steps, about 13
+minutes apart.
+Anything that goes wrong (a loss that diverges, a session lost) is noted in
+[`failures.md`](failures.md).
+
+Then bring both runs back (below), to `outputs/train/large-same-date/` and
+`outputs/train/large-cross-date/`, and run `make ablation` on the M1: it scores
+the two `best.pt` and pretrained RAFT on the validation set and on the real
+triplets, and applies the rule of [`decisions.md`](decisions.md) (2026-10-05).
+
 ### Bring a run back
 
 Download the version's output from Kaggle's site (*Output → Download All*) and
@@ -241,6 +283,8 @@ Besides the machine, the thread settings and the library versions:
 
 - `code`: the commit the run was made from, and whether tracked files were
   modified (`dirty`);
+- `checkpoints`: for each fine-tuned method, the path of its checkpoint and
+  the file's SHA-256, so that a table names the weights it scored;
 - `gpu`: the CUDA device (name, memory, count, compute capability) and the CUDA
   and cuDNN versions PyTorch was built with, `null` when the run did not load
   PyTorch or found no CUDA device;

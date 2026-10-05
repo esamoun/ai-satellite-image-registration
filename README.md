@@ -348,6 +348,17 @@ large and 89 % with small: Kaggle's 4 CPUs make 2.6 pairs a second. Each
 training gets 10,000 steps, about 8.9 h, one session
 ([`docs/decisions.md`](docs/decisions.md), 2026-10-04).
 
+RAFT large is trained twice, for the ablation:
+[`configs/train-same-date.toml`](configs/train-same-date.toml) on same-date
+pairs only, where the truth is exact and nothing changed on the ground, and
+[`configs/train-cross-date.toml`](configs/train-cross-date.toml) with one pair
+in two cross-date, where the ground really changed and the truth is off by what
+the two dates are misregistered by. The two files differ by `cross_date` alone,
+and a test checks it. The methods `raft_ft_same_date` and `raft_ft_cross_date`
+load the `best.pt` each run kept, from `outputs/train/large-same-date/` and
+`outputs/train/large-cross-date/`. How the two are compared is under
+[Validation set](#validation-set).
+
 The methods `raft_ft` and `raft_small_ft` of
 [`configs/methods.toml`](configs/methods.toml) are RAFT with the weights of a
 checkpoint at a local path, `outputs/train/<method>/checkpoint.pt`, where
@@ -397,6 +408,7 @@ tables are in [`docs/results/n3/`](docs/results/n3/).
 make validation                   # pretrained RAFT on the validation set (M1, about 27 min)
 make validation-light             # its light version, the first 10 pairs of every cell
 make validation-cycle             # closure on the real triplets of the twelve chips
+make ablation                     # both, for raft and the two fine-tuned variants, then the choice
 ```
 
 The validation set is what N3's choices are made on: 100 simulated pairs per
@@ -434,6 +446,31 @@ On real triplets of the validation chips, RAFT closes at 0.21 px with 32 % of
 failures and RAFT small at 0.29 px with 42 %; almost all of Santerre fails, as
 Beauce does in N2. The full tables are in
 [`docs/results/n3/`](docs/results/n3/).
+
+`make ablation` runs both commands for pretrained `raft` and the two variants
+of the ablation, then `satreg ablation` ([`ablation.py`](src/satreg/ablation.py))
+reads the two tables. Each variant is put next to `raft`, and the two next to
+each other, always on the same items: the mean error over the pairs neither of
+the two fails, the mean closure over the triplets neither fails, and the
+failure counts. It writes `summary.md`, `comparisons.csv`, the loss and
+validation curves of the two trainings (`curves.png`) and `context.json` in
+`outputs/ablation/`, and applies the rule written before the trainings:
+
+1. a variant is eligible if it beats pretrained `raft` on the whole validation
+   set (no more failed pairs, a lower mean error);
+2. if neither is, nothing is retained, and that is the result;
+3. if one is, it is retained;
+4. if both are, the closure on the real triplets of the four validation chips
+   chooses (fewer failed triplets, then a lower mean closure);
+5. if it is equal, the lower validation error, then the same-date variant.
+
+The closure on the eight training chips is reported and decides nothing: the
+cross-date variant was trained on their dates. A run of `satreg validate` or
+`satreg validate-cycle` records the SHA-256 of each fine-tuned method's
+checkpoint in its `context.json`, and `satreg ablation` refuses two runs that
+did not score the same weights. The rule and its limits (no margin, one seed)
+are in [`docs/decisions.md`](docs/decisions.md), 2026-10-05. The two trainings
+have not run yet.
 
 ### Under degraded conditions
 

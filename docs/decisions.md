@@ -3658,3 +3658,112 @@ no loss: above. A cache in float16 (0.25 MB a pair): it rounds the images and
 the displacement, up to 0.002 px, so the pairs are no longer the benchmark's.
 A cache of 20,000 pairs seen four times: it changes what the training is fed.
 A smaller share of dense pairs, the slow ones: the same.
+
+---
+
+## 2026-10-05: The ablation is half cross-date pairs against none, and the validation set gates before closure chooses
+
+*My call* (three options laid out): the validation set makes a variant eligible
+and the closure chooses between two eligible variants, rather than the
+validation error choosing with the closure as a tie-break, or the closure
+choosing alone.
+
+**Decision.** Written before either training runs.
+
+- **The two trainings.** RAFT large, twice, from
+  [`configs/train-same-date.toml`](../configs/train-same-date.toml) and
+  [`configs/train-cross-date.toml`](../configs/train-cross-date.toml). The two
+  files differ by one key, `cross_date`, and a test checks it: 0 for the first,
+  0.5 for the second, the share chosen on 2026-10-02 for training pairs.
+  Everything else is the recipe and the budget already fixed: 10,000 steps of 8
+  pairs, seed 0. Pair number `i` has the same chip, reference date, scenario,
+  displacement and degradation in both; in the second training the moving image
+  of some pairs comes from another date.
+- **What is read.** For each training, the kept checkpoint (`best.pt`) is the
+  method `raft_ft_same_date` or `raft_ft_cross_date`. `make ablation` scores
+  both and pretrained `raft` on the full validation set (3,600 pairs) and on the
+  real triplets of the twelve chips, and `satreg ablation` reads the two tables
+  and applies the rule below. Two methods are always compared on the same
+  items: the mean error over the pairs neither fails, the mean closure over the
+  triplets neither fails, with the failure counts next to them (the definitions
+  of 2026-10-02).
+- **The rule.**
+  1. A variant is *eligible* if it beats pretrained `raft` on the whole
+     validation set: it fails at most as many of the 3,600 pairs, and its mean
+     error over the pairs neither fails is lower.
+  2. If neither is eligible, no variant is retained. That is written as a
+     result, with both tables, and I decide what follows. No other recipe is
+     tried in between.
+  3. If one is eligible, it is retained, even with a worse closure than the
+     other, and the entry that names it says so.
+  4. If both are, the closure on the real triplets of the four validation chips
+     chooses, one variant against the other: fewer failed triplets, or as many
+     and a lower mean closure.
+  5. If that closure is equal, the lower mean error on the validation set; if
+     still equal, the same-date variant, the simpler recipe.
+- **What decides nothing.** The closure on the eight training chips, the rows
+  per scenario and preset, the training losses and the light validation scores
+  are in the report and do not enter the rule.
+- **Which weights.** Each scoring run records the SHA-256 of the checkpoint of
+  its fine-tuned methods in `context.json`, and `satreg ablation` refuses two
+  runs that did not score the same file.
+
+So when the validation error and the closure disagree: the validation error
+wins if it makes one variant alone eligible, the closure wins between two
+eligible variants.
+
+**Why.**
+
+- **The validation set first.** N3's criterion is the error on simulated pairs
+  against pretrained RAFT. A variant that does not beat it on the validation
+  chips is not a model to take to the held-out sites, whatever its closure.
+  The gate also covers what the closure cannot see: it measures consistency,
+  not accuracy, and a model that underestimates every displacement closes well
+  (entry of 2026-09-28). The validation pairs have an exact truth and catch it.
+- **Then the closure.** A validation pair is cut from one date, like the
+  same-date pairs of the first training: nothing changed on the ground between
+  its two images. What cross-date pairs are meant to buy is robustness to what
+  changes between dates, and the real triplets are the only measure the
+  simulator did not make. Choosing on the validation error would settle the
+  ablation with the measure that cannot see its subject.
+- **The validation chips only.** The cross-date variant was trained on the
+  dates of the eight training chips; its closure there is a training score
+  (entry of 2026-10-02).
+- **No recipe change on a no.** The held-out sites are read once, and each
+  recipe tried on the validation set is one more chance of fitting it. A result
+  that says the fine-tuning did not help is a result.
+
+**Limits.**
+
+- There is no margin and one seed (entries of 2026-10-02): any lower figure
+  counts. The chain was rehearsed on the M1 with two runs of one same recipe as
+  stand-ins, the timing run and its copy cut at step 150 and resumed (300
+  steps, the same seed, 108 validation pairs and the triplets of two chips).
+  They differ by 0.0004 px of validation error and 0.0003 px of closure, and
+  the rule named one of them. A gap of that order between the two variants is
+  not a finding: the entry that names the retained variant gives the gaps and
+  says when they are that small.
+- With one eligible variant, the closure is not consulted. A variant that
+  misses the validation gate by a little and closes far better is not retained;
+  the report shows both figures.
+- The closure on the validation chips is 241 triplets, 58 of them on Santerre
+  where pretrained RAFT fails 95 % of the time. The choice at step 4 can come
+  down to one chip; the table by chip is published next to it.
+- Failed triplets come before the mean: a variant with one failure fewer wins
+  with a higher mean closure.
+- The pooled validation error is driven by the `hard` pairs, where errors are
+  largest. A variant can be eligible and lose on the clean rows; the rows per
+  cell show it.
+
+**Rejected.**
+
+- The validation error chooses, the closure breaks ties or vetoes: above, the
+  validation set holds the first variant's kind of pair and none of the
+  second's.
+- The closure chooses alone: a model can close well and be wrong.
+- One score that weighs the two: the weight would be picked with nothing to
+  set it from, and could be picked again after the numbers.
+- A margin under which two variants count as equal: no second seed says what
+  the noise between two trainings is.
+- Scoring the last checkpoint of each run and not the kept one: the rule that
+  keeps a checkpoint was written for this (entry of 2026-10-02).

@@ -1,4 +1,4 @@
-.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle clean
+.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle ablation clean
 
 install:
 	pip install -e ".[dev]"
@@ -134,6 +134,20 @@ validation-light:
 
 validation-cycle:
 	satreg validate-cycle --config configs/validation.toml
+
+# The ablation (N3): the validation set and the real-triplet closure for
+# pretrained RAFT and the two fine-tuned variants of configs/methods.toml,
+# whose weights are the best.pt of the two Kaggle trainings (docs/kaggle.md),
+# then the two read next to the pretrained model and the rule that chooses
+# between them (docs/decisions.md). About an hour on the M1 is expected,
+# from the 27 and 8 minutes of two pretrained models; not measured yet.
+ABLATION = outputs/ablation
+ABLATION_METHODS = raft raft_ft_same_date raft_ft_cross_date
+
+ablation:
+	satreg validate --config configs/validation.toml --methods $(ABLATION_METHODS) --out $(ABLATION)/validation
+	satreg validate-cycle --config configs/validation.toml --methods $(ABLATION_METHODS) --out $(ABLATION)/validation-cycle
+	satreg ablation --out $(ABLATION)
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

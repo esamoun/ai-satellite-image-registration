@@ -1,0 +1,42 @@
+# The ablation's second training (N3): RAFT large fine-tuned on same-date and
+# cross-date pairs, half and half. In a cross-date pair the moving image comes
+# from another date of the chip: the ground really changed between the two, but
+# the truth is off by what the two dates are misregistered by (about 0.1 px,
+# 0.2 to 0.3 px a season apart). configs/train-same-date.toml is the first
+# training: the same file but for `cross_date`, which a test checks. The budget
+# and the rule that chooses between the two are in docs/decisions.md.
+# The training notebook runs it on a Kaggle GPU (docs/kaggle.md).
+
+[train]
+# "large" or "small"; --model overrides it.
+model = "large"
+steps = 10000
+# Pairs per step, of 256 px.
+batch_size = 8
+learning_rate = 1e-4
+weight_decay = 1e-5
+gamma = 0.85
+iterations = 12
+clip = 1.0
+freeze_batch_norm = true
+# A new pair at every draw.
+n_pairs = 0
+checkpoint_every = 250
+# Light validation set (configs/validation.toml, 360 pairs) on the pretrained
+# weights, then every 500 steps: 20 validations of the trained network.
+validate_every = 500
+# Processes that make the pairs ahead of the loop: a Kaggle session has 4 CPU
+# cores, one is left to the loop.
+workers = 3
+device = "cuda"
+
+# What the pairs are made of. Pair number i has the same chip, reference date,
+# scenario, degradation, window and displacement in both trainings; only the
+# date of its moving image can differ.
+[pairs]
+size = 256
+scenarios = ["translation", "affine", "dense"]
+# Share of cross-date pairs, fixed here before the training: one pair in two,
+# the default of configs/train-pairs.toml.
+cross_date = 0.5
+seed = 0

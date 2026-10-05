@@ -125,6 +125,21 @@ The number of steps a training gets, fixed from the timing run before any real
 training.
 _Avoid_: Epochs, training length
 
+**Ablation**:
+The two trainings of RAFT large that differ by their share of cross-date pairs
+alone, none against one in two, and the choice between them.
+_Avoid_: Experiment, A/B test
+
+**Variant**:
+One of the two trainings of the ablation, and the fine-tuned model it gives.
+_Avoid_: Arm, configuration
+
+**Eligible variant**:
+A variant that beats the pretrained model on the validation set: no more failed
+pairs, and a lower mean error over the pairs neither fails. Only an eligible
+variant can be retained.
+_Avoid_: Passing, valid
+
 **Overfit run**:
 A short training on a few pairs seen over and over, which checks that the
 training loop learns. Its checkpoint is not a model to report.

@@ -12,6 +12,7 @@ use a ``TorchMeter`` instead, since ``tracemalloc`` does not see tensors either.
 
 import contextlib
 import gc
+import hashlib
 import importlib.metadata
 import itertools
 import math
@@ -419,6 +420,19 @@ def code_version(directory: Path | None = None) -> dict[str, object] | None:
     except (OSError, subprocess.CalledProcessError):
         return None
     return {"commit": commit, "dirty": bool(changes)}
+
+
+def file_sha256(path: Path) -> str:
+    """Hash a file, so a table can name the exact weights it was scored with.
+
+    Args:
+        path: The file.
+
+    Returns:
+        Its SHA-256, in hexadecimal.
+    """
+    with path.open("rb") as f:
+        return hashlib.file_digest(f, "sha256").hexdigest()
 
 
 def _gpu() -> dict[str, object] | None:

@@ -1,0 +1,162 @@
+{
+  "train": {
+    "model": "large",
+    "steps": 10000,
+    "batch_size": 8,
+    "learning_rate": 0.0001,
+    "weight_decay": 1e-05,
+    "gamma": 0.85,
+    "iterations": 12,
+    "clip": 1.0,
+    "freeze_batch_norm": true,
+    "n_pairs": 0,
+    "checkpoint_every": 250,
+    "validate_every": 500,
+    "workers": 3,
+    "device": "cuda"
+  },
+  "pairs": {
+    "size": 256,
+    "scenarios": [
+      "translation",
+      "affine",
+      "dense"
+    ],
+    "cross_date": 0.0,
+    "seed": 0,
+    "max_shift": 4.0,
+    "max_rotation_deg": 0.2,
+    "max_scale_change": 0.002,
+    "max_shear": 0.002,
+    "max_local_shift": 0.8,
+    "local_length": 64.0
+  },
+  "ranges": {
+    "gain": [
+      0.6,
+      1.67
+    ],
+    "offset": [
+      -0.7,
+      0.7
+    ],
+    "gamma": [
+      0.6,
+      1.7
+    ],
+    "cover": [
+      0.0,
+      0.4
+    ],
+    "sigma": [
+      0.0,
+      1.3
+    ],
+    "snr_db": [
+      12.0,
+      40.0
+    ],
+    "cloudy_moving": 0.5,
+    "cloudy_reference": 0.3
+  },
+  "chips": [
+    "champagne",
+    "boerde",
+    "bordeaux",
+    "milan",
+    "landes",
+    "foret_noire",
+    "giens",
+    "costa_brava"
+  ],
+  "commit": "4429c3579d628f433fa65364493bbb7cdb042ff1",
+  "dirty": false,
+  "validation": {
+    "config": "configs/validation.toml",
+    "chips": {
+      "santerre": "S2A_T31UDR_20250429T110413_L2A",
+      "lyon": "S2A_T31TFL_20250811T103955_L2A",
+      "morvan": "S2B_T31TEN_20250807T104621_L2A",
+      "sete": "S2C_T31TEJ_20250610T103712_L2A"
+    },
+    "pairs_per_cell": 10,
+    "pairs": 360,
+    "presets": [
+      "clean",
+      "mild",
+      "hard"
+    ],
+    "failure_threshold": 1.0,
+    "every": 500,
+    "kept": {
+      "step": 10000,
+      "degradation": "all",
+      "pairs": 360,
+      "score": 0.07306458289427732,
+      "mean_epe": 0.07306458289427732,
+      "failure_rate": 0.0,
+      "seconds": 17.89527012599865
+    }
+  },
+  "sessions": [
+    {
+      "recorded_at": "2026-10-05T17:33:21+00:00",
+      "code": {
+        "commit": "4429c3579d628f433fa65364493bbb7cdb042ff1",
+        "dirty": false
+      },
+      "machine": {
+        "system": "Linux-6.18.48+-x86_64-with-glibc2.39",
+        "architecture": "x86_64",
+        "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+        "memory_gib": 31.346752166748047
+      },
+      "gpu": {
+        "name": "Tesla T4",
+        "memory_gib": 14.56219482421875,
+        "count": 2,
+        "capability": "7.5",
+        "cuda": "12.8",
+        "cudnn": 91900
+      },
+      "threads": {
+        "cpu_count": 4,
+        "usable_cpus": 4,
+        "opencv": 4,
+        "torch": 2,
+        "OMP_NUM_THREADS": null,
+        "OPENBLAS_NUM_THREADS": null,
+        "MKL_NUM_THREADS": null,
+        "VECLIB_MAXIMUM_THREADS": null
+      },
+      "python": "3.13.15",
+      "libraries": {
+        "numpy": "2.1.3",
+        "scipy": "1.16.3",
+        "scikit-image": "0.25.2",
+        "opencv-python-headless": "4.14.0.94",
+        "rasterio": "1.5.1",
+        "arosics": null,
+        "GDAL": "3.8.4",
+        "torch": "2.11.0+cu128",
+        "torchvision": "0.26.0+cu128"
+      },
+      "steps": [
+        0,
+        10000
+      ],
+      "epe": {
+        "before": null,
+        "after": null
+      },
+      "timing": {
+        "steps": 9999,
+        "seconds_per_step": 3.04597847200057,
+        "pair_share": 0.6866389885977462,
+        "pairs_per_second": 2.7057696121154082
+      },
+      "peak_gpu_mib": 4356.7607421875,
+      "workers": 3
+    }
+  ]
+}

@@ -408,7 +408,7 @@ tables are in [`docs/results/n3/`](docs/results/n3/).
 make validation                   # pretrained RAFT on the validation set (M1, about 27 min)
 make validation-light             # its light version, the first 10 pairs of every cell
 make validation-cycle             # closure on the real triplets of the twelve chips
-make ablation                     # both, for raft and the two fine-tuned variants, then the choice
+make ablation                     # both, for raft and the two fine-tuned variants, then the choice (M1, about 75 min)
 ```
 
 The validation set is what N3's choices are made on: 100 simulated pairs per
@@ -480,8 +480,30 @@ of `satreg validate` or `satreg validate-cycle` records the SHA-256 of each
 fine-tuned method's checkpoint in its `context.json`; two runs that did not
 score the same weights are refused, and so are weights rewritten since. The
 rule and its limits (no margin, one seed) are in
-[`docs/decisions.md`](docs/decisions.md), 2026-10-05. The two trainings have
-not run yet.
+[`docs/decisions.md`](docs/decisions.md), 2026-10-05.
+
+The two trainings ran on Kaggle, 10,000 steps each, and the rule retains the
+cross-date variant. Both beat pretrained RAFT on the validation set, so the
+closure on the validation chips chose (M1, MPS):
+
+| method | validation set: failed pairs | EPE (px) | validation chips: failed triplets | closure (px) |
+|---|---:|---:|---:|---:|
+| raft | 70 of 3,600 | 0.127 | 78 of 241 | 0.209 |
+| raft_ft_same_date | 0 | 0.071 | 0 | 0.122 |
+| raft_ft_cross_date | 0 | 0.084 | 0 | 0.106 |
+
+The two fine-tuned rows are read one against the other, over every pair and
+every triplet; pretrained RAFT's row is over the 3,530 pairs and the 163
+triplets it does not fail, where the two variants are at 0.068 and 0.080 px of
+error and 0.094 and 0.090 px of closure. The same-date variant is the better one on
+the simulated pairs, in each of the nine cells, and the cross-date one on real
+triplets, on three validation chips of four. That is one seed and no margin:
+the gap that chose is 0.016 px. The tables are in
+[`docs/results/n3/ablation.md`](docs/results/n3/ablation.md), and what the
+losing variant did better in [`docs/decisions.md`](docs/decisions.md),
+2026-10-06.
+
+![Training loss and light validation score of the two trainings](docs/results/n3/ablation-curves.png)
 
 ### Under degraded conditions
 

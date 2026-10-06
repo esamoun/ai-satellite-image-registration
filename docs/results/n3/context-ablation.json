@@ -1,0 +1,44 @@
+{
+  "code": {
+    "commit": "4429c3579d628f433fa65364493bbb7cdb042ff1",
+    "dirty": false
+  },
+  "run": {
+    "out": "outputs/ablation"
+  },
+  "checkpoints": {
+    "raft_ft_same_date": {
+      "path": "outputs/train/large-same-date/best.pt",
+      "sha256": "3b722e8e77397ce4306025175e651eed2ab4823f82e1791f04dbdacae8b899a7"
+    },
+    "raft_ft_cross_date": {
+      "path": "outputs/train/large-cross-date/best.pt",
+      "sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13"
+    }
+  },
+  "read": {
+    "validation": {
+      "code": {
+        "commit": "4429c3579d628f433fa65364493bbb7cdb042ff1",
+        "dirty": false
+      },
+      "recorded_at": "2026-10-06T07:56:54+00:00"
+    },
+    "closure": {
+      "code": {
+        "commit": "4429c3579d628f433fa65364493bbb7cdb042ff1",
+        "dirty": false
+      },
+      "recorded_at": "2026-10-06T08:14:35+00:00"
+    }
+  },
+  "departures": [],
+  "choice": {
+    "retained": "raft_ft_cross_date",
+    "eligible": [
+      "raft_ft_same_date",
+      "raft_ft_cross_date"
+    ],
+    "reason": "Both variants beat the pretrained model on the validation set. On the real triplets of the validation chips, raft_ft_cross_date closes better than raft_ft_same_date: it is retained."
+  }
+}

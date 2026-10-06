@@ -1,0 +1,125 @@
+{
+  "recorded_at": "2026-10-06T07:56:54+00:00",
+  "code": {
+    "commit": "4429c3579d628f433fa65364493bbb7cdb042ff1",
+    "dirty": false
+  },
+  "machine": {
+    "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "cpu": "Apple M1",
+    "memory_gib": 8.0
+  },
+  "gpu": null,
+  "threads": {
+    "cpu_count": 8,
+    "usable_cpus": 8,
+    "opencv": 8,
+    "torch": 4,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+  },
+  "python": "3.13.7",
+  "libraries": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "scikit-image": "0.26.0",
+    "opencv-python-headless": "5.0.0.93",
+    "rasterio": "1.5.1",
+    "arosics": "1.13.2",
+    "GDAL": "3.13.3",
+    "torch": "2.14.0",
+    "torchvision": "0.29.0"
+  },
+  "cost": {
+    "warmup": 1,
+    "repeats": 1,
+    "process_peak_rss_mib": 763.9375,
+    "memory": {
+      "raft": "none",
+      "raft_ft_same_date": "none",
+      "raft_ft_cross_date": "none"
+    },
+    "run_seconds": 3349.091430249973
+  },
+  "devices": {
+    "raft": "mps",
+    "raft_ft_same_date": "mps",
+    "raft_ft_cross_date": "mps"
+  },
+  "checkpoints": {
+    "raft_ft_same_date": {
+      "path": "outputs/train/large-same-date/best.pt",
+      "sha256": "3b722e8e77397ce4306025175e651eed2ab4823f82e1791f04dbdacae8b899a7"
+    },
+    "raft_ft_cross_date": {
+      "path": "outputs/train/large-cross-date/best.pt",
+      "sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13"
+    }
+  },
+  "held_out_sites": [],
+  "run": {
+    "chips": [
+      "santerre",
+      "lyon",
+      "morvan",
+      "sete"
+    ],
+    "config": "configs/validation.toml",
+    "data_dir": "data",
+    "degradations": [
+      "clean",
+      "mild",
+      "hard"
+    ],
+    "degradations_config": "configs/degradations.toml",
+    "device": "mps",
+    "failure_threshold": 1.0,
+    "light": false,
+    "light_pairs": 10,
+    "local_length": 64.0,
+    "max_local_shift": 0.8,
+    "max_rotation": 0.2,
+    "max_scale_change": 0.002,
+    "max_shear": 0.002,
+    "max_shift": 4.0,
+    "methods": [
+      "raft",
+      "raft_ft_same_date",
+      "raft_ft_cross_date"
+    ],
+    "methods_config": "configs/methods.toml",
+    "out": "outputs/ablation/validation",
+    "pairs": 100,
+    "repeats": 1,
+    "scenarios": [
+      "translation",
+      "affine",
+      "dense"
+    ],
+    "seed": 0,
+    "series_config": "configs/real.toml",
+    "sites_config": "configs/sites.toml",
+    "size": 256,
+    "subset_sizes": [
+      5,
+      10,
+      20,
+      50
+    ],
+    "train_config": "configs/train-sites.toml",
+    "warmup": 1
+  },
+  "validation": {
+    "chips": {
+      "santerre": "S2A_T31UDR_20250429T110413_L2A",
+      "lyon": "S2A_T31TFL_20250811T103955_L2A",
+      "morvan": "S2B_T31TEN_20250807T104621_L2A",
+      "sete": "S2C_T31TEJ_20250610T103712_L2A"
+    },
+    "pairs_per_cell": 100,
+    "light": false
+  }
+}

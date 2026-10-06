@@ -139,8 +139,8 @@ validation-cycle:
 # pretrained RAFT and the two fine-tuned variants of configs/methods.toml,
 # whose weights are the best.pt of the two Kaggle trainings (docs/kaggle.md),
 # then the two read next to the pretrained model and the rule that chooses
-# between them (docs/decisions.md). About an hour on the M1 is expected,
-# from the 27 and 8 minutes of two pretrained models; not measured yet.
+# between them (docs/decisions.md). On the M1: 56 minutes for the validation
+# set and 18 for the closure, on 2026-10-06, in a run a sleep interrupted.
 # `satreg ablation` reads these three methods, a test checks the list, from
 # validation/ and validation-cycle/ under the directory it is given.
 ABLATION = outputs/ablation

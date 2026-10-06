@@ -3782,3 +3782,104 @@ eligible variants.
   the noise between two trainings is.
 - Scoring the last checkpoint of each run and not the kept one: the rule that
   keeps a checkpoint was written for this (entry of 2026-10-02).
+
+---
+
+## 2026-10-06: The ablation retains the cross-date variant, on a closure 0.016 px lower
+
+**Decision.** `satreg ablation` applied the rule of 2026-10-05 to the two
+trainings and retains `raft_ft_cross_date`, RAFT large fine-tuned on half
+cross-date pairs. The rule chose: nothing was weighed after the numbers were
+read. The report, its curves and the context of each run are in
+[`docs/results/n3/`](results/n3/) (`ablation.md`, `ablation-curves.png`,
+`train-large-*.md`, `ablation-validation*.md` and their `context-*.json`).
+
+**The two trainings.** Both ran on Kaggle (Tesla T4) from commit `4429c35`, in
+one session each, to step 10,000, and differ by `cross_date` alone.
+
+| | `raft_ft_same_date` | `raft_ft_cross_date` |
+|---|---:|---:|
+| cross-date share | 0 | 0.5 |
+| steps done / budget | 10000 / 10000 | 10000 / 10000 |
+| Kaggle session (min) | 503.8 | 548.9 |
+| median s/step | 3.05 | 3.31 |
+| time spent getting the pairs | 69 % | 72 % |
+| light validation, pretrained (px) | 0.1583 | 0.1583 |
+| light validation, kept step (px) | 0.0731 | 0.0854 |
+| kept step | 10000 | 8500 |
+| SHA-256 of `best.pt` | `3b722e8e77397ce4` | `44bcc668d20a6334` |
+
+**Step 1, the validation set.** Both variants are eligible. Over the 3,600
+pairs, pretrained `raft` fails 70 (all under `hard`) and each variant fails
+none; over the 3,530 pairs neither fails:
+
+| | failed pairs | `raft`: EPE (px) | variant: EPE (px) | difference (px) |
+|---|---:|---:|---:|---:|
+| `raft_ft_same_date` | 0 | 0.1265 | 0.0679 | -0.0587 |
+| `raft_ft_cross_date` | 0 | 0.1265 | 0.0802 | -0.0464 |
+
+**Step 4, the closure on the validation chips.** Neither variant fails a
+triplet, where pretrained `raft` fails 78 of the 241, and the cross-date
+variant's mean closure is lower:
+
+| validation chip | triplets | same-date: closure (px) | cross-date: closure (px) | difference (px) |
+|---|---:|---:|---:|---:|
+| santerre | 58 | 0.1568 | 0.1189 | -0.0379 |
+| lyon | 55 | 0.0589 | 0.0670 | +0.0081 |
+| morvan | 64 | 0.1740 | 0.1674 | -0.0067 |
+| sete | 64 | 0.0933 | 0.0661 | -0.0272 |
+| the four | 241 | 0.1221 | 0.1059 | -0.0163 |
+
+Step 5 was not reached.
+
+**What the losing variant did better.**
+
+- **The validation set, in every cell.** Read one against the other over the
+  3,600 pairs, the same-date variant is at 0.0714 px and the cross-date one at
+  0.0843 px, 0.0129 px more. The nine cells all go the same way, from +0.0075 px
+  (affine, clean) to +0.0248 px (translation, hard). This is the set N3's
+  criterion is shaped like: simulated pairs with an exact truth.
+- **Lyon's closure**, by 0.0081 px.
+- **The cost.** Its training took 45 minutes less: cross-date pairs come at
+  2.5 a second where same-date pairs come at 2.7.
+
+**What decides nothing, as written.** On the eight training chips the
+cross-date variant fails 5 triplets of 507 and the same-date one 17, and over
+the 490 neither fails it closes at 0.0827 px against 0.1092 px. It was trained
+on those dates. The light validation scores and the training losses are in the
+report.
+
+**Limits.**
+
+- **One seed, no margin.** The gap that chose is 0.0163 px over 241 triplets,
+  13 % of the same-date variant's closure. The rehearsal's 0.0003 px was
+  between two short runs of one recipe with one seed: it does not say what
+  another seed would change at 10,000 steps, and nothing here does.
+- **Santerre carries more than half of the gap** (56 % of it, with 24 % of the
+  triplets). The choice does not come down to it: three chips of four go the
+  same way, and without Santerre the cross-date variant still closes lower, by
+  0.0094 px over 183 triplets.
+- **The two measures disagree, and the rule had said which wins.** The
+  retained model gives up 0.013 px on the validation set to gain 0.016 px of
+  closure. Against pretrained `raft` on that set it cuts the error by 37 %
+  where the other variant cuts it by 46 %: the criterion of 2026-10-02 will be
+  read on a model that is not the one the simulated pairs prefer.
+- **Closure is consistency, not accuracy** (entry of 2026-09-28). The
+  validation gate is what says the retained model is not closing well by
+  estimating too little.
+- **The same-date run kept its last step.** Its light validation score was
+  still falling at step 10,000 (0.0737 px at 8,000, 0.0731 px at 10,000); the
+  cross-date run kept step 8,500 and is flat after it. More steps might have
+  moved the same-date variant further. The budget was fixed on 2026-10-04 and
+  both got the same.
+- **The scoring run was interrupted by a sleep.** `make ablation` ran on the
+  M1 (MPS) on 2026-10-06. The lid was closed two minutes in and the Mac slept
+  39 minutes; the process went on when it woke. Each method has its 3,600
+  pairs and no error, and no pair's time is out of line (144 ms on average,
+  1.3 s at most). The run's `run_seconds` count the time awake: 3,349 s for
+  the validation set and 1,056 s for the closure, 73 minutes where about an
+  hour was expected. They are not a clean timing.
+
+**What follows.** RAFT small is trained with the retained pair mix,
+`cross_date = 0.5`. Nothing went wrong in either training (no divergence, no
+session lost), so [`failures.md`](failures.md) has no entry for them.

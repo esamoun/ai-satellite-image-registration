@@ -231,7 +231,8 @@ checkpoint every 250) are in [`decisions.md`](decisions.md).
 
 ### The two trainings of the ablation
 
-RAFT large, twice, 10,000 steps each: about 8.9 h, one session per training.
+RAFT large, twice, 10,000 steps each, one session per training: 8.4 h for the
+first and 9.1 h for the second, on 2026-10-05 and 2026-10-06.
 The notebook's default parameters stay those of the timing run; for each
 session, change the parameters cell in Kaggle's editor.
 
@@ -256,13 +257,13 @@ COMPARE = []
 Both sessions run the same commit: `context.json` records it, and the report of
 the ablation prints it for each run. `MAX_MINUTES` stays at 600. A training
 still going after 10 h stops on a checkpoint: go on with it in another session
-(above), with the same `CONFIG` and `RUNS`. The two sessions take about 18 h of
+(above), with the same `CONFIG` and `RUNS`. The two sessions took 17.5 h of
 the week's 30 h of GPU; whether Kaggle runs two GPU sessions at once was not
 checked, one after the other works.
 
 Before leaving a session, check its log. The validation of the pretrained
 weights (step 0) prints nothing, so the first line comes with the first
-checkpoint, at step 250, about 13 minutes in. There is then a line at each
+checkpoint, at step 250, 14 to 15 minutes in. There is then a line at each
 checkpoint, every 250 steps, with the loss, and every 500 steps one more with
 the validation score and the step kept so far.
 Anything that goes wrong (a loss that diverges, a session lost) is noted in

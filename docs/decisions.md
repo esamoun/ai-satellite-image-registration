@@ -3888,6 +3888,12 @@ session lost), so [`failures.md`](failures.md) has no entry for them.
 
 ## 2026-10-06: RAFT small is trained with the retained recipe unchanged, and gets one of three words
 
+*My call* (on review, the options laid out): the recipe of RAFT large unchanged,
+rather than a learning rate or a batch size adapted to the small model; the word
+read on the validation set alone, rather than a gain that also needs a closure
+no worse; the two RAFT large scored again with the two small, rather than read
+from the tables of the ablation.
+
 Written before the training ran.
 
 **Decision.** RAFT small (`C_T_V2`, 1.0 M parameters) is trained once, by
@@ -3951,10 +3957,9 @@ this file for a gain and to [`failures.md`](failures.md) otherwise.
   for the pairs 89 % of the time with small: 3.22 s a step, about 9 h for
   10,000 steps (entry of 2026-10-04). Small is cheaper to run, not to train
   here.
-- **The quota.** The two sessions of the ablation took 17.5 h of the week's
-  30 h and the timing sessions about one more; the counter was not read since,
-  nor the day it resets. The session needs 9 to 10 h. The quota is read before
-  starting, and the training waits for the reset if less is left.
+- **The quota.** Read on 2026-10-06, before the session: 18 h 29 used of the
+  week's 30 h, so 11 h 31 left for a session that needs 9 to 10 h. The day the
+  counter resets was not checked.
 - **One seed, no margin**: any lower figure counts, as on 2026-10-05.
 - **The budget was set from RAFT large's timing.** If small's validation score
   is still falling at step 10,000, the result entry says so and the training

@@ -1,0 +1,38 @@
+# The third and last training (N3): RAFT small fine-tuned with the pair mix the
+# ablation retained, same-date and cross-date pairs, half and half
+# (docs/decisions.md, 2026-10-06). The file is configs/train-cross-date.toml
+# but for `model`, which a test checks: the same recipe, the same budget, the
+# same seed, so pair number i is the pair RAFT large was trained on.
+# The training notebook runs it on a Kaggle GPU (docs/kaggle.md).
+
+[train]
+# "large" or "small"; --model overrides it.
+model = "small"
+steps = 10000
+# Pairs per step, of 256 px.
+batch_size = 8
+learning_rate = 1e-4
+weight_decay = 1e-5
+gamma = 0.85
+iterations = 12
+clip = 1.0
+# RAFT small has no batch-normalisation layer: this freezes nothing here.
+freeze_batch_norm = true
+# A new pair at every draw.
+n_pairs = 0
+checkpoint_every = 250
+# Light validation set (configs/validation.toml, 360 pairs) on the pretrained
+# weights, then every 500 steps: 20 validations of the trained network.
+validate_every = 500
+# Processes that make the pairs ahead of the loop: a Kaggle session has 4 CPU
+# cores, one is left to the loop.
+workers = 3
+device = "cuda"
+
+# What the pairs are made of: those of configs/train-cross-date.toml.
+[pairs]
+size = 256
+scenarios = ["translation", "affine", "dense"]
+# Share of cross-date pairs: the retained variant's, one pair in two.
+cross_date = 0.5
+seed = 0

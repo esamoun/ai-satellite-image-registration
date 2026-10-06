@@ -359,6 +359,15 @@ load the `best.pt` each run kept, from `outputs/train/large-same-date/` and
 `outputs/train/large-cross-date/`. How the two are compared is under
 [Validation set](#validation-set).
 
+RAFT small is trained once, with the pairs the ablation retained:
+[`configs/train-small.toml`](configs/train-small.toml) is
+`train-cross-date.toml` but for `model`, and a test checks it. Same pairs
+(pair number i is the same pair in both trainings), same 10,000 steps, same
+optimiser settings; freezing batch normalisation changes nothing for it, since
+it has none. On Kaggle it costs what RAFT large costs, about 9 h: the GPU waits
+for the pairs 89 % of the time. The method `raft_small_ft_cross_date` loads the
+`best.pt` of `outputs/train/small-cross-date/`.
+
 The methods `raft_ft` and `raft_small_ft` of
 [`configs/methods.toml`](configs/methods.toml) are RAFT with the weights of a
 checkpoint at a local path, `outputs/train/<method>/checkpoint.pt`, where
@@ -409,6 +418,7 @@ make validation                   # pretrained RAFT on the validation set (M1, a
 make validation-light             # its light version, the first 10 pairs of every cell
 make validation-cycle             # closure on the real triplets of the twelve chips
 make ablation                     # both, for raft and the two fine-tuned variants, then the choice (M1, about 75 min)
+make small                        # both, for RAFT small and large, pretrained and fine-tuned, then the verdict
 ```
 
 The validation set is what N3's choices are made on: 100 simulated pairs per
@@ -504,6 +514,28 @@ losing variant did better in [`docs/decisions.md`](docs/decisions.md),
 2026-10-06.
 
 ![Training loss and light validation score of the two trainings](docs/results/n3/ablation-curves.png)
+
+`make small` does the same for four methods, `raft_small`,
+`raft_small_ft_cross_date`, `raft` and `raft_ft_cross_date`, under
+`outputs/small/`, then `satreg small` ([`small.py`](src/satreg/small.py)) reads
+the fine-tuned RAFT small with the paired readings of the ablation, next to:
+
+1. pretrained `raft_small`: what the training changed;
+2. `raft_ft_cross_date`: what is left to RAFT large, both fine-tuned;
+3. pretrained `raft`: whether a fine-tuned small reaches the large one as it
+   was;
+4. and `raft_small` next to `raft`, the gap before any training.
+
+The training gets one of three words, defined before it ran
+([`docs/decisions.md`](docs/decisions.md), 2026-10-06), from the first reading
+on the whole validation set. A **gain** if the fine-tuned model beats the
+pretrained one: no more failed pairs, and a lower mean error over the pairs
+neither fails. **Worse** if the pretrained one beats it, the same criterion the
+other way round. **No gain** otherwise. The closures and the three other
+readings are reported and do not change the word. A run that was not given what
+the retained training of RAFT large was but for the model, or that stopped
+short of its step budget, gets the tables and no verdict; what `satreg
+ablation` refuses, `satreg small` refuses too.
 
 ### Under degraded conditions
 

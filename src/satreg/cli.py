@@ -1,8 +1,8 @@
 """Command-line entry point: ``satreg fetch``, ``satreg benchmark``, ``satreg
 merge``, ``satreg real-pairs``, ``satreg check-presets``, ``satreg cycle``,
 ``satreg false-change``, ``satreg fetch-train``, ``satreg train-pairs``,
-``satreg train``, ``satreg validate``, ``satreg validate-cycle`` and ``satreg
-ablation``."""
+``satreg train``, ``satreg validate``, ``satreg validate-cycle``, ``satreg
+ablation`` and ``satreg small``."""
 
 import argparse
 import dataclasses
@@ -19,6 +19,7 @@ from . import (
     ablation,
     cycle,
     falsechange,
+    small,
     trainchips,
     trainpairs,
     trainval,
@@ -98,6 +99,7 @@ DEFAULT_RUN_CONFIG = Path("configs/train-overfit.toml")
 DEFAULT_VALIDATION_CONFIG = Path("configs/validation.toml")
 DEFAULT_TRAIN_OUT = Path("outputs/train")
 DEFAULT_ABLATION_OUT = Path("outputs/ablation")
+DEFAULT_SMALL_OUT = Path("outputs/small")
 
 # The pretrained model and the two variants of the ablation, the same-date one
 # first (configs/methods.toml), and where `make ablation` scores the three,
@@ -110,6 +112,15 @@ ABLATION_CLOSURE = "validation-cycle"
 # methods are scored, on what device and where to. The others say what the
 # methods are scored on.
 ABLATION_FREE = ("methods", "device", "out")
+
+# The four methods `satreg small` reads (configs/methods.toml): RAFT small
+# fine-tuned and pretrained, RAFT large fine-tuned (the retained variant of the
+# ablation) and pretrained. `make small` scores them where `make ablation`
+# scores its three, under the directory the reading is written to.
+SMALL_METHOD = "raft_small_ft_cross_date"
+SMALL_PRETRAINED = "raft_small"
+SMALL_LARGE = "raft_ft_cross_date"
+SMALL_LARGE_PRETRAINED = "raft"
 
 # Commands a run configuration file can set, and the table each one reads.
 RUN_TABLES = {
@@ -567,6 +578,20 @@ def _parser(
         help="directory of the ablation: the tables are read from its "
         f"{ABLATION_VALIDATION}/ and {ABLATION_CLOSURE}/, where make ablation "
         "scores the three methods, and the report is written to it",
+    )
+    reading_small = commands.add_parser(
+        "small",
+        help="read the fine-tuned RAFT small next to the pretrained one and to "
+        "RAFT large, from the tables validate and validate-cycle wrote for the "
+        "four, and say whether the training was a gain, no gain or worse",
+    )
+    reading_small.add_argument(
+        "--out",
+        type=Path,
+        default=DEFAULT_SMALL_OUT,
+        help="directory of the reading: the tables are read from its "
+        f"{ABLATION_VALIDATION}/ and {ABLATION_CLOSURE}/, where make small "
+        "scores the four methods, and the report is written to it",
     )
     if run_config:
         {
@@ -2110,13 +2135,16 @@ def validate_cycle(args: argparse.Namespace) -> str:
     return table
 
 
-def _scored_run(path: Path, table: str, command: str) -> tuple[Path, dict[str, object]]:
-    """Find the per-item table and the context of a run the ablation reads.
+def _scored_run(
+    path: Path, table: str, command: str, recipe: str
+) -> tuple[Path, dict[str, object]]:
+    """Find the per-item table and the context of a run a report reads.
 
     Args:
         path: Directory of the run.
         table: Its per-item table, ``pairs.csv`` or ``triplets.csv``.
         command: The command that wrote it, one of ``RUN_TABLES``.
+        recipe: The ``make`` target that scores the run.
 
     Returns:
         The path of the table and the run's context.
@@ -2128,7 +2156,7 @@ def _scored_run(path: Path, table: str, command: str) -> tuple[Path, dict[str, o
     """
     if not (path / table).is_file() or not (path / "context.json").is_file():
         raise SystemExit(
-            f"satreg: no {table} and context.json in {path}: run make ablation "
+            f"satreg: no {table} and context.json in {path}: run make {recipe} "
             "(see the README)"
         )
     context = json.loads((path / "context.json").read_text())
@@ -2136,7 +2164,7 @@ def _scored_run(path: Path, table: str, command: str) -> tuple[Path, dict[str, o
     if not run.get("config"):
         raise SystemExit(
             f"satreg: {path} was not run from a run configuration: run make "
-            "ablation (see the README)"
+            f"{recipe} (see the README)"
         )
     configured = load_run_config(Path(run["config"]), command)
     unlike = sorted(
@@ -2150,6 +2178,82 @@ def _scored_run(path: Path, table: str, command: str) -> tuple[Path, dict[str, o
             f"{', '.join(unlike)} differ"
         )
     return path / table, context
+
+
+def _scored_trainings(
+    methods: Sequence[str],
+    validated: Path,
+    closed: Path,
+    scored: dict[str, object],
+    closure: dict[str, object],
+) -> list[ablation.TrainingRun]:
+    """Read the trainings whose kept weights two scored runs used.
+
+    Args:
+        methods: The fine-tuned methods.
+        validated: Directory of the validation run.
+        closed: Directory of the closure run.
+        scored: The context of the validation run.
+        closure: The context of the closure run.
+
+    Returns:
+        The training of each method, in the order given.
+
+    Raises:
+        ValueError: If a run names no weights for a method, the two runs did
+            not score the same weights, or those are not a training's kept
+            weights or no longer the ones on disk.
+    """
+    weights = scored.get("checkpoints", {})
+    runs = []
+    for method in methods:
+        if method not in weights:
+            raise ValueError(
+                f"{validated} names no checkpoint for {method}: it is not a "
+                "run of the methods read here"
+            )
+        # The file, not its path: the two runs may name it differently.
+        again = closure.get("checkpoints", {}).get(method, {})
+        if weights[method]["sha256"] != again.get("sha256"):
+            raise ValueError(
+                f"{validated} and {closed} did not score the same weights for {method}"
+            )
+        runs.append(
+            ablation.read_training(
+                method, Path(weights[method]["path"]), weights[method]["sha256"]
+            )
+        )
+    return runs
+
+
+def _read_context(
+    args: argparse.Namespace,
+    methods: Sequence[str],
+    scored: dict[str, object],
+    closure: dict[str, object],
+) -> dict[str, object]:
+    """Describe a report read from two scored runs, for its ``context.json``.
+
+    Args:
+        args: Parsed arguments of the command.
+        methods: The fine-tuned methods read.
+        scored: The context of the validation run.
+        closure: The context of the closure run.
+
+    Returns:
+        The code, the options, the weights read and what the two runs recorded
+        about themselves.
+    """
+    return {
+        "code": code_version(),
+        "run": {k: v for k, v in sorted(vars(args).items()) if k != "command"},
+        "checkpoints": {m: scored["checkpoints"][m] for m in methods},
+        # The code and the time of the two runs the tables come from.
+        "read": {
+            name: {"code": run.get("code"), "recorded_at": run.get("recorded_at")}
+            for name, run in (("validation", scored), ("closure", closure))
+        },
+    }
 
 
 def read_ablation(args: argparse.Namespace) -> str:
@@ -2173,31 +2277,12 @@ def read_ablation(args: argparse.Namespace) -> str:
             hold the three methods.
     """
     validated, closed = args.out / ABLATION_VALIDATION, args.out / ABLATION_CLOSURE
-    pairs, scored = _scored_run(validated, "pairs.csv", "validate")
-    triplets, closure = _scored_run(closed, "triplets.csv", "validate-cycle")
-    weights = scored.get("checkpoints", {})
+    pairs, scored = _scored_run(validated, "pairs.csv", "validate", "ablation")
+    triplets, closure = _scored_run(
+        closed, "triplets.csv", "validate-cycle", "ablation"
+    )
     try:
-        runs = []
-        for variant in ABLATION_VARIANTS:
-            if variant not in weights:
-                raise ValueError(
-                    f"{validated} names no checkpoint for {variant}: it is not a "
-                    "run of the three methods of the ablation"
-                )
-            # The file, not its path: the two runs may name it differently.
-            again = closure.get("checkpoints", {}).get(variant, {})
-            if weights[variant]["sha256"] != again.get("sha256"):
-                raise ValueError(
-                    f"{validated} and {closed} did not score the same weights "
-                    f"for {variant}"
-                )
-            runs.append(
-                ablation.read_training(
-                    variant,
-                    Path(weights[variant]["path"]),
-                    weights[variant]["sha256"],
-                )
-            )
+        runs = _scored_trainings(ABLATION_VARIANTS, validated, closed, scored, closure)
         read = ablation.read(
             ablation.read_pairs(pairs),
             ablation.read_triplets(triplets),
@@ -2221,17 +2306,70 @@ def read_ablation(args: argparse.Namespace) -> str:
     ablation.curves(read.runs, args.out / "curves.png")
     (args.out / "summary.md").write_text(table)
     context = {
-        "code": code_version(),
-        "run": {k: v for k, v in sorted(vars(args).items()) if k != "command"},
-        "checkpoints": {v: weights[v] for v in read.variants},
-        # The code and the time of the two runs the tables come from.
-        "read": {
-            name: {"code": run.get("code"), "recorded_at": run.get("recorded_at")}
-            for name, run in (("validation", scored), ("closure", closure))
-        },
+        **_read_context(args, read.variants, scored, closure),
         # No choice if the rule is not applied; why is in `departures`.
         "departures": list(read.departures),
         "choice": None if read.choice is None else dataclasses.asdict(read.choice),
+    }
+    _write_context(context, args.out)
+    return table
+
+
+def read_small(args: argparse.Namespace) -> str:
+    """Read the fine-tuned RAFT small next to the pretrained one and RAFT large.
+
+    Nothing is run: the pairs and triplets are those ``validate`` and
+    ``validate-cycle`` scored for the four methods, and the two trainings are
+    read from the directories of the weights those runs used.
+
+    Args:
+        args: Parsed ``small`` arguments.
+
+    Returns:
+        The report, as markdown.
+
+    Raises:
+        SystemExit: If a run is missing, was not run as its configuration
+            says, is not the full validation set or the closure of every chip
+            of the trainings, the two runs did not score the same weights,
+            those weights are no longer the ones on disk, or a run does not
+            hold the four methods.
+    """
+    validated, closed = args.out / ABLATION_VALIDATION, args.out / ABLATION_CLOSURE
+    pairs, scored = _scored_run(validated, "pairs.csv", "validate", "small")
+    triplets, closure = _scored_run(closed, "triplets.csv", "validate-cycle", "small")
+    trained = (SMALL_METHOD, SMALL_LARGE)
+    try:
+        runs = _scored_trainings(trained, validated, closed, scored, closure)
+        read = small.read(
+            ablation.read_pairs(pairs),
+            ablation.read_triplets(triplets),
+            ablation.check_scored(scored, closure, runs),
+            SMALL_PRETRAINED,
+            SMALL_LARGE_PRETRAINED,
+            (runs[0], runs[1]),
+        )
+    except ValueError as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+
+    table = (
+        f"RAFT small fine-tuned ({read.method}) with the pairs and the recipe of "
+        f"the retained RAFT large ({SMALL_LARGE}), next to the pretrained RAFT "
+        f"small ({read.pretrained}) and to RAFT large, fine-tuned and pretrained "
+        f"({read.large_pretrained}). Validation set of `{validated}`, real "
+        f"triplets of `{closed}`. What a gain, no gain and worse are is in "
+        "docs/decisions.md, written before the training ran.\n\n"
+        + small.to_markdown(read)
+    )
+    args.out.mkdir(parents=True, exist_ok=True)
+    write_csv(read.rows, args.out / "comparisons.csv")
+    ablation.curves(read.runs, args.out / "curves.png")
+    (args.out / "summary.md").write_text(table)
+    context = {
+        **_read_context(args, trained, scored, closure),
+        # No verdict for a run that is not the training; why is in `departures`.
+        "departures": list(read.departures),
+        "verdict": None if read.verdict is None else dataclasses.asdict(read.verdict),
     }
     _write_context(context, args.out)
     return table
@@ -2273,3 +2411,5 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(validate_cycle(args), end="")
     elif args.command == "ablation":
         print(read_ablation(args), end="")
+    elif args.command == "small":
+        print(read_small(args), end="")

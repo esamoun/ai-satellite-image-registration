@@ -279,6 +279,36 @@ tables and no choice. Bring the whole directory of each run, not `best.pt`
 alone: the report reads `context.json`, `log.csv` and `validation.csv` next to
 it.
 
+### The training of RAFT small
+
+RAFT small, once, 10,000 steps, with the pairs of the retained variant
+([`configs/train-small.toml`](../configs/train-small.toml)). In the parameters
+cell:
+
+```python
+COMMIT = "<the commit pushed for this training>"
+CONFIG = "configs/train-small.toml"
+RUNS = {"small-cross-date": []}
+COMPARE = []
+```
+
+`MAX_MINUTES` stays at 600. The timing run measured 3.22 s a step for small,
+89 % of it waiting for the pairs: count 9 h, as for RAFT large, and 1.9 GiB of
+GPU memory. Read the quota before starting (*Session options*): the session
+needs 9 to 10 h of the week's 30 h. If less is left, wait for the weekly
+reset: what Kaggle does to a session that runs out of quota was not checked.
+
+The session log reads as for the ablation: nothing for 14 to 15 minutes, then a
+line every 250 steps and one more every 500 with the validation score. The
+light validation score of pretrained RAFT small is 0.3224 px (step 0).
+
+Then bring the whole run directory back (below) to
+`outputs/train/small-cross-date/`, and run `make small` on the M1, lid open: it
+scores RAFT small and RAFT large, pretrained and fine-tuned, on the validation
+set and on the real triplets, and says whether the training was a gain, no gain
+or worse ([`decisions.md`](decisions.md), 2026-10-06). `satreg small` reads
+`outputs/train/large-cross-date/` too, for the training it puts next to it.
+
 ### Bring a run back
 
 Download the version's output from Kaggle's site (*Output → Download All*) and

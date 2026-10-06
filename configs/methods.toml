@@ -113,6 +113,13 @@ checkpoint = "outputs/train/large-same-date/best.pt"
 method = "raft"
 checkpoint = "outputs/train/large-cross-date/best.pt"
 
+# RAFT small trained with the retained variant's pairs (N3), by
+# configs/train-small.toml: the best.pt of that run.
+[methods.raft_small_ft_cross_date]
+method = "raft"
+model = "small"
+checkpoint = "outputs/train/small-cross-date/best.pt"
+
 # LightGlue on DISK keypoints, which sit on whole pixels.
 [methods.lightglue_disk]
 method = "lightglue"

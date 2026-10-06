@@ -3883,3 +3883,100 @@ report.
 **What follows.** RAFT small is trained with the retained pair mix,
 `cross_date = 0.5`. Nothing went wrong in either training (no divergence, no
 session lost), so [`failures.md`](failures.md) has no entry for them.
+
+---
+
+## 2026-10-06: RAFT small is trained with the retained recipe unchanged, and gets one of three words
+
+Written before the training ran.
+
+**Decision.** RAFT small (`C_T_V2`, 1.0 M parameters) is trained once, by
+[`configs/train-small.toml`](../configs/train-small.toml): the file of the
+retained training of RAFT large, `configs/train-cross-date.toml`, but for
+`model`. A test checks that nothing else differs.
+
+- **The same pairs.** Half cross-date, seed 0: pair number i is the pair RAFT
+  large was trained on.
+- **The same recipe and budget.** 10,000 steps of 8 pairs of 256 px, learning
+  rate 1e-4 on one cycle, 12 refinements, a validation on the light set every
+  500 steps, the checkpoint with the lowest selection score kept (entries of
+  2026-10-02 and 2026-10-04).
+- **The method.** `raft_small_ft_cross_date` loads
+  `outputs/train/small-cross-date/best.pt`.
+
+**What differs from the large recipe.** Nothing that was set. One setting does
+nothing here: `freeze_batch_norm` freezes the 15 batch-normalisation layers of
+RAFT large, and RAFT small has none (21 instance-normalisation layers, counted
+on torchvision's model), as the entry of 2026-10-02 said.
+
+**How the result is read.** `make small` scores four methods in one validation
+run and one closure run, `raft_small`, `raft_small_ft_cross_date`, `raft` and
+`raft_ft_cross_date`, and `satreg small` reads them with the paired readings of
+the ablation. The training gets one word, from the fine-tuned small next to the
+pretrained small on the whole validation set (3,600 pairs), with the criterion
+of 2026-10-02, which said the small model is read the same way as the large:
+
+- **gain**: it beats the pretrained model, that is no more failed pairs and a
+  lower mean error over the pairs neither fails;
+- **worse**: the pretrained model beats it, the same criterion the other way
+  round;
+- **no gain**: anything else, such as fewer failures bought with a higher mean
+  error.
+
+Reported next to it, and changing nothing to the word: the closure on the
+validation chips and on the training chips, and the fine-tuned small next to
+the fine-tuned large, next to pretrained `raft`, and pretrained `raft_small`
+next to pretrained `raft` (the gap before any training). The result goes to
+this file for a gain and to [`failures.md`](failures.md) otherwise.
+
+**Why.**
+
+- **One difference.** The question is what the same fine-tuning does to a
+  model five times smaller. A learning rate or a batch size picked for small
+  would be a second difference, with nothing to set it from but the validation
+  set.
+- **The recipe is known to run on small.** In the overfit run it brought 8
+  pairs from 6.25 to 0.018 px, and in the timing run 300 steps took the light
+  validation score from 0.322 to 0.218 px (entries of 2026-10-02 and
+  2026-10-04).
+- **No recipe change on a no**, as for the ablation: each recipe tried on the
+  validation set is one more chance of fitting it.
+- **The word is for this training only.** A run that differs from the large
+  one by more than the model, or that stopped short of its budget, gets the
+  tables and no verdict.
+
+**Limits.**
+
+- **Training small costs what training large costs.** On Kaggle the GPU waits
+  for the pairs 89 % of the time with small: 3.22 s a step, about 9 h for
+  10,000 steps (entry of 2026-10-04). Small is cheaper to run, not to train
+  here.
+- **The quota.** The two sessions of the ablation took 17.5 h of the week's
+  30 h and the timing sessions about one more; the counter was not read since,
+  nor the day it resets. The session needs 9 to 10 h. The quota is read before
+  starting, and the training waits for the reset if less is left.
+- **One seed, no margin**: any lower figure counts, as on 2026-10-05.
+- **The budget was set from RAFT large's timing.** If small's validation score
+  is still falling at step 10,000, the result entry says so and the training
+  is not extended.
+- **The closure can disagree with the word.** A gain on simulated pairs whose
+  closure on the validation chips is worse than the pretrained model's is
+  still called a gain; the result entry gives both.
+- **The two large models are scored a second time**, about 50 minutes more on
+  the M1: two thirds of the 74 minutes the three large models of the ablation
+  took. Their figures should be those of `outputs/ablation/`; a difference is
+  reported.
+
+**Rejected.**
+
+- A larger batch for small because it is light on the GPU: the CPUs that make
+  the pairs set the pace, so twice the batch is twice the time.
+- Fewer steps to save quota: the three trainings were given the same budget on
+  2026-10-04.
+- Training small on same-date pairs too: the ablation was the place for that
+  question, and the quota holds one more training this week, not two.
+- A word that needs the closure too: closure is consistency, not accuracy
+  (entry of 2026-09-28), and the ablation used it to choose between two
+  eligible variants, not to gate one.
+- Reading the two large models from the tables of the ablation: two methods
+  are compared on the same pairs of the same run, scored by the same code.

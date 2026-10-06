@@ -266,10 +266,10 @@ def pair_results(pairs=PAIRS):
     ]
 
 
-def triplet_rows():
+def triplet_rows(triplets=TRIPLETS):
     return [
         triplet_row(method, site, window, closure or 3.0, failed=closure is None)
-        for method, sites in TRIPLETS.items()
+        for method, sites in triplets.items()
         for site, closures in sites.items()
         for window, closure in enumerate(closures)
     ]
@@ -354,13 +354,13 @@ def test_closure_is_read_on_the_validation_chips_then_on_the_training_chips(tmp_
 SCENES = {"lyon": "S2A_T31TFL_20250811T103955_L2A"}
 
 
-def training_run(path, method, cross_date, steps=4, budget=4, kept=0.2):
+def training_run(path, method, cross_date, steps=4, budget=4, kept=0.2, model="large"):
     """Write what a training leaves in its directory, and read it back."""
     path.mkdir(parents=True)
     (path / BEST).write_bytes(method.encode())
     context = {
         "train": {
-            "model": "large",
+            "model": model,
             "steps": budget,
             "batch_size": 8,
             "workers": 3,
@@ -601,9 +601,16 @@ def test_the_curves_of_the_two_runs_are_saved_as_a_figure(tmp_path):
     assert (tmp_path / "figures" / "curves.png").stat().st_size > 10_000
 
 
-def scored_runs(tmp_path, trainings):
+def scored_runs(
+    tmp_path,
+    trainings,
+    command="ablation",
+    methods=(ABLATION_BASELINE, *ABLATION_VARIANTS),
+    pairs=PAIRS,
+    triplets=TRIPLETS,
+):
     """Write the directories make ablation leaves for the ablation to read."""
-    out = tmp_path / "ablation"
+    out = tmp_path / command
     weights = {
         run.method: {"path": str(run.path / BEST), "sha256": run.sha256}
         for run in trainings
@@ -618,29 +625,28 @@ def scored_runs(tmp_path, trainings):
         '[validate]\npairs = 2\nmethods = ["raft"]\n'
         "[validate_cycle]\nfailure_threshold = 1.0\n"
     )
-    methods = [ABLATION_BASELINE, *ABLATION_VARIANTS]
     for name, table, rows, described, options in (
         (
             ABLATION_VALIDATION,
             "pairs.csv",
-            pair_results(),
+            pair_results(pairs),
             {"chips": SCENES, "pairs_per_cell": 2, "light": False},
             {"pairs": 2},
         ),
         (
             ABLATION_CLOSURE,
             "triplets.csv",
-            triplet_rows(),
+            triplet_rows(triplets),
             {"chips": ROLES},
             {"failure_threshold": 1.0},
         ),
     ):
         write_csv(rows, out / name / table)
-        run = {"config": str(config), "methods": methods, **options}
+        run = {"config": str(config), "methods": list(methods), **options}
         (out / name / "context.json").write_text(
             json.dumps({**context, "run": run, "validation": described})
         )
-    return ["ablation", "--out", str(out)]
+    return [command, "--out", str(out)]
 
 
 def rewrite(tmp_path, name, change):

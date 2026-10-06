@@ -499,8 +499,7 @@ def read_training(method: str, checkpoint: Path, sha256: str) -> TrainingRun:
     """
     if checkpoint.name != BEST:
         raise ValueError(
-            f"{method} runs {checkpoint}: the ablation reads a run's kept "
-            f"weights, {BEST}"
+            f"{method} runs {checkpoint}: a report reads a run's kept weights, {BEST}"
         )
     path = checkpoint.parent
     try:
@@ -527,7 +526,7 @@ def read_training(method: str, checkpoint: Path, sha256: str) -> TrainingRun:
         raise ValueError(
             f"{checkpoint} is not the file {method} was scored with: its SHA-256 "
             f"starts with {on_disk[:16]}, the validation run recorded "
-            f"{sha256[:16]}. Score the three methods again (make ablation)"
+            f"{sha256[:16]}. Score the methods again"
         )
     return TrainingRun(method, path, sha256, context, log, validations)
 
@@ -634,8 +633,8 @@ def check_scored(
         raise ValueError("the validation run is not one of satreg validate")
     if scored["light"]:
         raise ValueError(
-            "the validation run is the light validation set: the rule reads the "
-            "full one"
+            "the validation run is the light validation set: the full one is "
+            "what is read"
         )
     roles = (closure.get("validation") or {}).get("chips")
     if not isinstance(roles, dict) or not set(roles.values()) <= {VALIDATION, TRAIN}:
@@ -831,6 +830,32 @@ def curves(runs: Sequence[TrainingRun], path: Path) -> None:
     plt.close(fig)
 
 
+def check_methods(
+    pairs: Mapping[str, Scores],
+    triplets: Mapping[str, Scores],
+    roles: Mapping[str, str],
+    methods: Sequence[str],
+) -> None:
+    """Check two scored runs hold the methods a report reads.
+
+    Args:
+        pairs: The validation run's pairs, by method.
+        triplets: The closure run's triplets, by method.
+        roles: Chip name to its role, for the chips of the closure run.
+        methods: The methods read, non-empty.
+
+    Raises:
+        ValueError: If a method is missing from a run, or a triplet is of a
+            chip without a role.
+    """
+    for name, scores in ((VALIDATION_SET, pairs), (CLOSURE, triplets)):
+        if missing := [m for m in methods if m not in scores]:
+            raise ValueError(f"the {name} run has no row for {', '.join(missing)}")
+    site = TRIPLET_KEY.index("site")
+    if unknown := sorted({k[site] for k in triplets[methods[0]]} - roles.keys()):
+        raise ValueError(f"the closure run gives no role to {', '.join(unknown)}")
+
+
 @dataclass(frozen=True)
 class Ablation:
     """The ablation, read.
@@ -889,12 +914,7 @@ def read(
             role.
     """
     first, second = variants = (runs[0].method, runs[1].method)
-    for name, scores in ((VALIDATION_SET, pairs), (CLOSURE, triplets)):
-        if missing := [m for m in (baseline, *variants) if m not in scores]:
-            raise ValueError(f"the {name} run has no row for {', '.join(missing)}")
-    site = TRIPLET_KEY.index("site")
-    if unknown := sorted({k[site] for k in triplets[baseline]} - roles.keys()):
-        raise ValueError(f"the closure run gives no role to {', '.join(unknown)}")
+    check_methods(pairs, triplets, roles, (baseline, *variants))
     rows = []
     for method, reference in ((first, baseline), (second, baseline), (second, first)):
         rows += validation_rows(pairs, method, reference)
@@ -923,6 +943,49 @@ def read(
     return Ablation(baseline, variants, runs, rows, found, choice)
 
 
+# How the figures of a paired table are to be read, under the tables.
+READING_NOTE = (
+    "\nAn EPE or a closure is a mean over the pairs or triplets neither of "
+    "the two methods of a table fails, so a method's figure changes with "
+    "the method it is read next to. A difference is the method read minus "
+    "the one it is read next to: negative is better. A closure is worse "
+    "with more failed triplets, or with as many and a higher mean.\n"
+)
+
+
+def against_markdown(
+    validation: Sequence[ComparisonRow], closure: Sequence[ComparisonRow]
+) -> str:
+    """Render a method next to a reference: the validation set, then closure.
+
+    Args:
+        validation: The rows of ``validation_rows`` for the two methods.
+        closure: Their closure rows by role of the chips, the validation chips
+            first.
+
+    Returns:
+        The two tables, each followed by the sentence that reads it, starting
+        and ending with a newline.
+    """
+    method, reference = validation[0].method, validation[0].reference
+    whole = paired_of(validation[-1])
+    return (
+        f"\n{method} next to {reference}, on the validation set:\n\n"
+        + comparison_markdown(validation)
+        + f"\n{method} {'beats' if beats(whole) else 'does not beat'} "
+        f"{reference} on the validation set: it fails {whole.failures} pairs "
+        f"where {reference} fails {whole.reference_failures}, and over the "
+        f"{whole.common} pairs neither fails its mean error is "
+        f"{_px(whole.mean)} px where {reference}'s is "
+        f"{_px(whole.reference_mean)} px.\n"
+        "\nOn the real triplets:\n\n"
+        + comparison_markdown(closure)
+        + f"\nIts closure is {_reads(closure[0])} {reference} on the "
+        f"validation chips and {_reads(closure[1])} it on the training "
+        "chips.\n"
+    )
+
+
 def to_markdown(ablation: Ablation) -> str:
     """Render the ablation as markdown.
 
@@ -948,23 +1011,9 @@ def to_markdown(ablation: Ablation) -> str:
         "set.\n"
     )
     for variant in (first, second):
-        validation = ablation.of(VALIDATION_SET, variant, baseline)
-        closure = ablation.of(CLOSURE, variant, baseline)
-        whole = paired_of(validation[-1])
-        text += (
-            f"\n{variant} next to {baseline}, on the validation set:\n\n"
-            + comparison_markdown(validation)
-            + f"\n{variant} {'beats' if beats(whole) else 'does not beat'} "
-            f"{baseline} on the validation set: it fails {whole.failures} pairs "
-            f"where {baseline} fails {whole.reference_failures}, and over the "
-            f"{whole.common} pairs neither fails its mean error is "
-            f"{_px(whole.mean)} px where {baseline}'s is "
-            f"{_px(whole.reference_mean)} px.\n"
-            "\nOn the real triplets:\n\n"
-            + comparison_markdown(closure)
-            + f"\nIts closure is {_reads(closure[0])} {baseline} on the "
-            f"validation chips and {_reads(closure[1])} it on the training "
-            "chips.\n"
+        text += against_markdown(
+            ablation.of(VALIDATION_SET, variant, baseline),
+            ablation.of(CLOSURE, variant, baseline),
         )
     closure = ablation.of(CLOSURE, second, first)
     text += (
@@ -979,11 +1028,7 @@ def to_markdown(ablation: Ablation) -> str:
         "training score: it is reported and decides nothing.\n"
         "\nThe same closure, one validation chip at a time:\n\n"
         + comparison_markdown(ablation.of(CLOSURE_BY_CHIP, second, first))
-        + "\nAn EPE or a closure is a mean over the pairs or triplets neither of "
-        "the two methods of a table fails, so a method's figure changes with "
-        "the method it is read next to. A difference is the method read minus "
-        "the one it is read next to: negative is better. A closure is worse "
-        "with more failed triplets, or with as many and a higher mean.\n"
+        + READING_NOTE
     )
     if ablation.choice is None:
         return text + (

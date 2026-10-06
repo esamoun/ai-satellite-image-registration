@@ -1,4 +1,4 @@
-.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle ablation clean
+.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle ablation small clean
 
 install:
 	pip install -e ".[dev]"
@@ -150,6 +150,22 @@ ablation:
 	satreg validate --config configs/validation.toml --methods $(ABLATION_METHODS) --out $(ABLATION)/validation
 	satreg validate-cycle --config configs/validation.toml --methods $(ABLATION_METHODS) --out $(ABLATION)/validation-cycle
 	satreg ablation --out $(ABLATION)
+
+# RAFT small fine-tuned (N3): the validation set and the real-triplet closure
+# for RAFT small and RAFT large, each pretrained and fine-tuned with the pairs
+# the ablation retained, then the fine-tuned small read next to the three
+# others (docs/decisions.md). Its weights are the best.pt of the Kaggle
+# training of configs/train-small.toml (docs/kaggle.md). The two RAFT large are
+# scored again here, with the same code as the two small, and not read from
+# outputs/ablation. `satreg small` reads these four methods, a test checks the
+# list, from validation/ and validation-cycle/ under the directory it is given.
+SMALL = outputs/small
+SMALL_METHODS = raft_small raft_small_ft_cross_date raft raft_ft_cross_date
+
+small:
+	satreg validate --config configs/validation.toml --methods $(SMALL_METHODS) --out $(SMALL)/validation
+	satreg validate-cycle --config configs/validation.toml --methods $(SMALL_METHODS) --out $(SMALL)/validation-cycle
+	satreg small --out $(SMALL)
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

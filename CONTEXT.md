@@ -140,6 +140,13 @@ pairs, and a lower mean error over the pairs neither fails. Only an eligible
 variant can be retained.
 _Avoid_: Passing, valid
 
+**Gain, no gain, worse**:
+What the training of RAFT small gets, read next to pretrained RAFT small on the
+validation set. A gain if the fine-tuned model beats the pretrained one (no more
+failed pairs, a lower mean error over the pairs neither fails), worse if the
+pretrained one beats it, no gain otherwise.
+_Avoid_: Improvement, regression
+
 **Overfit run**:
 A short training on a few pairs seen over and over, which checks that the
 training loop learns. Its checkpoint is not a model to report.

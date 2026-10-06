@@ -3985,3 +3985,123 @@ this file for a gain and to [`failures.md`](failures.md) otherwise.
   eligible variants, not to gate one.
 - Reading the two large models from the tables of the ablation: two methods
   are compared on the same pairs of the same run, scored by the same code.
+
+---
+
+## 2026-10-07: Fine-tuning RAFT small is a gain: 3 failed pairs where the pretrained model fails 328, and half the error
+
+**Result.** `satreg small` applied the three words of 2026-10-06 to the
+training and gives it a **gain**. The word comes from the rule: nothing was
+weighed after the numbers were read. On the 3,600 pairs of the validation set,
+`raft_small_ft_cross_date` fails 3 pairs where pretrained `raft_small` fails
+328, and over the 3,272 pairs neither fails its mean error is 0.1224 px against
+0.2451 px. The report, its curves and the context of each run are in
+[`docs/results/n3/`](results/n3/) (`small.md`, `small-curves.png`,
+`train-small-cross-date.md`, `small-validation*.md` and their
+`context-*.json`).
+
+**The training.** One Kaggle session (Tesla T4) from commit `deb3d1b`, to step
+10,000, next to the retained training of RAFT large it is read against:
+
+| | `raft_small_ft_cross_date` | `raft_ft_cross_date` |
+|---|---:|---:|
+| commit | `deb3d1b` | `4429c35` |
+| steps done / budget | 10000 / 10000 | 10000 / 10000 |
+| training time (h) | 9.1 | 9.0 |
+| median s/step | 3.41 | 3.31 |
+| time spent getting the pairs | 89 % | 72 % |
+| peak GPU memory (MiB) | 1883 | 4358 |
+| light validation, pretrained (px) | 0.3224 | 0.1583 |
+| light validation, kept step (px) | 0.1424 | 0.0854 |
+| kept step | 8000 | 8500 |
+| SHA-256 of `best.pt` | `b666aaadf4188641` | `44bcc668d20a6334` |
+
+**What differs from the large recipe.** Nothing had to: the two runs were
+given the same settings but for `train.model`, as `satreg small` checks on
+their `context.json`. Batch size, learning rate, steps, pairs and seed are
+those of RAFT large.
+
+**What the training changed**, small fine-tuned next to small pretrained.
+
+- **The failures.** 328 pairs to 3, all under `hard` but 5 of the 328. The 3
+  are one pair of Sète under `hard` (30 % of cloud), in its three scenarios,
+  at 1.2 to 1.4 px, where the pretrained model is 28 to 51 px off and
+  pretrained `raft` fails too (2.1 to 2.4 px).
+- **The error, in each of the nine cells**, from -0.031 px (dense, clean) to
+  -0.324 px (translation, hard). On clean translations: 0.1289 to 0.0634 px.
+- **The closure.** On the validation chips it fails none of the 241 triplets
+  where the pretrained model fails 102, all 58 of Santerre among them, and
+  over the 139 neither fails it closes at 0.0925 px against 0.2869 px. On the
+  training chips, 18 failed triplets of 507 against 188: a training score.
+
+**What is left to RAFT large, both fine-tuned.** The small model does not
+reach it, in any cell.
+
+| | failed pairs | EPE (px) | validation chips: failed triplets | closure (px) |
+|---|---:|---:|---:|---:|
+| `raft_small_ft_cross_date` | 3 | 0.1376 | 0 | 0.1522 |
+| `raft_ft_cross_date` | 0 | 0.0840 | 0 | 0.1059 |
+
+The errors are over the 3,597 pairs neither fails and the closures over the
+241 triplets. The difference goes from +0.033 px (translation, clean: 0.0634
+against 0.0303 px) to +0.078 px (affine, hard). Before any training the gap
+was 328 failed pairs against 70 and 0.2442 against 0.1086 px over the pairs
+neither failed: the small model's error was 2.2 times the large one's and is
+now 1.6 times.
+
+**Next to RAFT large as it was before any training.** The fine-tuned small
+does not beat pretrained `raft` by the criterion: it fails 3 pairs where
+`raft` fails 70, and over the 3,530 pairs neither fails its mean error is
+0.0059 px higher (0.1324 against 0.1265 px). It is behind in the six `clean`
+and `mild` cells, by 0.010 to 0.040 px, and ahead in the three `hard` ones, by
+0.017 to 0.052 px. Its closure on the validation chips is better: no failed
+triplet against 78, and 0.1188 against 0.2093 px over the 163 neither fails.
+
+**The cost.** On the M1 (MPS) the small model takes 57 to 59 ms a pair where
+the large one takes 147 to 150 ms: 0.4 of the time, fine-tuned or not. N2 had
+measured 108 against 377 ms on the M1's CPU. Training it cost what training
+RAFT large cost, as expected: 9.1 h, the GPU waiting for the pairs 89 % of the
+time.
+
+**The two large models, scored again.** Their 3,600 pairs and 748 triplets in
+`outputs/small/` are those of `outputs/ablation/`, figure for figure: errors,
+shares, failures and closures are identical, the times alone differ. Nothing
+to report.
+
+**Limits.**
+
+- **One seed, no margin**, as written on 2026-10-06. The gap that gives the
+  word is not a close one (325 failed pairs and half the error), but the
+  0.006 px that keep the small model from beating pretrained `raft` are: the
+  same criterion, read once.
+- **This is the validation set, not the benchmark.** The gap N2 measured
+  (0.131 against 0.047 px on clean translations, 20 to 22 % of failures under
+  `hard` against 2 %) is on the held-out sites, which no N3 run has read. On
+  the validation chips the same cells give 0.129 against 0.045 px and 27 %
+  against 6 % before training, and 0.063 against 0.030 px and 0.25 % against
+  none with both fine-tuned. Whether it holds on the benchmark is N3's final
+  evaluation.
+- **The mean errors are not over the same pairs** from one reading to the
+  next: each is over the pairs neither of its two methods fails, so 0.1224,
+  0.1376 and 0.1324 px are the same model on 3,272, 3,597 and 3,530 pairs.
+- **The score was flat at the end.** The light validation score is 0.1424 px
+  at step 8,000, the step kept, and 0.1425 and 0.1426 px at 9,500 and 10,000.
+  It was not still falling, so the budget set from RAFT large's timing did
+  not cut this training short.
+- **Santerre and Morvan still close worst**, at 0.219 and 0.201 px against
+  0.077 px for Lyon. They are the two worst for the fine-tuned RAFT large too
+  (0.119 and 0.167 px).
+- **Closure is consistency, not accuracy** (entry of 2026-09-28).
+- **The quota after the session was not read.** The training itself ran
+  9 h 07, with 11 h 31 left before it; the session as Kaggle counts it is
+  longer, and its duration was not noted.
+- **The scoring run crossed midnight.** `make small` ran on the M1 (MPS) from
+  22:50 on 2026-10-06 to 00:01 on 2026-10-07, lid open and on mains, with no
+  sleep: 54 minutes for the validation set and 17 for the closure. By their
+  share of the time per pair, about 50 of the 71 minutes are the two large
+  models, which is what was estimated.
+
+**What follows.** The weights to publish are the two `best.pt` of
+`outputs/train/large-cross-date/` and `outputs/train/small-cross-date/`.
+Nothing went wrong in the training (no divergence, no session lost), so
+[`failures.md`](failures.md) has no entry for it.

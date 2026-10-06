@@ -1,0 +1,101 @@
+{
+  "recorded_at": "2026-10-06T22:00:50+00:00",
+  "code": {
+    "commit": "deb3d1b5fac34b4df3de8a22f71261c966d1ddd6",
+    "dirty": false
+  },
+  "machine": {
+    "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "cpu": "Apple M1",
+    "memory_gib": 8.0
+  },
+  "gpu": null,
+  "threads": {
+    "cpu_count": 8,
+    "usable_cpus": 8,
+    "opencv": 8,
+    "torch": 4,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+  },
+  "python": "3.13.7",
+  "libraries": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "scikit-image": "0.26.0",
+    "opencv-python-headless": "5.0.0.93",
+    "rasterio": "1.5.1",
+    "arosics": "1.13.2",
+    "GDAL": "3.13.3",
+    "torch": "2.14.0",
+    "torchvision": "0.29.0"
+  },
+  "cost": {
+    "warmup": 1,
+    "repeats": 1,
+    "process_peak_rss_mib": 695.34375,
+    "memory": {
+      "raft_small": "none",
+      "raft_small_ft_cross_date": "none",
+      "raft": "none",
+      "raft_ft_cross_date": "none"
+    },
+    "run_seconds": 1006.1835260840598
+  },
+  "devices": {
+    "raft_small": "mps",
+    "raft_small_ft_cross_date": "mps",
+    "raft": "mps",
+    "raft_ft_cross_date": "mps"
+  },
+  "checkpoints": {
+    "raft_small_ft_cross_date": {
+      "path": "outputs/train/small-cross-date/best.pt",
+      "sha256": "b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137"
+    },
+    "raft_ft_cross_date": {
+      "path": "outputs/train/large-cross-date/best.pt",
+      "sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13"
+    }
+  },
+  "held_out_sites": [],
+  "run": {
+    "chips": null,
+    "config": "configs/validation.toml",
+    "data_dir": "data",
+    "device": "mps",
+    "failure_threshold": 1.0,
+    "methods": [
+      "raft_small",
+      "raft_small_ft_cross_date",
+      "raft",
+      "raft_ft_cross_date"
+    ],
+    "methods_config": "configs/methods.toml",
+    "out": "outputs/small/validation-cycle",
+    "repeats": 1,
+    "series_config": "configs/real.toml",
+    "sites_config": "configs/sites.toml",
+    "train_config": "configs/train-sites.toml",
+    "warmup": 1
+  },
+  "validation": {
+    "chips": {
+      "santerre": "validation",
+      "lyon": "validation",
+      "morvan": "validation",
+      "sete": "validation",
+      "champagne": "train",
+      "boerde": "train",
+      "bordeaux": "train",
+      "milan": "train",
+      "landes": "train",
+      "foret_noire": "train",
+      "giens": "train",
+      "costa_brava": "train"
+    }
+  }
+}

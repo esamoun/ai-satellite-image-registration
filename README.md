@@ -418,7 +418,7 @@ make validation                   # pretrained RAFT on the validation set (M1, a
 make validation-light             # its light version, the first 10 pairs of every cell
 make validation-cycle             # closure on the real triplets of the twelve chips
 make ablation                     # both, for raft and the two fine-tuned variants, then the choice (M1, about 75 min)
-make small                        # both, for RAFT small and large, pretrained and fine-tuned, then the verdict
+make small                        # both, for RAFT small and large, pretrained and fine-tuned, then the verdict (M1, about 71 min)
 ```
 
 The validation set is what N3's choices are made on: 100 simulated pairs per
@@ -536,6 +536,34 @@ readings are reported and do not change the word. A run that was not given what
 the retained training of RAFT large was but for the model, or that stopped
 short of its step budget, gets the tables and no verdict; what `satreg
 ablation` refuses, `satreg small` refuses too.
+
+The training ran on Kaggle, 10,000 steps, and it is a **gain**: the fine-tuned
+RAFT small fails 3 pairs of the validation set where the pretrained one fails
+328, with half its error on the others (M1, MPS):
+
+| method | validation set: failed pairs | EPE (px) | validation chips: failed triplets | closure (px) | ms per pair |
+|---|---:|---:|---:|---:|---:|
+| raft_small | 328 of 3,600 | 0.245 | 102 of 241 | 0.287 | 59 |
+| raft_small_ft_cross_date | 3 | 0.138 | 0 | 0.152 | 57 |
+| raft | 70 | 0.127 | 78 | 0.209 | 147 |
+| raft_ft_cross_date | 0 | 0.084 | 0 | 0.106 | 150 |
+
+The two fine-tuned rows are read one against the other, over the 3,597 pairs
+neither fails and every triplet; each pretrained row is over the pairs and the
+triplets it and the fine-tuned small do not fail (3,272 and 139 for
+`raft_small`, 3,530 and 163 for `raft`), where the fine-tuned small is at 0.122
+and 0.132 px of error and 0.093 and 0.119 px of closure. So the fine-tuned
+small does not reach the fine-tuned large, in any of the nine cells: its error
+was 2.2 times the large model's before training and is 1.6 times now. Next to
+RAFT large as it was, it fails far fewer pairs and closes better, is ahead
+under `hard` and behind under `clean` and `mild`, and its mean error is
+0.006 px higher, so by the criterion it does not beat it. It runs in 0.4 of the
+time; training it took the same 9 h. That is one seed, on the validation set:
+the benchmark's held-out sites have not been read. The tables are in
+[`docs/results/n3/small.md`](docs/results/n3/small.md), and the limits in
+[`docs/decisions.md`](docs/decisions.md), 2026-10-07.
+
+![Training loss and light validation score of RAFT small and RAFT large](docs/results/n3/small-curves.png)
 
 ### Under degraded conditions
 

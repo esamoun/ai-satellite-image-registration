@@ -1,0 +1,40 @@
+{
+  "code": {
+    "commit": "deb3d1b5fac34b4df3de8a22f71261c966d1ddd6",
+    "dirty": false
+  },
+  "run": {
+    "out": "outputs/small"
+  },
+  "checkpoints": {
+    "raft_small_ft_cross_date": {
+      "path": "outputs/train/small-cross-date/best.pt",
+      "sha256": "b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137"
+    },
+    "raft_ft_cross_date": {
+      "path": "outputs/train/large-cross-date/best.pt",
+      "sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13"
+    }
+  },
+  "read": {
+    "validation": {
+      "code": {
+        "commit": "deb3d1b5fac34b4df3de8a22f71261c966d1ddd6",
+        "dirty": false
+      },
+      "recorded_at": "2026-10-06T21:43:59+00:00"
+    },
+    "closure": {
+      "code": {
+        "commit": "deb3d1b5fac34b4df3de8a22f71261c966d1ddd6",
+        "dirty": false
+      },
+      "recorded_at": "2026-10-06T22:00:50+00:00"
+    }
+  },
+  "departures": [],
+  "verdict": {
+    "word": "gain",
+    "reason": "raft_small_ft_cross_date fails 3 pairs where raft_small fails 328, and over the 3272 pairs neither fails its mean error is 0.1224 px where raft_small's is 0.2451 px: it beats raft_small."
+  }
+}

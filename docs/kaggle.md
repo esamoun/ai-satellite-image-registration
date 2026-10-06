@@ -309,6 +309,12 @@ set and on the real triplets, and says whether the training was a gain, no gain
 or worse ([`decisions.md`](decisions.md), 2026-10-06). `satreg small` reads
 `outputs/train/large-cross-date/` too, for the training it puts next to it.
 
+The session ran on 2026-10-06 from commit `deb3d1b`: 9 h 07 of training for
+the 10,000 steps, 3.41 s a step, 89 % of it waiting for the pairs, 1.9 GiB of
+GPU memory, and step 8,000 kept. The quota was at 18:29 of 30 h before it; it
+was not read after. `make small` then took 71 minutes on the M1, and the
+training is a gain ([`decisions.md`](decisions.md), 2026-10-07).
+
 ### Bring a run back
 
 Download the version's output from Kaggle's site (*Output → Download All*) and

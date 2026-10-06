@@ -157,8 +157,10 @@ ablation:
 # others (docs/decisions.md). Its weights are the best.pt of the Kaggle
 # training of configs/train-small.toml (docs/kaggle.md). The two RAFT large are
 # scored again here, with the same code as the two small, and not read from
-# outputs/ablation. `satreg small` reads these four methods, a test checks the
-# list, from validation/ and validation-cycle/ under the directory it is given.
+# outputs/ablation. On the M1: 54 minutes for the validation set and 17 for the
+# closure, on 2026-10-06. `satreg small` reads these four methods, a test
+# checks the list, from validation/ and validation-cycle/ under the directory
+# it is given.
 SMALL = outputs/small
 SMALL_METHODS = raft_small raft_small_ft_cross_date raft raft_ft_cross_date
 

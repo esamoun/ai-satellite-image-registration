@@ -20,6 +20,7 @@ from satreg.sites import load_sites
 from satreg.train import (
     BEST,
     CHECKPOINT,
+    LOCAL_METHOD_NAMES,
     METHOD_NAMES,
     Batches,
     LogRow,
@@ -275,11 +276,12 @@ def test_a_method_without_its_checkpoint_says_where_it_should_be(tmp_path):
         method.network()
 
 
-def test_the_fine_tuned_methods_load_a_checkpoint_from_a_local_path():
+def test_a_training_still_at_work_is_read_from_its_local_path():
     methods = load_methods(CONFIGS / "methods.toml")
 
+    # Where satreg train writes by default, named after the model's method.
     for model, name in METHOD_NAMES.items():
-        assert methods[name] == Raft(
+        assert methods[LOCAL_METHOD_NAMES[model]] == Raft(
             model=model, checkpoint=f"outputs/train/{name}/checkpoint.pt"
         )
 
@@ -289,11 +291,11 @@ def test_a_benchmark_of_a_method_without_its_checkpoint_is_refused(
     tmp_path, monkeypatch
 ):
     monkeypatch.chdir(tmp_path)
-    args = ["benchmark", "--pairs", "1", "--methods", "raft_ft", "--out", "out"]
+    args = ["benchmark", "--pairs", "1", "--methods", "raft_ft_local", "--out", "out"]
     for option, name in (("--methods", "methods"), ("--degradations", "degradations")):
         args += [f"{option}-config", str(CONFIGS / f"{name}.toml")]
 
-    with pytest.raises(SystemExit, match="raft_ft needs its checkpoint at outputs"):
+    with pytest.raises(SystemExit, match="raft_ft_local needs its checkpoint at out"):
         main(args)
 
 
@@ -308,7 +310,7 @@ def _fine_tuned(name):
     return dataclasses.replace(method, checkpoint=str(checkpoint))
 
 
-@pytest.mark.parametrize("name", METHOD_NAMES.values())
+@pytest.mark.parametrize("name", LOCAL_METHOD_NAMES.values())
 def test_a_fine_tuned_method_gives_a_dense_displacement(name):
     method = _fine_tuned(name)
     pair = generator()(0)

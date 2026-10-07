@@ -115,6 +115,12 @@ The weights of the validation with the lowest selection score, saved apart from
 the checkpoint the training resumes from.
 _Avoid_: Best model, final checkpoint
 
+**Released weights**:
+A kept checkpoint published as an asset of a GitHub release, named after the
+start of its SHA-256, which the code pins: a fine-tuned method downloads it on
+first use and refuses a file with another hash.
+_Avoid_: Model zoo, artifact
+
 **Timing run**:
 A few hundred steps on the training GPU, which measure how long a step takes
 before the step budget is set. Its checkpoint is not a model to report.

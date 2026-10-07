@@ -1,9 +1,10 @@
 """RAFT optical flow, with torchvision's pretrained weights, as a dense field.
 
 RAFT was trained on RGB video frames, not on satellite bands. It runs as
-shipped, or, given a checkpoint written by ``satreg train``, with weights
-fine-tuned on training pairs. Its flow, one vector per pixel, is returned as a
-``Dense`` displacement and scored like any other. Needs the ``dl`` extra.
+shipped, or with weights fine-tuned on training pairs: the published ones, or
+those of a checkpoint written by ``satreg train``. Its flow, one vector per
+pixel, is returned as a ``Dense`` displacement and scored like any other. Needs
+the ``dl`` extra.
 """
 
 import functools
@@ -15,6 +16,8 @@ import numpy as np
 
 from ..compute import TorchMeter
 from ..displacement import Dense
+from ..weights import fetch as fetch_released
+from ..weights import released
 from . import deep
 
 # Model name to torchvision builder, weights enum and weights, pinned by name so
@@ -134,6 +137,12 @@ def _fine_tuned(model: str, checkpoint: str, device: str) -> Any:
     return network
 
 
+@functools.cache
+def _released_file(name: str) -> str:
+    """Fetch published weights and check their hash once per process."""
+    return str(fetch_released(name))
+
+
 def estimate(
     network: Any,
     reference: np.ndarray,
@@ -178,14 +187,17 @@ class Raft:
         iterations: Recurrent refinements of the flow, at least one.
         device: ``"cpu"``, ``"mps"`` or ``"cuda"``.
         checkpoint: Path of a checkpoint written by ``satreg train`` whose
-            weights replace the pretrained ones; empty for the pretrained
-            weights.
+            weights replace the pretrained ones: a training still at work.
+        release: Name of published fine-tuned weights, a key of
+            ``weights.RELEASED``, downloaded on first use. With neither, the
+            pretrained weights.
     """
 
     model: str = "large"
     iterations: int = 12
     device: str = "cpu"
     checkpoint: str = ""
+    release: str = ""
 
     def __post_init__(self) -> None:
         if self.model not in MODELS:
@@ -195,6 +207,16 @@ class Raft:
         if self.iterations < 1:
             raise ValueError(f"iterations must be positive, got {self.iterations}")
         deep.check_device(self.device)
+        if self.checkpoint and self.release:
+            raise ValueError(
+                "a method takes its weights from a checkpoint or from a release, "
+                f"not both: got {self.checkpoint!r} and {self.release!r}"
+            )
+        if self.release and (trained := released(self.release).model) != self.model:
+            raise ValueError(
+                f"the released weights {self.release} are for a {trained} model, "
+                f"the method asks for {self.model}"
+            )
 
     @property
     def meter(self) -> TorchMeter:
@@ -214,9 +236,13 @@ class Raft:
         Raises:
             FileNotFoundError: If the method's checkpoint is not there.
             ValueError: If the checkpoint holds the other model.
+            WeightsUnavailable: If the released weights are not cached and
+                cannot be downloaded.
+            WeightsRefused: If the downloaded file is not the pinned one.
         """
-        if self.checkpoint:
-            return _fine_tuned(self.model, self.checkpoint, self.device)
+        if self.checkpoint or self.release:
+            path = self.checkpoint or _released_file(self.release)
+            return _fine_tuned(self.model, path, self.device)
         return deep.load_network(builder(self.model), self.weights(), self.device)
 
     def __call__(self, reference: np.ndarray, moving: np.ndarray) -> Dense:

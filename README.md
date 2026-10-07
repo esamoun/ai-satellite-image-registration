@@ -297,7 +297,7 @@ process makes 5.8 pairs per second: a translation or affine pair takes 11 to
 ```bash
 make train-overfit                # the overfit run: RAFT large, then small, on 8 pairs (M1, about 11 min)
 satreg train --config configs/train-overfit.toml --resume   # go on from the checkpoint
-satreg validate --config configs/validation.toml --light --methods raft raft_ft
+satreg validate --config configs/validation.toml --light --methods raft raft_ft_local
 ```
 
 `satreg train` fine-tunes RAFT on training pairs ([`train.py`](src/satreg/train.py)).
@@ -368,12 +368,14 @@ it has none. On Kaggle it costs what RAFT large costs, about 9 h: the GPU waits
 for the pairs 89 % of the time. The method `raft_small_ft_cross_date` loads the
 `best.pt` of `outputs/train/small-cross-date/`.
 
-The methods `raft_ft` and `raft_small_ft` of
+The methods `raft_ft_local` and `raft_small_ft_local` of
 [`configs/methods.toml`](configs/methods.toml) are RAFT with the weights of a
-checkpoint at a local path, `outputs/train/<method>/checkpoint.pt`, where
-`satreg train` writes by default. They run through the same commands as any
+checkpoint at a local path, `outputs/train/raft_ft/checkpoint.pt` and
+`outputs/train/raft_small_ft/checkpoint.pt`, where `satreg train` writes by
+default: a training still at work. They run through the same commands as any
 method; without the checkpoint, a command says where it is expected and their
-tests are skipped.
+tests are skipped. The weights a training ends with are published, and run as
+`raft_ft` and `raft_small_ft`: see [Fine-tuned weights](#fine-tuned-weights).
 
 The overfit run ([`configs/train-overfit.toml`](configs/train-overfit.toml))
 checks the loop, it does not make a model: 300 steps on the same 8 training
@@ -409,7 +411,10 @@ Both checkpoints then went through `satreg validate --light` like any method
 These rows show that a checkpoint reaches the table by the normal path, and
 nothing else: 8 pairs and 300 steps are not a training, the light set's failure
 rate is not reliable under `hard`, and no conclusion is drawn from them. The
-tables are in [`docs/results/n3/`](docs/results/n3/).
+tables are in [`docs/results/n3/`](docs/results/n3/). In them `raft_ft` and
+`raft_small_ft` are the two overfit checkpoints, read from their local path:
+the methods named `raft_ft_local` and `raft_small_ft_local` since the weights
+were published.
 
 ### Validation set
 
@@ -564,6 +569,58 @@ the benchmark's held-out sites have not been read. The tables are in
 [`docs/decisions.md`](docs/decisions.md), 2026-10-07.
 
 ![Training loss and light validation score of RAFT small and RAFT large](docs/results/n3/small-curves.png)
+
+### Fine-tuned weights
+
+```bash
+GITHUB_TOKEN=$(gh auth token) satreg fetch-weights   # once: 25 MB, to PyTorch's cache
+satreg validate --config configs/validation.toml --light --methods raft raft_ft
+```
+
+`raft_ft` and `raft_small_ft` are RAFT large and RAFT small with the weights
+the two trainings above kept, the `best.pt` of `large-cross-date` and of
+`small-cross-date`. The two files are assets of the GitHub release
+[`weights-n3`](https://github.com/esamoun/ai-satellite-image-registration/releases/tag/weights-n3),
+and `satreg` fetches them by itself, as torchvision does for the pretrained
+ones: on first use a method downloads its file to PyTorch's cache
+(`~/.cache/torch/hub/checkpoints/`), outside the repository, and checks its
+SHA-256 against the one pinned in [`src/satreg/weights.py`](src/satreg/weights.py).
+A file with another hash is refused and not kept. `satreg fetch-weights` does
+the same ahead of a run.
+
+Each published file is the `best.pt` itself, byte for byte: the network's
+weights with the training's configuration, chips and commit, and no optimiser
+state (21 MB and 4 MB). So the pinned hashes are the ones the tables above
+recorded in their `context-*.json`, and a test checks it. A JSON beside each
+asset repeats what the file says of its training, for a reader without PyTorch.
+
+**The token.** The repository is private for now, and so are its release
+assets: the download needs a GitHub token that can read the repository's
+contents, the one of `gh auth token` or a fine-grained token limited to this
+repository with *Contents: read-only*. `satreg` reads it from the environment
+variable `GITHUB_TOKEN`, sends it to `api.github.com` and nowhere else, and
+writes it nowhere: not to a file, not to `context.json`, not in a message.
+Without a token and without the files in the cache, a command that names
+`raft_ft` stops before its first pair and says to set one. No command runs the
+two methods unless they are named, the tests that need the files are skipped,
+and CI downloads nothing.
+
+| where | how the weights get there |
+|---|---|
+| M1 | `GITHUB_TOKEN=$(gh auth token) satreg fetch-weights`, once; or, with no token, `satreg fetch-weights --from outputs/release` after `satreg export-weights` |
+| Kaggle | the benchmark notebook runs `satreg fetch-weights` with the `GITHUB_TOKEN` secret that already clones the repository ([`docs/kaggle.md`](docs/kaggle.md)) |
+| CI | nothing is downloaded: the download is tested against a stand-in for GitHub, the wrong hash included |
+
+The day the repository is public, the same code downloads the same files
+without a token, from the release's public address, and the token and the
+Kaggle secret are no longer needed.
+
+**Publishing.** `satreg export-weights` copies each `best.pt` from
+`outputs/train/` to `outputs/release/` under its asset name, after checking it
+is the pinned file, writes the JSON and the release's notes, and prints the
+`gh release create` command; it publishes nothing. New weights are a new entry
+of `weights.RELEASED` and a new asset: an asset's name holds the start of its
+hash, so a file is never replaced under the same name.
 
 ### Under degraded conditions
 

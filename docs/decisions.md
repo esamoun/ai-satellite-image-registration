@@ -4105,3 +4105,108 @@ to report.
 `outputs/train/large-cross-date/` and `outputs/train/small-cross-date/`.
 Nothing went wrong in the training (no divergence, no session lost), so
 [`failures.md`](failures.md) has no entry for it.
+
+---
+
+## 2026-10-07: The fine-tuned weights are release assets, pinned by their SHA-256 in the code
+
+*My call* (on review, the options laid out): each training's `best.pt`
+published byte for byte, rather than a copy saved again with the network's
+weights alone; Kaggle reading the release with the secret it already has,
+rather than a private Kaggle dataset; a named method without its weights
+stopping the run, rather than being skipped as the ticket said.
+
+The two retained `best.pt` (entries of 2026-10-06 and 2026-10-07) leave the
+machine that scored them: `raft_ft` and `raft_small_ft` now download their
+weights on first use, as torchvision does for the pretrained ones. The file
+goes to PyTorch's cache, and is refused if its SHA-256 is not the one written
+in `src/satreg/weights.py`.
+
+**Why release assets.**
+
+- **One access control, one token.** A release asset is readable by whoever
+  can read the repository. While it is private that is one token, the one the
+  Kaggle notebook already has to clone the code. The day the repository goes
+  public the same address answers without a token, and nothing changes in the
+  code.
+- **No new dependency.** The download is two requests with the standard
+  library's `urllib`. Without the `dl` extra there is nothing to download for,
+  so the base install is untouched.
+- **The weights stay out of the history.** 21 MB and 4 MB today, and every
+  later training would add its own. A release holds them beside the code, a
+  clone does not carry them.
+
+**Why not Git LFS.** LFS keeps the files beside the code too, but every
+machine that clones needs the `git-lfs` client (the M1, Kaggle's image, the CI
+runner; not checked on Kaggle's), or it gets a pointer file where it expected
+weights. It also counts storage and bandwidth against a quota of the account,
+whose figures were not looked up. And it would make `git clone` the download,
+which is the wrong moment: CI and the classical methods never need the
+weights.
+
+**Why not the Hugging Face hub.** It is where published models usually live,
+and it would be a second account, a second token while the repository is
+private, and a second place where the weights and their description can drift
+from the code that scored them. It stays possible later as a mirror, once the
+repository is public: the SHA-256 in the code would cover it the same way.
+
+**What the hash is for.** The assets of a GitHub release can be replaced after
+it is published, so the release does not identify the weights; the SHA-256
+pinned in the code does. The published file is each training's `best.pt` byte
+for byte, not a re-saved copy, so that hash is the one already written in the
+`context-*.json` of the tables that scored it (`docs/results/n3/`): the
+weights a reader downloads are provably the ones the tables are about.
+`best.pt` already holds no optimiser state, and `satreg export-weights`
+refuses a file that does. What it keeps beyond the network's weights is the
+training's configuration, its commit and its kept validation, which is what
+the ticket asks to keep beside them; a JSON with the same content sits next to
+each asset for a reader without PyTorch.
+
+**Tokens.** `GITHUB_TOKEN` is read from the environment at the moment of the
+download and sent to `api.github.com` only: not to the host the asset is
+redirected to, not to a file, not to a log, and no command takes it as an
+option, since options are written to `context.json`. Without a token and
+without the file in the cache, a benchmark that names `raft_ft` stops before
+its first pair with a message that says to set one.
+
+**Kaggle reads the release, not a private dataset.** The benchmark notebook
+already holds a `GITHUB_TOKEN` secret to clone the code, so the same secret
+fetches the weights, with the same hash check as anywhere else. A private
+Kaggle dataset would have been a second copy to keep in step by hand.
+
+**CI downloads nothing.** CI installs no PyTorch and gets no token. The
+download is tested against a stand-in for GitHub (public address, API route
+with a token, refused token, missing release, wrong hash), and the tests that
+need the real weights skip when they are not in the cache.
+
+**The names.** `raft_ft` and `raft_small_ft` now mean the released weights.
+The local path of a training still at work, which they pointed to until now,
+is `raft_ft_local` and `raft_small_ft_local`. The tables of
+`docs/results/n3/` written before this entry that name `raft_ft` for the
+overfit checkpoints are left as they were.
+
+**What has to be kept in mind.**
+
+- **The real download has not run.** The release does not exist when this is
+  written: the unauthenticated address answers 404 (checked with `curl`), and
+  the API route with a token was only exercised against the stand-in. Its
+  first real run is after the release is published.
+- **What did run.** `satreg export-weights` wrote the two assets from the
+  retained runs, `satreg fetch-weights --from outputs/release` put them in the
+  cache through the same hash check, and the light validation set was scored
+  on the M1 with `raft_ft` and `raft_small_ft` next to the two methods that
+  read the same `best.pt` from `outputs/train/`: 360 pairs each, the same
+  estimate and the same error on every one, and the same SHA-256 in
+  `context.json` (`outputs/weights-check-light/`, not copied to the
+  repository).
+- **A named method stops the run, it is not skipped.** The ticket asks that
+  the methods skip without a token. A benchmark that names `raft_ft` and
+  cannot get its weights stops before its first pair, as it already does for
+  a local checkpoint that is missing, so that a table never lacks a method
+  silently. What is skipped is the tests, and the two methods are in no
+  default list.
+- **The README links a release that is not there yet.** The link answers 404
+  until the release `weights-n3` is published.
+- **The licence of the weights is not settled.** They start from torchvision's
+  pretrained RAFT weights and were trained on Sentinel-2 chips. What that
+  allows was not looked up, and matters the day the repository is public.

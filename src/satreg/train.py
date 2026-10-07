@@ -65,8 +65,12 @@ SESSION_KEYS = ("device", "workers")
 # Scores a network in evaluation mode after a number of steps.
 Validate = Callable[[Any, int], list[ValidationRow]]
 
-# Fine-tuned method each model's checkpoint is for, in configs/methods.toml.
+# Fine-tuned method of each model, in configs/methods.toml: it runs the
+# published weights, and names the directory a run writes to by default.
 METHOD_NAMES = {"large": "raft_ft", "small": "raft_small_ft"}
+
+# Method that loads a run's checkpoint from that directory, before any release.
+LOCAL_METHOD_NAMES = {model: f"{name}_local" for model, name in METHOD_NAMES.items()}
 
 
 @dataclass(frozen=True)

@@ -23,7 +23,10 @@ either side.
    repository, and store it in the notebook as a Kaggle secret named
    `GITHUB_TOKEN` (*Add-ons → Secrets*). The token goes to git through the
    environment only, never on a command line or in a file, so it is in neither
-   the clone nor the saved output. A public repository needs no secret.
+   the clone nor the saved output. The same token, the same way, downloads the
+   fine-tuned weights from the repository's release (see
+   [Weights and duration](#weights-and-duration)). A public repository needs
+   no secret.
 3. **Push the notebook**, either with the Kaggle CLI, whose own credentials stay in
    `~/.kaggle/kaggle.json` outside the repository:
 
@@ -327,8 +330,9 @@ Besides the machine, the thread settings and the library versions:
 
 - `code`: the commit the run was made from, and whether tracked files were
   modified (`dirty`);
-- `checkpoints`: for each fine-tuned method, the path of its checkpoint and
-  the file's SHA-256, so that a table names the weights it scored;
+- `checkpoints`: for each fine-tuned method, the file's SHA-256, with the
+  path of its checkpoint or, for published weights, their release and asset,
+  so that a table names the weights it scored;
 - `gpu`: the CUDA device (name, memory, count, compute capability) and the CUDA
   and cuDNN versions PyTorch was built with, `null` when the run did not load
   PyTorch or found no CUDA device;
@@ -349,6 +353,17 @@ about 120 MB for RAFT and LightGlue, 1.7 GB for RoMa, DINOv2 included. The
 notebook fetches them in their own cell, before the benchmark, and prints how long
 each step took.
 Set `WITH_ROMA = False` to skip RoMa (and its weights) for a quicker check.
+
+The fine-tuned weights of `raft_ft` and `raft_small_ft` (25 MB) come from the
+same place on Kaggle as on the M1: the release of the repository, read by
+`satreg fetch-weights` in a cell of its own, which checks each file against the
+SHA-256 pinned in the code. While the repository is private, that cell gives
+the command the token of the `GITHUB_TOKEN` secret through the environment,
+then drops it: the benchmark runs after it, from the cache, without the token.
+Set `WITH_FINE_TUNED = False` for a config that lists neither method. A private
+Kaggle dataset holding the two files would work too (`satreg fetch-weights
+--from` reads a folder, with the same check); it is not the route taken, since
+it is a second copy to upload by hand and keep in step with the release.
 
 The first full run of `configs/gpu.toml` (commit `0f96aa7`, `cost.run_seconds`)
 took 4.6 min on a T4, weights excluded, and 63 min on the M1's CPU. RoMa's two

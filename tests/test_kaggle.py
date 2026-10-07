@@ -85,3 +85,14 @@ def test_no_credentials_in_the_kaggle_files():
     assert TRAINING in paths
     for path in paths:
         assert not credential.search(path.read_text()), path
+
+
+def test_the_benchmark_notebook_fetches_the_fine_tuned_weights_before_the_run():
+    code = source(NOTEBOOK)
+
+    assert code.index('"fetch-weights"') < code.index('"benchmark"')
+    _parser().parse_args(["fetch-weights"])
+    # The token reaches the command through the environment, and is dropped
+    # before the benchmark, which reads the cache.
+    assert 'env["GITHUB_TOKEN"] = token' in code
+    assert code.index("del token") < code.index('"benchmark"')

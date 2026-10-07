@@ -89,15 +89,29 @@ min_reliability = 60.0
 method = "raft"
 model = "small"
 
-# RAFT fine-tuned on training pairs (N3): the weights of a checkpoint written
-# by `satreg train`, at a local path, in place of the pretrained ones.
-#   checkpoint  path of the checkpoint, relative to the working directory
+# RAFT fine-tuned on training pairs (N3), with the published weights: the kept
+# checkpoint of the retained training, an asset of a GitHub release, downloaded
+# to PyTorch's cache on first use and checked against the SHA-256 pinned in
+# src/satreg/weights.py (README, "Fine-tuned weights").
+#   release  name of the published weights, a key of weights.RELEASED
 [methods.raft_ft]
 method = "raft"
-checkpoint = "outputs/train/raft_ft/checkpoint.pt"
+release = "raft_large_ft"
 
 # The same for the small model.
 [methods.raft_small_ft]
+method = "raft"
+model = "small"
+release = "raft_small_ft"
+
+# A training still at work: the weights of a checkpoint written by
+# `satreg train`, read from where it writes by default.
+#   checkpoint  path of the checkpoint, relative to the working directory
+[methods.raft_ft_local]
+method = "raft"
+checkpoint = "outputs/train/raft_ft/checkpoint.pt"
+
+[methods.raft_small_ft_local]
 method = "raft"
 model = "small"
 checkpoint = "outputs/train/raft_small_ft/checkpoint.pt"

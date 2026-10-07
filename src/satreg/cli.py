@@ -2,7 +2,8 @@
 merge``, ``satreg real-pairs``, ``satreg check-presets``, ``satreg cycle``,
 ``satreg false-change``, ``satreg fetch-train``, ``satreg train-pairs``,
 ``satreg train``, ``satreg validate``, ``satreg validate-cycle``, ``satreg
-ablation`` and ``satreg small``."""
+ablation``, ``satreg small``, ``satreg fetch-weights`` and ``satreg
+export-weights``."""
 
 import argparse
 import dataclasses
@@ -26,6 +27,7 @@ from . import (
     validation,
 )
 from . import train as training
+from . import weights as published
 from .benchmark import (
     SCENARIOS,
     BenchmarkConfig,
@@ -100,6 +102,7 @@ DEFAULT_VALIDATION_CONFIG = Path("configs/validation.toml")
 DEFAULT_TRAIN_OUT = Path("outputs/train")
 DEFAULT_ABLATION_OUT = Path("outputs/ablation")
 DEFAULT_SMALL_OUT = Path("outputs/small")
+DEFAULT_RELEASE_OUT = Path("outputs/release")
 
 # The pretrained model and the two variants of the ablation, the same-date one
 # first (configs/methods.toml), and where `make ablation` scores the three,
@@ -447,7 +450,7 @@ def _parser(
     tuning = commands.add_parser(
         "train",
         help="fine-tune RAFT on training pairs and write a checkpoint the "
-        "fine-tuned methods load",
+        "local fine-tuned methods load",
     )
     tuning.add_argument(
         "--config",
@@ -512,7 +515,8 @@ def _parser(
         type=Path,
         help="where the checkpoint, the log and the run's description go (default: "
         f"{DEFAULT_TRAIN_OUT}/NAME, NAME being the fine-tuned method of the model, "
-        "raft_ft or raft_small_ft)",
+        "raft_ft or raft_small_ft; the methods raft_ft_local and "
+        "raft_small_ft_local load the checkpoint from there)",
     )
 
     validating = commands.add_parser(
@@ -593,6 +597,37 @@ def _parser(
         f"{ABLATION_VALIDATION}/ and {ABLATION_CLOSURE}/, where make small "
         "scores the four methods, and the report is written to it",
     )
+    fetching = commands.add_parser(
+        "fetch-weights",
+        help="download the published fine-tuned weights to PyTorch's cache and "
+        "check each file against the SHA-256 pinned in the code",
+    )
+    fetching.add_argument(
+        "names",
+        nargs="*",
+        metavar="NAME",
+        help=f"weights to fetch (default: all of {', '.join(published.RELEASED)})",
+    )
+    fetching.add_argument(
+        "--from",
+        dest="source",
+        type=Path,
+        metavar="DIR",
+        help="take the files from this directory instead of the release, with "
+        "the same check: what export-weights wrote, or a mounted dataset",
+    )
+    exporting = commands.add_parser(
+        "export-weights",
+        help="copy the kept weights of the retained trainings to the files a "
+        "release publishes, with a description of each, without publishing",
+    )
+    exporting.add_argument(
+        "--runs",
+        type=Path,
+        default=DEFAULT_TRAIN_OUT,
+        help="directory of the trainings, each with its best.pt",
+    )
+    exporting.add_argument("--out", type=Path, default=DEFAULT_RELEASE_OUT)
     if run_config:
         {
             "benchmark": bench,
@@ -1040,6 +1075,13 @@ def configured_methods(args: argparse.Namespace) -> dict[str, Method]:
                 f"satreg: method {name} needs its checkpoint at {checkpoint}, not "
                 "there: train it with satreg train (see the README)"
             )
+        # The same for published weights that cannot be had: downloaded here,
+        # once, if they are not in the cache.
+        if release := getattr(methods[name], "release", ""):
+            try:
+                published.fetch(release)
+            except (published.WeightsUnavailable, published.WeightsRefused) as exc:
+                raise SystemExit(f"satreg: method {name}: {exc}") from None
     chosen = {name: methods[name] for name in args.methods}
     if args.device:
         chosen = {
@@ -1121,26 +1163,35 @@ def _run_context(
 
 
 def _checkpoints(methods: dict[str, Method]) -> dict[str, dict[str, str]]:
-    """Name the weights of the fine-tuned methods of a run, by path and hash.
+    """Name the weights of the fine-tuned methods of a run, by origin and hash.
 
     A checkpoint's path says which training it comes from and not which
-    weights: a run that goes on rewrites the file. The hash does.
+    weights: a run that goes on rewrites the file. The hash does. Published
+    weights are named by their release and asset, not by where the cache is on
+    the machine that ran.
 
     Args:
         methods: The methods that ran.
 
     Returns:
-        Method name to the path and the SHA-256 of its checkpoint, for the
-        methods that have one.
+        Method name to the path, or the release and asset, and the SHA-256 of
+        its weights file, for the methods that have one.
     """
-    return {
-        name: {
-            "path": method.checkpoint,
-            "sha256": file_sha256(Path(method.checkpoint)),
-        }
-        for name, method in methods.items()
-        if getattr(method, "checkpoint", "")
-    }
+    recorded = {}
+    for name, method in methods.items():
+        if checkpoint := getattr(method, "checkpoint", ""):
+            recorded[name] = {
+                "path": checkpoint,
+                "sha256": file_sha256(Path(checkpoint)),
+            }
+        elif release := getattr(method, "release", ""):
+            weights = published.released(release)
+            recorded[name] = {
+                "release": weights.tag,
+                "asset": weights.asset,
+                "sha256": file_sha256(published.fetch(release)),
+            }
+    return recorded
 
 
 def _write_context(context: dict[str, object], out: Path) -> None:
@@ -1893,7 +1944,7 @@ def train(args: argparse.Namespace) -> str:
     # After the training: the GPU and PyTorch are described once it is loaded.
     context = environment()
 
-    name = training.METHOD_NAMES[run.model]
+    name = training.LOCAL_METHOD_NAMES[run.model]
     session = [r for r in result.log if r.step > result.first_step]
     seconds = sum(r.seconds for r in session)
     cycled = (
@@ -2375,6 +2426,84 @@ def read_small(args: argparse.Namespace) -> str:
     return table
 
 
+def fetch_weights(args: argparse.Namespace) -> list[Path]:
+    """Put the published fine-tuned weights in PyTorch's cache, checked.
+
+    Args:
+        args: Parsed ``fetch-weights`` arguments.
+
+    Returns:
+        The file of each of the weights asked for, in the cache.
+
+    Raises:
+        SystemExit: If PyTorch is not installed, a name is not one of the
+            published weights, or a file cannot be had or is not the one the
+            code pins.
+    """
+    if missing := missing_modules():
+        raise SystemExit(
+            f"satreg: fetch-weights needs {', '.join(missing)}, not installed "
+            "(see the README)"
+        )
+    try:
+        return [
+            published.fetch(name, args.source)
+            for name in args.names or published.RELEASED
+        ]
+    except (
+        ValueError,
+        published.WeightsUnavailable,
+        published.WeightsRefused,
+    ) as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+
+
+def export_weights(args: argparse.Namespace) -> str:
+    """Write the files of a release of the fine-tuned weights, unpublished.
+
+    Args:
+        args: Parsed ``export-weights`` arguments.
+
+    Returns:
+        The release's notes and the command that publishes it, as text. The
+        notes are also written to the output directory, as ``notes.md``.
+
+    Raises:
+        SystemExit: If PyTorch is not installed, or a training's kept weights
+            are missing or are not the file the code pins.
+    """
+    if missing := missing_modules():
+        raise SystemExit(
+            f"satreg: export-weights needs {', '.join(missing)}, not installed "
+            "(see the README)"
+        )
+    try:
+        cards = [
+            published.export(name, args.runs, args.out) for name in published.RELEASED
+        ]
+    except (FileNotFoundError, ValueError, published.WeightsRefused) as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+    notes = published.notes(cards)
+    (args.out / "notes.md").write_text(notes)
+    # One release holds them all today; one command per tag if that changes.
+    commands = []
+    for tag in dict.fromkeys(w.tag for w in published.RELEASED.values()):
+        files = " ".join(
+            str(args.out / name)
+            for weights in published.RELEASED.values()
+            if weights.tag == tag
+            for name in (weights.asset, weights.card)
+        )
+        commands.append(
+            f"    gh release create {tag} {files} --title {tag} "
+            f"--notes-file {args.out / 'notes.md'}\n"
+        )
+    return (
+        f"{notes}\nWritten to {args.out}. Nothing is published: the release is "
+        "created by hand, with\n\n" + "".join(commands)
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Parse arguments and run the requested command."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -2413,3 +2542,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(read_ablation(args), end="")
     elif args.command == "small":
         print(read_small(args), end="")
+    elif args.command == "fetch-weights":
+        for path in fetch_weights(args):
+            print(path)
+    elif args.command == "export-weights":
+        print(export_weights(args), end="")

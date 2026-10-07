@@ -4187,10 +4187,19 @@ overfit checkpoints are left as they were.
 
 **What has to be kept in mind.**
 
-- **The real download has not run.** The release does not exist when this is
-  written: the unauthenticated address answers 404 (checked with `curl`), and
-  the API route with a token was only exercised against the stand-in. Its
-  first real run is after the release is published.
+- **The real download ran once, after the release was published.** When this
+  entry was first written the release did not exist, and the API route with a
+  token had only been exercised against the stand-in. The release `weights-n3`
+  was then published by hand (`gh release create`, 2026-10-07) with the two
+  `.pth` and their `.json`, and the SHA-256 GitHub itself reports for the two
+  `.pth` are the pinned ones. From an empty cache on the M1: without a token
+  the command stops and says to set one (the address still answers 404, the
+  repository being private); with `GITHUB_TOKEN` both files come through the
+  API in about 5 seconds, 21,101,600 and 4,004,379 bytes, with the pinned
+  hashes; a second call without a token reads the cache, and each method gives
+  a dense displacement from the downloaded file.
+- **Two routes have still not run.** The notebook's cell on Kaggle, and the
+  public address without a token, which needs the repository public.
 - **What did run.** `satreg export-weights` wrote the two assets from the
   retained runs, `satreg fetch-weights --from outputs/release` put them in the
   cache through the same hash check, and the light validation set was scored
@@ -4205,8 +4214,6 @@ overfit checkpoints are left as they were.
   a local checkpoint that is missing, so that a table never lacks a method
   silently. What is skipped is the tests, and the two methods are in no
   default list.
-- **The README links a release that is not there yet.** The link answers 404
-  until the release `weights-n3` is published.
 - **The licence of the weights is not settled.** They start from torchvision's
   pretrained RAFT weights and were trained on Sentinel-2 chips. What that
   allows was not looked up, and matters the day the repository is public.

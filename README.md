@@ -656,18 +656,16 @@ retrained. All are declared in [`configs/methods.toml`](configs/methods.toml),
 where an ONNX method takes its file (`file`, a path, or `release`, a published
 file) and the threads a call may use (`threads`).
 
-The six fine-tuned files are pinned by their SHA-256 in
-[`src/satreg/weights.py`](src/satreg/weights.py) like the weights, and are meant
-to be assets of the release `weights-n3` beside them, downloaded on first use
-(`satreg fetch-weights` with no name fetches the eight files, about 100 MB).
-Running a fine-tuned model under ONNX Runtime then needs the `onnx` extra and
-neither PyTorch nor `satreg export`. On 2026-10-09 the six are not uploaded
-yet: `satreg export-weights` writes them to `outputs/release/` after
-`make onnx`, and `satreg fetch-weights --from outputs/release` puts them in the
-cache. The pretrained files are not published again: `make onnx` writes them
-from torchvision's weights. The export gave the same bytes twice on the M1;
-another version of PyTorch may not, which is why a published file is identified
-by its own hash and not by the weights it came from.
+The six fine-tuned files are assets of the release `weights-n3` beside the
+weights, pinned by their SHA-256 in
+[`src/satreg/weights.py`](src/satreg/weights.py) and downloaded on first use
+like them (`satreg fetch-weights` with no name fetches the eight files, about
+100 MB). So running a fine-tuned model under ONNX Runtime needs the `onnx`
+extra and neither PyTorch nor `satreg export`. The pretrained files are not
+published again: `make onnx` writes them from torchvision's weights. The export
+gave the same bytes twice on the M1; another version of PyTorch may not, which
+is why a published file is identified by its own hash and not by the weights
+it came from.
 
 ### The cost curve
 

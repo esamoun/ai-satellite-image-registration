@@ -4282,10 +4282,18 @@ pretrained files (a second copy of torchvision's weights to keep in step).
 - **Parity is checked at 256 px only.** The spike had compared at 512 px too
   and found the same order. Nothing in the benchmark runs another size under
   ONNX Runtime today.
-- **The release has to be updated by hand.** The six `.onnx` are written to
-  `outputs/release/` with the notes; until they are uploaded, the fine-tuned
-  ONNX methods run from the local cache only (`satreg fetch-weights --from
-  outputs/release`).
+- **The release was updated by hand, on 2026-10-09.** When this entry was
+  first written the six `.onnx` were in `outputs/release/` only, and the
+  fine-tuned ONNX methods ran from the local cache (`satreg fetch-weights
+  --from outputs/release`). They were then added to the release `weights-n3`
+  (`gh release upload`), and the SHA-256 GitHub itself reports for the six
+  are the pinned ones. From an empty cache on the M1, with `GITHUB_TOKEN`,
+  `satreg fetch-weights` brings the eight files in about 14 seconds, 102 MB,
+  with the pinned hashes; without a token, `raft_small_ft_onnx` and
+  `raft_ft_r4_onnx` then score the light validation set from the downloaded
+  files. The notes of the release were replaced the same day (`gh release
+  edit`, from `outputs/release/notes.md`) and list the six files with their
+  hashes.
 
 ## 2026-10-08: The refinement count and the runtime are part of a method's name
 

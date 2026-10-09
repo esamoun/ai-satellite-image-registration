@@ -1,0 +1,71 @@
+{
+  "recorded_at": "2026-10-08T17:58:21+00:00",
+  "code": {
+    "commit": "a2c7c113cc88e9bfff985a2928ddeecb745969c6",
+    "dirty": true
+  },
+  "machine": {
+    "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "cpu": "Apple M1",
+    "memory_gib": 8.0
+  },
+  "gpu": null,
+  "threads": {
+    "cpu_count": 8,
+    "usable_cpus": 8,
+    "opencv": 8,
+    "torch": 4,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+  },
+  "python": "3.13.7",
+  "libraries": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "scikit-image": "0.26.0",
+    "opencv-python-headless": "5.0.0.93",
+    "rasterio": "1.5.1",
+    "arosics": "1.13.2",
+    "GDAL": "3.13.3",
+    "torch": "2.14.0",
+    "torchvision": "0.29.0",
+    "onnx": "1.23.0",
+    "onnxruntime": "1.30.0"
+  },
+  "run": {
+    "methods": [
+      "raft",
+      "raft_small",
+      "raft_ft",
+      "raft_small_ft"
+    ],
+    "methods_config": "configs/methods.toml",
+    "out": "outputs/onnx",
+    "refinements": [
+      4,
+      8,
+      12
+    ]
+  },
+  "checkpoints": {
+    "raft_ft": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft-44bcc668.pth",
+      "sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13"
+    },
+    "raft_small_ft": {
+      "release": "weights-n3",
+      "asset": "raft_small_ft-b666aaad.pth",
+      "sha256": "b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137"
+    }
+  },
+  "export": {
+    "opset": 17,
+    "trace_side": 128,
+    "parity_tolerance_px": 0.001,
+    "parity_side": 256
+  }
+}

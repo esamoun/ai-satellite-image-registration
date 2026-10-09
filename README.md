@@ -573,7 +573,8 @@ the benchmark's held-out sites have not been read. The tables are in
 ### Fine-tuned weights
 
 ```bash
-GITHUB_TOKEN=$(gh auth token) satreg fetch-weights   # once: 25 MB, to PyTorch's cache
+# once: 25 MB, to PyTorch's cache
+GITHUB_TOKEN=$(gh auth token) satreg fetch-weights raft_large_ft raft_small_ft
 satreg validate --config configs/validation.toml --light --methods raft raft_ft
 ```
 
@@ -586,7 +587,7 @@ ones: on first use a method downloads its file to PyTorch's cache
 (`~/.cache/torch/hub/checkpoints/`), outside the repository, and checks its
 SHA-256 against the one pinned in [`src/satreg/weights.py`](src/satreg/weights.py).
 A file with another hash is refused and not kept. `satreg fetch-weights` does
-the same ahead of a run.
+the same ahead of a run, for the files it is given.
 
 Each published file is the `best.pt` itself, byte for byte: the network's
 weights with the training's configuration, chips and commit, and no optimiser
@@ -607,8 +608,8 @@ and CI downloads nothing.
 
 | where | how the weights get there |
 |---|---|
-| M1 | `GITHUB_TOKEN=$(gh auth token) satreg fetch-weights`, once; or, with no token, `satreg fetch-weights --from outputs/release` after `satreg export-weights` |
-| Kaggle | the benchmark notebook runs `satreg fetch-weights` with the `GITHUB_TOKEN` secret that already clones the repository ([`docs/kaggle.md`](docs/kaggle.md)) |
+| M1 | `GITHUB_TOKEN=$(gh auth token) satreg fetch-weights raft_large_ft raft_small_ft`, once; or, with no token, `satreg fetch-weights --from outputs/release` after `satreg export-weights` |
+| Kaggle | the benchmark notebook runs `satreg fetch-weights` for the two files with the `GITHUB_TOKEN` secret that already clones the repository ([`docs/kaggle.md`](docs/kaggle.md)) |
 | CI | nothing is downloaded: the download is tested against a stand-in for GitHub, the wrong hash included |
 
 The day the repository is public, the same code downloads the same files
@@ -621,6 +622,106 @@ is the pinned file, writes the JSON and the release's notes, and prints the
 `gh release create` command; it publishes nothing. New weights are a new entry
 of `weights.RELEASED` and a new asset: an asset's name holds the start of its
 hash, so a file is never replaced under the same name.
+
+### RAFT under ONNX Runtime
+
+```bash
+make install-onnx   # onnx and onnxruntime, beside the dl extra
+make onnx           # satreg export: twelve files in outputs/onnx/, half a minute
+satreg validate --config configs/validation.toml --light --methods raft_ft raft_ft_onnx
+```
+
+`satreg export` writes RAFT to [ONNX](https://onnx.ai), a file format a network
+is saved in with its weights, which ONNX Runtime then runs on the CPU without
+PyTorch. One file holds one model, its weights and a fixed number of
+refinements of the flow (the loop is unrolled in the file), with the image size
+left free: the large and the small model, pretrained and fine-tuned, with 4, 8
+and 12 refinements, twelve files. Each is checked before it is kept: its flow
+under ONNX Runtime against PyTorch's on one 256 px pair, refused over 0.001 px.
+The twelve are between 1.3e-5 and 5.1e-5 px apart
+([`docs/results/n3/onnx.md`](docs/results/n3/onnx.md)). That is one pair. Over
+the 360 pairs of the light validation set the two runtimes agree wherever the
+model works, to 2.2e-6 px for the fine-tuned models. On pairs both fail, far
+from the truth, the pretrained models come apart by up to 0.2 px (large) and
+1.0 px (small); no pair changes verdict. A file says what it holds (model,
+refinements, the weights' name and SHA-256) in its metadata, and a run that
+uses it records that in `context.json`.
+
+Every RAFT method has its twin under ONNX Runtime, named with `_onnx`, and both
+exist with fewer refinements, named with `_r4` and `_r8`: `raft_small_ft_r4` is
+RAFT small, fine-tuned, with 4 refinements under PyTorch, and
+`raft_small_ft_r4_onnx` the same model under ONNX Runtime. The weights are the
+same as with 12 refinements, the count they were trained with; nothing is
+retrained. All are declared in [`configs/methods.toml`](configs/methods.toml),
+where an ONNX method takes its file (`file`, a path, or `release`, a published
+file) and the threads a call may use (`threads`).
+
+The six fine-tuned files are pinned by their SHA-256 in
+[`src/satreg/weights.py`](src/satreg/weights.py) like the weights, and are meant
+to be assets of the release `weights-n3` beside them, downloaded on first use
+(`satreg fetch-weights` with no name fetches the eight files, about 100 MB).
+Running a fine-tuned model under ONNX Runtime then needs the `onnx` extra and
+neither PyTorch nor `satreg export`. On 2026-10-09 the six are not uploaded
+yet: `satreg export-weights` writes them to `outputs/release/` after
+`make onnx`, and `satreg fetch-weights --from outputs/release` puts them in the
+cache. The pretrained files are not published again: `make onnx` writes them
+from torchvision's weights. The export gave the same bytes twice on the M1;
+another version of PyTorch may not, which is why a published file is identified
+by its own hash and not by the weights it came from.
+
+### The cost curve
+
+```bash
+make curve                      # four runs on the M1, about 5 hours in all
+satreg footprint --methods raft_ft_onnx raft_ft --out outputs/footprint
+satreg curve --out outputs/curve
+```
+
+The cost curve is what each RAFT model costs against what it gets right: the
+large and the small model, pretrained and fine-tuned, with 4, 8 and 12
+refinements, under ONNX Runtime on the M1's CPU, with the classic methods
+beside them. `make curve` runs what it reads, one run at a time and with
+nothing else on the machine: the twelve models under PyTorch on the full
+validation set (2 h 07), for what fewer refinements do to the error; the
+twelve under ONNX Runtime with the classic methods, then under PyTorch, on the
+light validation set and on the CPU ([`configs/curve.toml`](configs/curve.toml),
+1 h 45 and 1 h 02), for their time; and their footprints (6 minutes), for
+their memory. `satreg curve` then writes the tables, `points.csv` and the
+figure, and refuses runs that were not made on the same pairs.
+
+![Error and failures against time, error against memory, for the twelve points](docs/results/n3/curve.png)
+
+| model, fine-tuned | refinements | EPE (px) | failures | time, ONNX Runtime (ms) | time, PyTorch (ms) | memory added, ONNX Runtime (MiB) | memory added, PyTorch (MiB) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| RAFT large | 4 | 0.0963 | 0.0 % | 464 | 239 | 81.4 | 295.0 |
+| RAFT large | 8 | 0.0878 | 0.0 % | 713 | 305 | 83.8 | 295.0 |
+| RAFT large | 12 | 0.0854 | 0.0 % | 964 | 371 | 86.2 | 297.4 |
+| RAFT small | 4 | 0.1680 | 1.7 % | 141 | 52 | 45.2 | 79.9 |
+| RAFT small | 8 | 0.1461 | 0.0 % | 253 | 79 | 47.5 | 83.7 |
+| RAFT small | 12 | 0.1424 | 0.0 % | 360 | 106 | 49.6 | 83.7 |
+
+On these 360 validation pairs, phase correlation is at 0.2165 px and 1.7 % of
+failures in 5.3 ms, and SIFT + RANSAC at 0.1257 px and 16.9 % in 21 ms. The
+pretrained points, the whole-process memory and the effect of fewer
+refinements on the 3,600 pairs are in
+[`docs/results/n3/curve.md`](docs/results/n3/curve.md). What it says:
+
+- Run with 8 refinements instead of the 12 they were trained with, the
+  fine-tuned models lose under 0.005 px; with 4, 0.013 px for the large one
+  and 0.037 px for the small one. Nothing is retrained.
+- On this CPU ONNX Runtime is 1.9 to 3.5 times slower than PyTorch, and adds
+  32 to 213 MiB less to a process. What the export brings here is a model that
+  runs without PyTorch and in less memory, not a faster one.
+- A time under ONNX Runtime depends on what the machine did just before: a
+  call on a rested machine takes 640 ms where the sustained run reads 905 ms
+  (RAFT large, pretrained, 12 refinements), and PyTorch does not move. The
+  curve gives the sustained run; differences under 10 % between two points
+  are not to be read.
+
+The table has no GPU column yet: no run on a GPU was made. `satreg curve` adds
+one when it finds a run of the PyTorch methods on Kaggle in
+`outputs/curve/gpu-light` ([`docs/kaggle.md`](docs/kaggle.md)). The held-out
+sites are not read by any of this.
 
 ### Under degraded conditions
 
@@ -647,7 +748,12 @@ what it really uses; the limits are measured in
 way: the device is synchronised before each clock read, and memory is the peak
 held by tensors (read by PyTorch's profiler on CPU, by CUDA's counter on GPU, and
 not available on MPS). The table's footnote says which methods were measured
-which way. `context.json` records the CPU, memory, thread settings, library
+which way. A method run by ONNX Runtime has no memory figure per call (no
+counter sees what it allocates): its memory is its *footprint*, what calling
+it adds to the resident memory of a new process that does nothing else, read
+by `satreg footprint` in three processes. It counts the weights and what the
+runtime keeps, so it is not compared with a peak per call. `context.json`
+records the CPU, memory, thread settings, library
 versions, the commit, the GPU if one was used, and each method's device, so
 that runs on different machines are not mixed up. The table has a `device`
 column.

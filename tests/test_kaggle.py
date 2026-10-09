@@ -7,6 +7,7 @@ import pytest
 
 from satreg.cli import _parser
 from satreg.train import load_train_config
+from satreg.weights import RELEASED
 
 ROOT = Path(__file__).parents[1]
 KAGGLE = ROOT / "kaggle"
@@ -89,10 +90,28 @@ def test_no_credentials_in_the_kaggle_files():
 
 def test_the_benchmark_notebook_fetches_the_fine_tuned_weights_before_the_run():
     code = source(NOTEBOOK)
+    benchmark = code.index('command = [COMMAND, "--config", CONFIG')
 
-    assert code.index('"fetch-weights"') < code.index('"benchmark"')
-    _parser().parse_args(["fetch-weights"])
+    assert code.index('"fetch-weights"') < benchmark
+    # The weights PyTorch loads, all of them; the ONNX files run on a CPU.
+    names = re.search(r"names = (\[.+\])$", code, re.MULTILINE)
+    assert ast.literal_eval(names.group(1)) == list(RELEASED)
+    _parser().parse_args(["fetch-weights", *RELEASED])
     # The token reaches the command through the environment, and is dropped
     # before the benchmark, which reads the cache.
     assert 'env["GITHUB_TOKEN"] = token' in code
-    assert code.index("del token") < code.index('"benchmark"')
+    assert code.index("del token") < benchmark
+
+
+def test_the_benchmark_notebook_runs_a_command_given_as_a_parameter():
+    parameters = ast.parse("".join(code_cells(NOTEBOOK)[0]["source"]))
+    set_there = {
+        node.targets[0].id: ast.literal_eval(node.value) for node in parameters.body
+    }
+
+    assert (set_there["COMMAND"], set_there["OPTIONS"]) == ("benchmark", [])
+    # A light run of `validate` writes beside the directory it is given, which
+    # is where the notebook then reads the run's context.
+    code = source(NOTEBOOK)
+    assert 'out = out.with_name(out.name + "-light")' in code
+    assert code.index('"-light"') > code.index('command = [COMMAND, "--config"')

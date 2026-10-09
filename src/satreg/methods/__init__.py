@@ -14,12 +14,13 @@ import tomllib
 from pathlib import Path
 
 from ..compute import TRACEMALLOC, Meter
-from . import arosics, deep, lightglue, roma
+from . import arosics, deep, lightglue, raft_onnx, roma
 from .arosics import Arosics
 from .base import Estimate, GeoreferencedMethod, Method, RegistrationFailure
 from .lightglue import LightGlue
 from .phase_correlation import PhaseCorrelation, phase_correlation
 from .raft import Raft
+from .raft_onnx import RaftOnnx
 from .roma import Roma
 from .sift_ransac import SiftRansac
 
@@ -45,12 +46,14 @@ METHODS: dict[str, Method] = {
 }
 
 # Methods whose parameters a configuration file can set, by the class that
-# builds them from those parameters.
+# builds them from those parameters. `raft_onnx` is not one of `METHODS`: it
+# runs a file, and has none until a configuration names one.
 _CONFIGURABLE: dict[str, type] = {
     "arosics": Arosics,
     "lightglue": LightGlue,
     "phase_correlation": PhaseCorrelation,
     "raft": Raft,
+    "raft_onnx": RaftOnnx,
     "roma": Roma,
     "sift_ransac": SiftRansac,
 }
@@ -68,6 +71,7 @@ _OPTIONAL = {
     Arosics: arosics.missing_modules,
     LightGlue: lightglue.missing_modules,
     Raft: deep.missing_modules,
+    RaftOnnx: raft_onnx.missing_modules,
     Roma: roma.missing_modules,
 }
 

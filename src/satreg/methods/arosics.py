@@ -7,6 +7,7 @@ runs, so the rest of the package works without them.
 
 import importlib.util
 from dataclasses import dataclass
+from typing import ClassVar
 
 import numpy as np
 
@@ -54,6 +55,9 @@ class Arosics(GeoreferencedMethod):
     max_shift: float = 5.0
     max_iter: int = 5
     min_reliability: float = 40.0
+
+    # Modules the method runs on, imported before its memory footprint is read.
+    runtime: ClassVar[tuple[str, ...]] = REQUIRED_MODULES
 
     def __post_init__(self) -> None:
         if self.window < 1:

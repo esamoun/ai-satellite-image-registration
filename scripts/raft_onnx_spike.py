@@ -6,6 +6,9 @@ PyTorch's on one simulated Beauce pair, and checks that dynamic int8
 quantization runs. Findings are in docs/decisions.md. Needs the ``dl`` extra
 plus ``onnx``, ``onnxruntime`` and ``onnxscript``.
 
+Kept as the record of what N2 measured. The files the project runs are written
+by ``satreg export`` (``src/satreg/onnxexport.py``) since N3 ticket 10.
+
     python scripts/raft_onnx_spike.py --model large --exporter legacy
 """
 

@@ -1,0 +1,63 @@
+# The cost of the points of the N3 cost curve, on the CPU: RAFT large and small,
+# pretrained and fine-tuned, with 4, 8 and 12 refinements, run by ONNX Runtime,
+# with the classic methods beside them.
+#
+#   satreg validate --config configs/curve.toml --light --out outputs/curve/onnx
+#   satreg validate --config configs/curve.toml --light --out outputs/curve/torch \
+#       --methods <the same models under PyTorch>
+#
+# `make curve` runs both, and the rest of what `satreg curve` reads. The pairs
+# are the light validation set of configs/validation.toml, 4 chips x 3 scenarios
+# x 3 presets x 10 pairs = 360: a test checks that every option that draws them
+# is the same in the two files. What differs is the cost: every method on the
+# CPU, and each call timed three times after a warm-up, as in configs/n2-cost.toml.
+# About 1 h 45 on the M1 for the first run and 1 h for the second. The reasoning
+# is in docs/decisions.md.
+[validate]
+chips = ["santerre", "lyon", "morvan", "sete"]
+scenarios = ["translation", "affine", "dense"]
+degradations = ["clean", "mild", "hard"]
+methods = [
+    "raft_r4_onnx",
+    "raft_r8_onnx",
+    "raft_onnx",
+    "raft_ft_r4_onnx",
+    "raft_ft_r8_onnx",
+    "raft_ft_onnx",
+    "raft_small_r4_onnx",
+    "raft_small_r8_onnx",
+    "raft_small_onnx",
+    "raft_small_ft_r4_onnx",
+    "raft_small_ft_r8_onnx",
+    "raft_small_ft_onnx",
+    "phase_correlation",
+    "sift_ransac",
+    "arosics",
+]
+device = "cpu"
+
+pairs = 100
+size = 256
+seed = 0
+
+light_pairs = 10
+subset_sizes = [5, 10, 20, 50]
+
+max_shift = 4.0
+max_rotation = 0.2
+max_scale_change = 0.002
+max_shear = 0.002
+max_local_shift = 0.8
+local_length = 64.0
+
+failure_threshold = 1.0
+warmup = 1
+repeats = 3
+
+train_config = "configs/train-sites.toml"
+series_config = "configs/real.toml"
+sites_config = "configs/sites.toml"
+degradations_config = "configs/degradations.toml"
+methods_config = "configs/methods.toml"
+data_dir = "data"
+out = "outputs/curve/onnx"

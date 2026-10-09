@@ -104,6 +104,121 @@ method = "raft"
 model = "small"
 release = "raft_small_ft"
 
+# The refinement axis of the cost curve (N3): the four models above with 8 and
+# 4 refinements in place of 12, the count the fine-tuned ones were trained
+# with. No retraining: the weights are the same, the loop stops earlier.
+[methods.raft_r8]
+method = "raft"
+iterations = 8
+
+[methods.raft_r4]
+method = "raft"
+iterations = 4
+
+[methods.raft_small_r8]
+method = "raft"
+model = "small"
+iterations = 8
+
+[methods.raft_small_r4]
+method = "raft"
+model = "small"
+iterations = 4
+
+[methods.raft_ft_r8]
+method = "raft"
+release = "raft_large_ft"
+iterations = 8
+
+[methods.raft_ft_r4]
+method = "raft"
+release = "raft_large_ft"
+iterations = 4
+
+[methods.raft_small_ft_r8]
+method = "raft"
+model = "small"
+release = "raft_small_ft"
+iterations = 8
+
+[methods.raft_small_ft_r4]
+method = "raft"
+model = "small"
+release = "raft_small_ft"
+iterations = 4
+
+# RAFT run by ONNX Runtime on the CPU, without PyTorch, an optional extra
+# (make install-onnx). A file holds one model, its weights and a fixed number
+# of refinements, so each method above has its twin here, under its name with
+# `_onnx`: the same model, read from the file `satreg export` wrote for it.
+#   file     path of an ONNX file, relative to the working directory
+#   release  or the name of a published one, a key of weights.RELEASED_ONNX,
+#            downloaded on first use and checked like the weights
+#   threads  threads a call may use, 0 to let ONNX Runtime choose; 4 is what
+#            PyTorch takes on the M1, its performance cores
+# The pretrained models are not published again: `satreg export` writes their
+# files to outputs/onnx from torchvision's weights.
+
+[methods.raft_onnx]
+file = "outputs/onnx/raft_large_r12.onnx"
+threads = 4
+
+[methods.raft_r8_onnx]
+method = "raft_onnx"
+file = "outputs/onnx/raft_large_r8.onnx"
+threads = 4
+
+[methods.raft_r4_onnx]
+method = "raft_onnx"
+file = "outputs/onnx/raft_large_r4.onnx"
+threads = 4
+
+[methods.raft_small_onnx]
+method = "raft_onnx"
+file = "outputs/onnx/raft_small_r12.onnx"
+threads = 4
+
+[methods.raft_small_r8_onnx]
+method = "raft_onnx"
+file = "outputs/onnx/raft_small_r8.onnx"
+threads = 4
+
+[methods.raft_small_r4_onnx]
+method = "raft_onnx"
+file = "outputs/onnx/raft_small_r4.onnx"
+threads = 4
+
+# The fine-tuned models, from the release.
+[methods.raft_ft_onnx]
+method = "raft_onnx"
+release = "raft_large_ft_r12"
+threads = 4
+
+[methods.raft_ft_r8_onnx]
+method = "raft_onnx"
+release = "raft_large_ft_r8"
+threads = 4
+
+[methods.raft_ft_r4_onnx]
+method = "raft_onnx"
+release = "raft_large_ft_r4"
+threads = 4
+
+[methods.raft_small_ft_onnx]
+method = "raft_onnx"
+release = "raft_small_ft_r12"
+threads = 4
+
+[methods.raft_small_ft_r8_onnx]
+method = "raft_onnx"
+release = "raft_small_ft_r8"
+threads = 4
+
+[methods.raft_small_ft_r4_onnx]
+method = "raft_onnx"
+release = "raft_small_ft_r4"
+threads = 4
+
 # A training still at work: the weights of a checkpoint written by
 # `satreg train`, read from where it writes by default.
 #   checkpoint  path of the checkpoint, relative to the working directory

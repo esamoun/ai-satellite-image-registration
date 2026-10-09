@@ -8,6 +8,9 @@ allocations made through Python's allocators, NumPy's array buffers included, bu
 not memory that native code (OpenCV, GDAL, FFT or BLAS scratch) allocates for
 itself. ``docs/decisions.md`` measures how much that misses. PyTorch methods
 use a ``TorchMeter`` instead, since ``tracemalloc`` does not see tensors either.
+ONNX Runtime's memory is seen by neither, nor by anything else a call can be
+wrapped in: its methods are timed only, and their memory is read in a process
+of their own (``satreg.footprint``).
 """
 
 import contextlib
@@ -42,6 +45,8 @@ LIBRARIES = (
     "GDAL",
     "torch",
     "torchvision",
+    "onnx",
+    "onnxruntime",
 )
 
 # Environment variables that cap the threads of native libraries.
@@ -116,6 +121,11 @@ MEMORY_READINGS = {
     "torch-cpu": "the peak held by CPU tensors, from PyTorch's profiler",
     "cuda": "the peak held by CUDA tensors",
     "none": "not measured, as no counter is available on the device",
+    "onnxruntime": (
+        "not measured call by call, as no counter sees what ONNX Runtime "
+        "allocates (its memory is read in a process of its own, by satreg "
+        "footprint)"
+    ),
 }
 
 
@@ -270,6 +280,29 @@ class TorchMeter:
             return torch_cpu_peak(call)
         _attempt(call)
         return math.nan
+
+
+@dataclass(frozen=True)
+class OnnxRuntimeMeter:
+    """Cost of an ONNX Runtime method's calls: their time, and no memory.
+
+    ONNX Runtime allocates in native code, outside Python's allocators and
+    outside PyTorch: neither ``tracemalloc`` nor the profiler sees it. The
+    process's resident memory does, but not call by call (see
+    docs/decisions.md), so the memory call is not made at all.
+    """
+
+    name: str = "onnxruntime"
+
+    def synchronize(self) -> None:
+        """Nothing to wait for: a session's run returns when its work is done."""
+
+    def peak_mib(self, call: Callable[[], object]) -> float:
+        """NaN, without running the call."""
+        return math.nan
+
+
+ONNXRUNTIME = OnnxRuntimeMeter()
 
 
 def measure(

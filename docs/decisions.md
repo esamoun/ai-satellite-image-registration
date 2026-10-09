@@ -4217,3 +4217,420 @@ overfit checkpoints are left as they were.
 - **The licence of the weights is not settled.** They start from torchvision's
   pretrained RAFT weights and were trained on Sentinel-2 chips. What that
   allows was not looked up, and matters the day the repository is public.
+
+## 2026-10-08: RAFT is exported by `satreg export`, one ONNX file per model, weights and refinement count
+
+**Decision.** The export leaves the spike's script and becomes a command,
+`satreg export`, whose code is `src/satreg/onnxexport.py`. One file holds one
+network, its weights and a fixed number of refinements: RAFT large and small,
+pretrained and fine-tuned, with 4, 8 and 12 refinements, twelve files in
+`outputs/onnx/` (`make onnx`, half a minute on the M1). The recipe is the one
+the spike of 2026-09-24 retained: PyTorch's TorchScript-based exporter
+(`dynamo=False`), opset 17, the image size left free, the network traced on the
+CPU on a blank 128 px pair. A file returns the flow of its last refinement
+only, where torchvision's network returns one per refinement.
+
+**Why one file per count.** The refinement loop is a Python loop, which the
+exporter unrolls (entry of 2026-09-24): a file cannot be asked for another
+count. Three counts are three files of almost the same size (21.2 to 21.5 MB
+for the large model, 4.1 to 4.3 MB for the small one), since the loop's weights
+are written once and shared. The file's name says what it holds
+(`raft_small_ft_r4.onnx`: RAFT small, fine-tuned, 4 refinements), and so does
+its metadata: model, refinements, whether the weights are fine-tuned, their
+file name and their SHA-256. A run that uses a file records that metadata in
+`context.json`, so a table names the weights it scored even when PyTorch never
+loaded them.
+
+**Parity.** Before a file is kept, its flow under ONNX Runtime is compared with
+PyTorch's on one 256 px pair (a synthetic texture shifted by 1.37 and -2.61 px,
+a size the network was not traced on), on the CPU, at every pixel. Over 0.001
+px the command fails and names the file, and writes no table. The threshold is
+a hundredth of the 0.1 px the project aims at; the spike had measured up to
+3.6e-4 px. The twelve files are between 1.3e-5 and 5.1e-5 px from PyTorch
+(`docs/results/n3/onnx.md`), the difference growing with the refinement count
+as rounding accumulates. This is one pair: the cost runs of the curve compare
+the two runtimes on the 360 pairs of the light validation set.
+
+**What is published.** The six fine-tuned files join the release `weights-n3`
+beside the two `.pth` they were exported from, each pinned by its SHA-256 in
+`src/satreg/weights.py` and downloaded on first use through the same check as
+the weights (entry of 2026-10-07). The six pretrained files are not published:
+they are torchvision's weights in another format, which `make onnx` writes
+again from torchvision's own download. Exporting twice on the M1 gave the same
+bytes. Another version of PyTorch or of the exporter may not, which is why a
+published file is identified by its own hash, with the hash of its weights in
+its metadata, and not by the weights alone.
+
+**The spike's script stays.** `scripts/raft_onnx_spike.py` is kept as the
+record of what N2 measured (the two exporters, the fixed and the free size,
+the first quantization), with a line saying that `satreg export` replaced it.
+It is not tested and not run by any target.
+
+**Rejected.** A single file with the count as an input (it would need an ONNX
+`Loop`, which neither exporter writes from torchvision's code, so RAFT's
+forward pass would have to be rewritten). The dynamo exporter (slower to
+export and cannot write opset 17; still the fallback the day PyTorch drops
+the TorchScript one, which warns of its age at every export). Publishing the
+pretrained files (a second copy of torchvision's weights to keep in step).
+
+**What has to be kept in mind.**
+
+- **The warnings of the export are silenced.** The tracer warns of every value
+  it writes as a constant, and PyTorch of the exporter's deprecation. They are
+  the ones the spike listed; a new one would not be seen. The parity check is
+  what stands in for them.
+- **Parity is checked at 256 px only.** The spike had compared at 512 px too
+  and found the same order. Nothing in the benchmark runs another size under
+  ONNX Runtime today.
+- **The release has to be updated by hand.** The six `.onnx` are written to
+  `outputs/release/` with the notes; until they are uploaded, the fine-tuned
+  ONNX methods run from the local cache only (`satreg fetch-weights --from
+  outputs/release`).
+
+## 2026-10-08: The refinement count and the runtime are part of a method's name
+
+**Decision.** A point of the cost curve is a method of `configs/methods.toml`
+like any other. The count is the `iterations` option RAFT already had, and the
+methods with fewer refinements are named with `_r4` and `_r8`; the one without
+a suffix keeps 12, the count the fine-tuned weights were trained with and
+torchvision's default. Every one has a twin run by ONNX Runtime, named with
+`_onnx`: `raft_small_ft_r4` is RAFT small, fine-tuned, 4 refinements, under
+PyTorch, and `raft_small_ft_r4_onnx` the same model from its exported file.
+That is 24 methods for 12 models, so the PyTorch and the ONNX Runtime columns
+of a table describe the same weights with the same count, and a test checks it
+on the configuration (`curve.check_methods`).
+
+**The ONNX Runtime method.** `raft_onnx` (`src/satreg/methods/raft_onnx.py`)
+takes a file, by path (`file`) or by the name of a published one (`release`),
+and the threads a call may use (`threads`). It prepares the images with the
+same code as `raft`, runs the file on the CPU, and imports no PyTorch. It
+needs a new optional extra, `onnx` (`onnx` to write the files' metadata and
+`onnxruntime` to run them), separate from `dl`: running a fine-tuned model
+from the release needs `onnx` alone, exporting needs both. Without the extra,
+a run that names one of them stops before its first pair and says what to
+install, as for the deep methods without `dl`. CI installs neither, and the
+tests that need ONNX Runtime skip there.
+
+**Threads.** Every ONNX method is given 4, the count PyTorch takes by itself
+on the M1 (`context.json` records it), so that the two runtimes are timed with
+the same number. What ONNX Runtime would pick left to itself (`threads = 0`)
+was not measured.
+
+**No retraining.** A model run with 4 or 8 refinements uses the weights
+trained with 12: the loop stops earlier. What that costs in accuracy is read
+on the validation set and written in the entry on the curve.
+
+**Rejected.** A `--iterations` option of the run in place of named methods (a
+table could then hold two rows with one name and different counts). The count
+read from the ONNX file by a single `raft_onnx` method whose file is given on
+the command line (same reason, and the configuration would no longer say what
+a run compared). Putting `onnxruntime` in the `dl` extra (it would bring
+PyTorch along to a machine that only runs the exported files).
+
+## 2026-10-08: Memory under ONNX Runtime is a footprint, read in new processes
+
+**Decision.** A method run by ONNX Runtime has no memory figure per call: in a
+run's table its memory column says `n/a`, as for MPS. What the cost curve gives
+is the method's *footprint*, read by `satreg footprint` apart from any run. A
+new process imports the method's runtime, builds one 256 px pair, reads its
+resident high-water mark (`ru_maxrss`), calls the method 10 times and reads the
+mark again: the rise is the footprint. Each method is read in 3 such processes,
+started one after the other and never forked, every method once before any is
+read again. The reading kept is the one whose rise is the median, and the
+lowest and the highest rise are written beside it. The PyTorch models and the
+classic methods are read the same way, so that the memory axis of the curve
+and the PyTorch column beside it are measured with one ruler. The table also
+gives the mark of the whole process.
+
+*My call* (2026-10-09, on review, the options laid out): three new processes
+for each method and the median reading, rather than a single reading.
+
+**Why.** ONNX Runtime allocates in native code. `tracemalloc` sees none of it,
+as it missed OpenCV's pyramids at N1, and PyTorch's profiler only follows
+PyTorch's own tensors. The two entries of 2026-09-23 on compute cost rejected
+the resident high-water mark, and every reading of the process's memory, as a
+figure *per call*: a warm call reuses the pages the allocator kept, so the
+resident set does not move. That objection is about a process that has
+already run something. A new process has nothing to reuse: its first calls
+take their pages from the system, and the mark records them. It is the
+reading the first of those entries used, under *Limits*, to see what
+`tracemalloc` missed. So this entry does not go back on them. In a run, the
+memory of a PyTorch call is still the profiler's peak; the footprint is a
+second figure, of something else.
+
+**What it counts.** Everything the method made the process touch: its weights
+(20 MiB for the large model, 4 for the small one), the session or the module
+built from them, what the runtime keeps between calls, and the working memory
+of the calls. The profiler's figure counts the last of these only, for tensors
+only (105.5 MiB for RAFT large at 256 px). The two are never put in one
+column, and a footprint is never called a peak per call. What importing the
+runtime costs is in the baseline, not in the footprint, because it is paid by
+the process whatever the model: a process that has imported PyTorch stands at
+about 405 MiB before any model is loaded, one that has imported ONNX Runtime
+at about 188. The column of the whole process is there for who has to fit the
+method in a machine.
+
+**Limits.**
+- It is a lower bound. The mark never goes down, so work that fits under what
+  the baseline had already reached is not seen: N1 read 0 for phase correlation
+  at 256 px for that reason.
+- It is not exact. In trials made today, three processes read 79.2, 86.2 and
+  98.0 MiB for RAFT large under ONNX Runtime, and 52 to 63 for the fine-tuned
+  small one: about a fifth between the lowest and the highest. Hence the three
+  processes and the range.
+- It does not settle. Most of the rise comes with the first call, which loads
+  the model, and the next few; the mark then creeps up over tens of calls (SIFT
+  + RANSAC: 12.8 MiB after 10 calls, 17.7 after 30, the 29th still raising it).
+  Ten calls is a convention, stated with the figure, and the table gives the
+  last call that raised the mark.
+- Resident memory depends on the machine. On the 8 GB M1, macOS compresses or
+  swaps pages when memory is short, a compressed page is no longer resident,
+  and the mark can then understate. The footprints are read with nothing else
+  running; the trials above were made while another run was going, and are not
+  the curve's.
+- One pair size. The profiler read four times more at 512 px than at 256 px;
+  the footprint at 512 px was not read.
+- `ru_maxrss` exists on macOS and Linux. Where the platform has no such mark,
+  the command says so and stops.
+
+**Rejected.** Sampling the resident set from a thread, and macOS's interval
+peak counter: both were tried at N2 and read 0 on warm calls. A footprint per
+pair, inside the validation run: the mark rises once, on the first pairs. The
+mark of the whole process as the figure: it is mostly the interpreter and the
+runtime, and would rank the methods by what they import. One process per
+method: the variation above would not be seen. More calls: thirty take three
+times as long and the mark still creeps. Reading the PyTorch models with the
+profiler and the ONNX ones with the footprint, in one column: two rulers.
+
+## 2026-10-08: Without retraining, 8 refinements cost the fine-tuned models under 0.005 px, and 4 cost 0.013 and 0.037 px
+
+**Decision.** None to take yet: this records what running the models with
+fewer refinements than they were trained with does, so that the cost curve
+can be read. The three counts stay on the curve for the four models, and no
+model is retrained for 4 or 8. Which point is kept is the business of the
+final evaluation (ticket 12), with the times and the footprints beside.
+
+**What was measured.** The twelve PyTorch methods on the full validation set
+(3,600 pairs: 4 chips, 3 scenarios, 3 presets, 100 pairs), on the M1, by
+`satreg validate --config configs/validation.toml --methods ...`, the first
+step of `make curve`, in 2 h 07. The weights are those trained with 12
+refinements; the loop stops earlier. *Against 12* is the mean difference of
+error with the same model at 12 refinements, over the pairs neither fails.
+
+| model | weights | refinements | EPE (px) | failures | against 12 (px) | hard: EPE (px) | hard: failures |
+|---|---|---:|---:|---:|---:|---:|---:|
+| RAFT large | pretrained | 4 | 0.1777 | 6.9 % | +0.0660 | 0.4185 | 20.8 % |
+| RAFT large | pretrained | 8 | 0.1312 | 2.9 % | +0.0102 | 0.2566 | 8.7 % |
+| RAFT large | pretrained | 12 | 0.1265 | 1.9 % | | 0.2420 | 5.8 % |
+| RAFT large | fine-tuned | 4 | 0.0974 | 0.0 % | +0.0130 | 0.1715 | 0.0 % |
+| RAFT large | fine-tuned | 8 | 0.0861 | 0.0 % | +0.0018 | 0.1559 | 0.0 % |
+| RAFT large | fine-tuned | 12 | 0.0843 | 0.0 % | | 0.1540 | 0.0 % |
+| RAFT small | pretrained | 4 | 0.2247 | 32.3 % | +0.0629 | 0.7986 | 96.5 % |
+| RAFT small | pretrained | 8 | 0.2531 | 15.3 % | +0.0383 | 0.5667 | 45.6 % |
+| RAFT small | pretrained | 12 | 0.2451 | 9.1 % | | 0.4823 | 26.9 % |
+| RAFT small | fine-tuned | 4 | 0.1707 | 1.1 % | +0.0371 | 0.2975 | 3.2 % |
+| RAFT small | fine-tuned | 8 | 0.1417 | 0.2 % | +0.0048 | 0.2285 | 0.7 % |
+| RAFT small | fine-tuned | 12 | 0.1376 | 0.1 % | | 0.2225 | 0.2 % |
+
+**What it says.**
+- From 12 to 8 refinements the fine-tuned models lose almost nothing: 0.0018 px
+  for the large one, with no failed pair at any count, and 0.0048 px for the
+  small one, which fails 8 pairs of 3,600 where it failed 3.
+- From 12 to 4 they lose more, and the small one most: 0.013 px for the large
+  model, still without a failed pair; 0.037 px for the small one, with 39
+  failed pairs, all on the hard preset.
+- The pretrained models do not stand it. At 4 refinements RAFT small fails a
+  third of the pairs and nearly all the hard ones (its EPE there is the mean
+  over the 42 pairs left, and its lower EPE overall at 4 than at 8 is the same
+  effect: fewer pairs, the easier ones). The comparison between counts is the
+  *against 12* column, which is over common pairs.
+- A fine-tuned model at 4 refinements is better than the same model pretrained
+  at 12: 0.097 px and no failure against 0.127 px and 1.9 % for the large one,
+  0.171 px and 1.1 % against 0.245 px and 9.1 % for the small one.
+- RAFT large fine-tuned at 4 refinements (0.097 px, no failure) is ahead of
+  RAFT small fine-tuned at 12 (0.138 px). Which of the two is cheaper is what
+  the curve's time and memory say.
+
+**Why fewer refinements work at all.** The training loss is RAFT's sequence
+loss: every one of the 12 refinements is compared with the truth, each
+weighing 0.85 times the next (`gamma`), so the fourth weighs 0.27 and the
+eighth 0.52 of the last. The fine-tuned weights were therefore trained to be
+right early, on these images, though not as hard as to be right at the end.
+That is a reading of the loss, not a measurement: no training with another
+weighting was run to check it.
+
+**Limits.** One training per model: how far another seed would move these
+figures was not measured, so a difference of a few thousandths of a pixel
+between two counts holds for these weights and not beyond. The validation
+chips are simulated motions on real images, and the held-out sites have not
+been read. The run was made on MPS; its times are not used.
+The code that ran was commit `a2c7c11` with this ticket's changes not yet
+committed (`context.json` says `dirty`).
+
+**Rejected.** Retraining a model for 4 refinements: it is the obvious next
+step if the 4-refinement points turn out to be the ones worth keeping, and it
+costs a Kaggle session per model; nothing here says yet that it is needed.
+Reading this on the light set: a tenth of the pairs, so about 4 failed
+pairs where the full set holds 39, too few to compare failure rates.
+
+## 2026-10-09: The cost curve: on the M1's CPU, ONNX Runtime is 1.9 to 3.5 times slower than PyTorch and adds 32 to 213 MiB less to a process
+
+**Decision.** None on which point is kept: that is the final evaluation's
+(ticket 12). This records the curve as measured on the validation chips, and
+three choices made while measuring it. The times under ONNX Runtime are those
+of a second run, made with the machine alone, because the first was not. A
+time on the curve is that of a sustained run, not of a call on a rested
+machine. And the session is left as ONNX Runtime builds it, with 4 threads.
+
+*My call* (2026-10-09, on review, the options laid out): the time on the curve
+is that of a sustained run, rather than that of a call on a rested machine
+(640 ms where the run reads 905, for RAFT large at 12 refinements); the session
+keeps ONNX Runtime's defaults, rather than spinning turned off on one trial;
+and the cost is timed on the light validation set, three times a call, rather
+than on the full set, ten times the pairs.
+
+**What was measured.** By `make curve`, on the M1 (MacBook Air, 8 GB, no fan),
+on mains power:
+- the twelve models under ONNX Runtime and the three classic methods on the
+  light validation set (360 pairs), on the CPU, each call timed three times
+  after a warm-up (`configs/curve.toml`), in 1 h 45;
+- the twelve under PyTorch on the same pairs and CPU, in 1 h 02;
+- the footprint of the 27 methods, 3 processes each, in 6 minutes;
+- the twelve under PyTorch on the full validation set, in 2 h 07: the entry of
+  2026-10-08 on refinements.
+
+`satreg curve` reads the four and writes the tables and the figure
+(`docs/results/n3/curve.md`, `curve.png`).
+
+| model | weights | refinements | EPE (px) | failures | time, ONNX Runtime (ms) | time, PyTorch (ms) | ratio | memory added, ONNX Runtime (MiB) | memory added, PyTorch (MiB) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| RAFT large | pretrained | 4 | 0.1814 | 8.3 % | 446 | 239 | 1.9 | 81.4 | 294.8 |
+| RAFT large | pretrained | 8 | 0.1251 | 4.7 % | 675 | 305 | 2.2 | 83.9 | 295.1 |
+| RAFT large | pretrained | 12 | 0.1243 | 3.9 % | 905 | 371 | 2.4 | 86.2 | 295.5 |
+| RAFT large | fine-tuned | 4 | 0.0963 | 0.0 % | 464 | 239 | 1.9 | 81.4 | 295.0 |
+| RAFT large | fine-tuned | 8 | 0.0878 | 0.0 % | 713 | 305 | 2.3 | 83.8 | 295.0 |
+| RAFT large | fine-tuned | 12 | 0.0854 | 0.0 % | 964 | 371 | 2.6 | 86.2 | 297.4 |
+| RAFT small | pretrained | 4 | 0.2294 | 31.9 % | 145 | 53 | 2.7 | 45.4 | 79.9 |
+| RAFT small | pretrained | 8 | 0.2451 | 15.6 % | 261 | 80 | 3.3 | 47.5 | 79.9 |
+| RAFT small | pretrained | 12 | 0.2448 | 10.3 % | 375 | 106 | 3.5 | 49.6 | 83.8 |
+| RAFT small | fine-tuned | 4 | 0.1680 | 1.7 % | 141 | 52 | 2.7 | 45.2 | 79.9 |
+| RAFT small | fine-tuned | 8 | 0.1461 | 0.0 % | 253 | 79 | 3.2 | 47.5 | 83.7 |
+| RAFT small | fine-tuned | 12 | 0.1424 | 0.0 % | 360 | 106 | 3.4 | 49.6 | 83.7 |
+
+EPE and failures are the same under the two runtimes to the fourth digit.
+Beside them, on the same pairs: phase correlation at 0.2165 px, 1.7 % of
+failures, 5.3 ms and no memory seen; SIFT + RANSAC at 0.1257 px, 16.9 %,
+21.0 ms and 12.2 MiB; AROSICS at 0.2138 px, 19.7 %, 19.4 ms and 8.3 MiB.
+
+**What it says.**
+- Fine-tuning moves every point down at no cost: the same file size, time and
+  memory, a quarter to a half less error, and 1.7 % of failed pairs at most
+  where the pretrained model failed 4 to 32 %.
+- On this CPU ONNX Runtime is the slower runtime, by 1.9 to 2.6 times for the
+  large model and 2.7 to 3.5 for the small one. The spike had read 1.6 and 2.4
+  times, on a few calls. The gap is in the refinements: one costs 58 ms under
+  ONNX Runtime and 16.5 ms under PyTorch for the large model, 29 ms and 6.7 ms
+  for the small one, when what is left of a call (the two encoders, the
+  correlation volume) costs 216 ms against 173 and 30 against 26. Which
+  operator of the refinement is slow was not profiled.
+- It is the lighter one. It adds 81 to 86 MiB to a process for the large model
+  where PyTorch adds 295, and 45 to 50 where PyTorch adds 80 to 84; the whole
+  process stands at 270 MiB against 700, and 235 against 487, as a process is
+  at 405 MiB once PyTorch is imported and at 188 with ONNX Runtime.
+- Memory tells the models apart and not the refinement counts: four more
+  refinements add 2 to 2.5 MiB under ONNX Runtime. Time is the axis the count
+  moves, in a straight line.
+- Under ONNX Runtime the cheapest point that fails no pair of the 360 is RAFT
+  small fine-tuned at 8 refinements: 0.146 px, 253 ms, 47.5 MiB (8 failed pairs
+  of 3,600 on the full set). RAFT large fine-tuned at 4 is at 0.096 px and
+  fails no pair of the full set, for 464 ms and 81 MiB: more time than the
+  small model at 12 (360 ms, 0.142 px), and a third less error.
+- The classic methods are 7 to 180 times faster than the points and add under a
+  third of the memory of the lightest. What RAFT fine-tuned buys with that is
+  failures and error together: SIFT + RANSAC is as accurate as pretrained RAFT
+  large when it answers and fails one pair in six; phase correlation fails as
+  few pairs as RAFT small fine-tuned at 4 refinements, at 0.217 px against
+  0.168.
+
+**The first run, and what a time means here.** The first run under ONNX
+Runtime read 1,044 ms for RAFT large at 12 refinements. Inside it, the time
+went from 795 ms on the first pair to 1,030 ms by the twelfth, stayed near
+1,045 ms for five sixths of the run, but for a dip to 990 ms, and fell to
+885 ms for the last sixth; the classic methods moved with it (phase
+correlation 6.2 ms, then 5.1). So the whole machine was slower for most of
+that run, by 11 to 21 %, and the PyTorch run that followed was not (367 to
+378 ms by tenth of the run). What else the machine did was not logged. The
+run was made again at night with nothing else running: every score is the
+same to the last digit, the times are 7 to 15 % lower and hold from the first
+tenth of the pairs to the last (881 to 927 ms for that model). The first run
+is kept in `outputs/` and is not the curve's.
+
+Three trials say how far a time under ONNX Runtime depends on what the machine
+did just before:
+- From a machine left idle for five minutes, RAFT large at 12 refinements
+  takes 630 to 640 ms, then more with every call, up to 860 to 880 ms after
+  two and a half minutes of calls. RAFT small goes from 245 to 315 ms in 80
+  seconds. PyTorch, with as many threads, stays at 364 to 375 ms, but for
+  one reading at 406.
+- In the run, the same graph with other weights is not timed alike. The
+  fine-tuned large files are 4 to 6 % slower than the pretrained ones (964
+  against 905 ms), and are called just after them on each pair; the
+  fine-tuned small ones are 2 to 4 % faster. Under PyTorch the two are equal
+  to 0.3 ms.
+- Alone in a new process, right after five hours of runs, ten calls read
+  842 ms (the time column of the footprints).
+
+A machine that slows as it works and recovers at rest, without a fan, is what
+heat limiting looks like; no temperature or frequency was read, so that is a
+reading. Whatever the cause: a time under ONNX Runtime on the curve is about
+40 % above a single call on a rested machine, and a difference under 10 %
+between two points is not one. The order of the points is much wider than
+that.
+
+**Parity over the set.** The export checks each file on one pair, to under
+0.001 px at every pixel. Over the 360 pairs, the error of a pair differs
+between the runtimes by 2e-7 to 4e-7 px at the median, and by 2.2e-6 px at
+most for the fine-tuned models. For the pretrained ones the largest
+difference is 0.2 px (large, 12 refinements) and 1.0 px (small, 12), and it
+grows with the count: 0.002, 0.04, 0.2 px for the large model. Every pair
+over 0.001 px (3, 8 and 7 pairs for the large model, 0, 20 and 24 for the
+small one) is a pair of the hard preset that both runtimes fail, with an
+error of 1.3 to 113 px. There the flow is far from the truth and each
+refinement amplifies the last digit of the one before. No pair changes
+verdict, and no failed pair enters the mean error. So the column is kept as
+it is, and reads: the two runtimes agree wherever the model works.
+
+**Footprints.** With the machine alone, the three processes of a method agree
+to 2.0 MiB at most (RAFT large at 4 refinements under ONNX Runtime: 81.4 to
+83.4). The fifth between lowest and highest in the entry of 2026-10-08 came
+from trials made under load. SIFT + RANSAC is the one method whose tenth call
+still raised the mark, and phase correlation reads 0.0: both are the limits
+that entry gives.
+
+**Limits.**
+- The light set: 360 pairs, so a failure rate moves by steps of 0.3 %. The
+  failures of the fine-tuned models are better read on the full set (the
+  entry on refinements).
+- One machine, one thread count. Four threads is what the spike used; other
+  counts were not timed, and PyTorch was left at its own default, 4 as well.
+- ONNX Runtime's defaults. A trial with the intra-op threads' spinning turned
+  off read 787 to 808 ms where the default read 862 to 909, on a warm
+  machine, the two in turn in one process over four rounds. It is one trial,
+  made after the curve, and the curve does not use it.
+- The GPU column is empty. The notebook takes the run as a parameter
+  (`docs/kaggle.md`) and has not been run on Kaggle for it.
+- The ONNX run of the curve was made after the PyTorch run and the
+  footprints, not before as `make curve` orders them.
+- The code that ran was commit `a2c7c11` with this ticket's changes not yet
+  committed (`context.json` says `dirty`).
+- The held-out sites have not been read.
+
+**Rejected.** Publishing the first run's times: known to be read on a slowed
+machine, and unfair to ONNX Runtime beside a PyTorch run that was not.
+Publishing the time of a rested call: nearer to what one registration costs,
+but it lasts a few calls, and a benchmark is a sustained run. Keeping the
+part of the first run that looked right: choosing the pairs after seeing the
+times. Turning spinning off for the curve: a setting chosen on a result,
+after one trial; it belongs with ticket 11 if anywhere. Timing each method in
+a run of its own: twelve times the pauses, and the classic methods would no
+longer be read in the same conditions as the points.

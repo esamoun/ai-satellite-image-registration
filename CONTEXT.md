@@ -121,6 +121,42 @@ start of its SHA-256, which the code pins: a fine-tuned method downloads it on
 first use and refuses a file with another hash.
 _Avoid_: Model zoo, artifact
 
+**Refinements**:
+The number of times RAFT corrects its flow in one call. The models are trained
+with 12; a method named with `_r4` or `_r8` runs the same weights with fewer.
+_Avoid_: Iterations, flow updates, steps
+
+**Exported model**:
+A RAFT model saved as an ONNX file by `satreg export`: one model, its weights
+and a fixed number of refinements, run by ONNX Runtime on the CPU without
+PyTorch. A method named with `_onnx` runs one.
+_Avoid_: Converted model, ONNX model, deployment model
+
+**Parity**:
+The largest difference, at any pixel, between the flow an exported model gives
+under ONNX Runtime and the one PyTorch gives on the same pair.
+_Avoid_: Equivalence, drift
+
+**Footprint**:
+What calling a method adds to the memory of a process that does nothing else:
+the rise of the process's resident high-water mark above its mark with the
+method's runtime imported. It counts the weights, what the runtime keeps and
+the working memory of a call, and is not the memory of a call a meter reads.
+It moves from one process to the next, so a method is read in several and the
+median reading is the one given.
+_Avoid_: Peak memory, RAM usage
+
+**Cost curve**:
+The error and failure rate of RAFT against what it costs on the M1's CPU under
+ONNX Runtime, in time and in footprint: large and small, pretrained and
+fine-tuned, with 4, 8 and 12 refinements.
+_Avoid_: Pareto front, trade-off plot
+
+**Point**:
+One model, its weights and a number of refinements on the cost curve. It is two
+methods, the same model under PyTorch and under ONNX Runtime.
+_Avoid_: Configuration, operating point
+
 **Timing run**:
 A few hundred steps on the training GPU, which measure how long a step takes
 before the step budget is set. Its checkpoint is not a model to report.

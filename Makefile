@@ -1,4 +1,4 @@
-.PHONY: install install-arosics install-dl install-roma lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle ablation small clean
+.PHONY: install install-arosics install-dl install-roma install-onnx lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle ablation small onnx curve clean
 
 install:
 	pip install -e ".[dev]"
@@ -23,6 +23,12 @@ install-roma: install-dl
 	pip install -e ".[dev,dl,roma]"
 	pip install --no-deps "romatch==0.1.2"
 	python -c "from satreg.methods import roma; print(*roma.fetch_weights(), sep='\n')"
+
+# ONNX Runtime, which runs the exported RAFT models on the CPU without PyTorch,
+# and onnx, which `satreg export` writes them with: exporting needs the dl
+# extra too.
+install-onnx:
+	pip install -e ".[dev,onnx]"
 
 lint:
 	ruff check src tests
@@ -168,6 +174,35 @@ small:
 	satreg validate --config configs/validation.toml --methods $(SMALL_METHODS) --out $(SMALL)/validation
 	satreg validate-cycle --config configs/validation.toml --methods $(SMALL_METHODS) --out $(SMALL)/validation-cycle
 	satreg small --out $(SMALL)
+
+# RAFT exported to ONNX (N3): the large and the small model, pretrained and
+# with the published fine-tuned weights, each with 4, 8 and 12 refinements,
+# twelve files in outputs/onnx, each checked against PyTorch on one pair. Needs
+# the dl and onnx extras. Half a minute on the M1.
+onnx:
+	satreg export
+
+# The cost curve (N3): those twelve models scored under PyTorch on the full
+# validation set, for what fewer refinements do to them; then under ONNX
+# Runtime and under PyTorch on the light set and on the CPU
+# (configs/curve.toml), with the classic methods, for their error and time;
+# then what each adds to the memory of a process of its own; then the curve
+# read from the four (docs/decisions.md). On the M1 CPU: one run at a time and
+# nothing else running, as the times and the memory are read on it. A run of
+# the PyTorch methods on a GPU is read as well if it is in $(CURVE)/gpu-light
+# (docs/kaggle.md). `satreg curve` reads these methods, a test checks the
+# lists, from the directories named here.
+CURVE = outputs/curve
+CURVE_TORCH = raft_r4 raft_r8 raft raft_ft_r4 raft_ft_r8 raft_ft raft_small_r4 raft_small_r8 raft_small raft_small_ft_r4 raft_small_ft_r8 raft_small_ft
+CURVE_ONNX = raft_r4_onnx raft_r8_onnx raft_onnx raft_ft_r4_onnx raft_ft_r8_onnx raft_ft_onnx raft_small_r4_onnx raft_small_r8_onnx raft_small_onnx raft_small_ft_r4_onnx raft_small_ft_r8_onnx raft_small_ft_onnx
+CURVE_REFERENCES = phase_correlation sift_ransac arosics
+
+curve:
+	satreg validate --config configs/validation.toml --methods $(CURVE_TORCH) --out $(CURVE)/validation
+	satreg validate --config configs/curve.toml --light --out $(CURVE)/onnx
+	satreg validate --config configs/curve.toml --light --methods $(CURVE_TORCH) --out $(CURVE)/torch
+	satreg footprint --methods $(CURVE_ONNX) $(CURVE_TORCH) $(CURVE_REFERENCES) --out $(CURVE)/footprint
+	satreg curve --out $(CURVE)
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

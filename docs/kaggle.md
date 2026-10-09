@@ -324,6 +324,47 @@ Download the version's output from Kaggle's site (*Output → Download All*) and
 unpack it so that the run is in `outputs/train/<run>/`. `best.pt` holds the
 weights of the kept checkpoint.
 
+## The GPU column of the cost curve
+
+The cost curve of N3 (`make curve`, see the README) is read on the M1's CPU.
+Its table has one more column, the time of the same twelve models under PyTorch
+on a T4, which `satreg curve` fills when a run of them on the same 360 pairs is
+in `outputs/curve/gpu-light`. The notebook makes that run with
+`satreg validate` in place of `satreg benchmark`. In its parameters cell:
+
+```python
+COMMAND = "validate"
+CONFIG = "configs/curve.toml"
+OPTIONS = [
+    "--light",
+    "--methods",
+    "raft_r4", "raft_r8", "raft",
+    "raft_ft_r4", "raft_ft_r8", "raft_ft",
+    "raft_small_r4", "raft_small_r8", "raft_small",
+    "raft_small_ft_r4", "raft_small_ft_r8", "raft_small_ft",
+]
+WITH_ROMA = False
+WITH_FINE_TUNED = True
+```
+
+`--methods` leaves out the ONNX Runtime and the classic methods the config
+lists: they run on a CPU, and the notebook installs neither ONNX Runtime nor
+AROSICS. `validate` fetches the four validation chips itself, so the notebook
+needs no dataset as an input. With `--light` the run lands in
+`outputs/curve-light/` of the notebook's output:
+
+```bash
+kaggle kernels output <user>/satreg-gpu-benchmark -p outputs/kaggle
+cp -r outputs/kaggle/outputs/curve-light outputs/curve/gpu-light
+satreg curve --out outputs/curve
+```
+
+`satreg curve` refuses the run if it was not made with the options of
+`configs/curve.toml`, the methods and the device aside, if one of the twelve
+methods is missing, or if its pairs are not those of the M1 runs. Only the time
+is read from it: the error and the failures of a model are those of its ONNX
+Runtime run.
+
 ## What `context.json` records
 
 Besides the machine, the thread settings and the library versions:

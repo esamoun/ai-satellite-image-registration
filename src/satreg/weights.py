@@ -1,16 +1,18 @@
 """The fine-tuned weights, published as assets of a GitHub release.
 
 A training's kept checkpoint leaves the machine that trained it as a release
-asset. This module names each published file with its SHA-256, downloads it
-once to PyTorch's cache, next to the pretrained weights torchvision puts there,
-and refuses a file whose hash is not the one written here. While the
-repository is private the download needs a token, read from the environment
-and sent to GitHub's API only. See docs/decisions.md.
+asset, and so do its exports to ONNX, one per refinement count. This module
+names each published file with its SHA-256, downloads it once to PyTorch's
+cache, next to the pretrained weights torchvision puts there, and refuses a
+file whose hash is not the one written here. While the repository is private
+the download needs a token, read from the environment and sent to GitHub's API
+only. See docs/decisions.md.
 """
 
 import json
 import os
 import shutil
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -112,6 +114,91 @@ RELEASED = {
 }
 
 
+@dataclass(frozen=True)
+class ReleasedOnnx:
+    """Published weights exported to ONNX with one refinement count.
+
+    Attributes:
+        weights: Name of the published weights the file was exported from, a
+            key of ``RELEASED``.
+        refinements: Refinements of the flow the file holds, unrolled.
+        tag: Tag of the release that holds it.
+        sha256: SHA-256 of the file ``satreg export`` wrote.
+    """
+
+    weights: str
+    refinements: int
+    tag: str
+    sha256: str
+
+    @property
+    def name(self) -> str:
+        """What the file is called in ``configs/methods.toml``, and by
+        ``satreg export`` without the suffix."""
+        return onnx_name(self.weights, self.refinements)
+
+    @property
+    def asset(self) -> str:
+        """File name in the release and in the cache, as for the weights."""
+        return f"{self.name}-{self.sha256[:8]}.onnx"
+
+
+Released = ReleasedWeights | ReleasedOnnx
+
+
+def onnx_name(weights: str, refinements: int) -> str:
+    """Name of an ONNX export: its weights, then ``r`` and its refinements."""
+    return f"{weights}_r{refinements}"
+
+
+# The published ONNX files, by name: each of the published weights with 4, 8
+# and 12 refinements, as `satreg export` wrote them on the machine of
+# docs/results/n3/context-onnx.json. An export is byte for byte the same there
+# from one run to the next, and nothing says it is on another machine or
+# version of PyTorch: these files are downloaded, not rebuilt.
+RELEASED_ONNX = {
+    exported.name: exported
+    for exported in (
+        ReleasedOnnx(
+            weights="raft_large_ft",
+            refinements=4,
+            tag="weights-n3",
+            sha256="c8ee13ca706020957af22b3f0b1a686e6bc562e010cfbc83c8ebbb6fa39b1ede",
+        ),
+        ReleasedOnnx(
+            weights="raft_large_ft",
+            refinements=8,
+            tag="weights-n3",
+            sha256="813662803b0cca223bcde6a9c1be0f7d6c1e7e515301961624c2ebf8213afe2c",
+        ),
+        ReleasedOnnx(
+            weights="raft_large_ft",
+            refinements=12,
+            tag="weights-n3",
+            sha256="da410478e79cb32343b6f8c2c0f88e53d0b93d192a1152d8b3e088aef242fcfe",
+        ),
+        ReleasedOnnx(
+            weights="raft_small_ft",
+            refinements=4,
+            tag="weights-n3",
+            sha256="72fa35ab2a2c537a6f3dda9aacc057498cbd69a7ac676c6eee0352b189f17361",
+        ),
+        ReleasedOnnx(
+            weights="raft_small_ft",
+            refinements=8,
+            tag="weights-n3",
+            sha256="7cac15615efd9ec3771421f6eab8daa3b19da78f21e86b2aba6a238fcbec6359",
+        ),
+        ReleasedOnnx(
+            weights="raft_small_ft",
+            refinements=12,
+            tag="weights-n3",
+            sha256="c7671f015621fa28434bd9f39b61632ebec45650791fd6611ce2cecbddf4ed76",
+        ),
+    )
+}
+
+
 def released(name: str) -> ReleasedWeights:
     """The published weights of a name.
 
@@ -125,19 +212,56 @@ def released(name: str) -> ReleasedWeights:
     return RELEASED[name]
 
 
+def released_onnx(name: str) -> ReleasedOnnx:
+    """The published ONNX file of a name.
+
+    Raises:
+        ValueError: If no ONNX file is published under ``name``.
+    """
+    if name not in RELEASED_ONNX:
+        raise ValueError(
+            f"no released ONNX file named {name!r} "
+            f"(released: {', '.join(RELEASED_ONNX)})"
+        )
+    return RELEASED_ONNX[name]
+
+
+def lookup(name: str) -> Released:
+    """The published file of a name, weights or ONNX export.
+
+    Raises:
+        ValueError: If nothing is published under ``name``.
+    """
+    if name in RELEASED:
+        return RELEASED[name]
+    if name in RELEASED_ONNX:
+        return RELEASED_ONNX[name]
+    raise ValueError(
+        f"no released file named {name!r} "
+        f"(released: {', '.join((*RELEASED, *RELEASED_ONNX))})"
+    )
+
+
 def cache_directory() -> Path:
-    """Where the weights are cached: PyTorch's own cache of checkpoints."""
-    import torch
+    """Where the files are cached: PyTorch's own cache of checkpoints.
 
-    return Path(torch.hub.get_dir()) / "checkpoints"
+    PyTorch is asked where that is if a method has loaded it. It is not
+    imported to answer: an ONNX file runs without it, and the default place is
+    worked out as PyTorch does, from ``TORCH_HOME`` then ``XDG_CACHE_HOME``.
+    """
+    if (torch := sys.modules.get("torch")) is not None:
+        return Path(torch.hub.get_dir()) / "checkpoints"
+    cache = os.environ.get("XDG_CACHE_HOME") or "~/.cache"
+    home = os.environ.get("TORCH_HOME") or os.path.join(cache, "torch")
+    return Path(home).expanduser() / "hub" / "checkpoints"
 
 
-def check(path: Path, weights: ReleasedWeights, called: str = "") -> None:
-    """Refuse a file that is not the published weights.
+def check(path: Path, weights: Released, called: str = "") -> None:
+    """Refuse a file that is not the published one.
 
     Args:
         path: The file.
-        weights: The weights it should be.
+        weights: The published file it should be.
         called: What the message calls the file (default: its name).
 
     Raises:
@@ -161,7 +285,7 @@ def _request(url: str, accept: str, token: str | None) -> Request:
     return request
 
 
-def _open(url: str, accept: str, token: str | None, weights: ReleasedWeights) -> Any:
+def _open(url: str, accept: str, token: str | None, weights: Released) -> Any:
     """Open an address of GitHub, with an error that says what to do about it."""
     where = f"release {weights.tag} of {REPOSITORY}"
     try:
@@ -186,15 +310,15 @@ def _open(url: str, accept: str, token: str | None, weights: ReleasedWeights) ->
     raise WeightsUnavailable(f"{weights.asset} is not cached, and {reason}")
 
 
-def download(weights: ReleasedWeights, destination: Path, token: str | None) -> None:
-    """Download published weights from their release, unchecked.
+def download(weights: Released, destination: Path, token: str | None) -> None:
+    """Download a published file from its release, unchecked.
 
     Without a token the file is asked at the address anyone can read once the
     repository is public. With one it goes through GitHub's API, the only way
     into a private repository: the release is read first, to find the asset.
 
     Args:
-        weights: The weights.
+        weights: The published file.
         destination: The file to write.
         token: A token that can read the repository, or ``None``.
 
@@ -226,7 +350,7 @@ def download(weights: ReleasedWeights, destination: Path, token: str | None) -> 
 
 
 def fetch(name: str, source: Path | None = None, directory: Path | None = None) -> Path:
-    """The file of published weights in the cache, downloaded if not there.
+    """A published file in the cache, downloaded if it is not there.
 
     A cached file is hashed again each time: one that is no longer the
     published file is dropped and fetched anew. A fetched file is written
@@ -234,7 +358,7 @@ def fetch(name: str, source: Path | None = None, directory: Path | None = None) 
     the cache never holds anything else under that name.
 
     Args:
-        name: Name of the weights, a key of ``RELEASED``.
+        name: Name of the file, a key of ``RELEASED`` or ``RELEASED_ONNX``.
         source: A directory holding the asset, read in place of the release.
         directory: The cache (default: PyTorch's).
 
@@ -242,11 +366,11 @@ def fetch(name: str, source: Path | None = None, directory: Path | None = None) 
         The file's path.
 
     Raises:
-        ValueError: If no weights are published under ``name``.
+        ValueError: If nothing is published under ``name``.
         WeightsUnavailable: If the file is not cached and cannot be fetched.
         WeightsRefused: If the fetched file's hash is not the pinned one.
     """
-    weights = released(name)
+    weights = lookup(name)
     path = (directory or cache_directory()) / weights.asset
     if path.is_file():
         if file_sha256(path) == weights.sha256:
@@ -335,11 +459,48 @@ def export(name: str, runs: Path, out: Path) -> dict:
     return described
 
 
-def notes(cards: list[dict]) -> str:
+def export_onnx(name: str, exports: Path, out: Path) -> dict:
+    """Copy an ONNX export to the file its release publishes.
+
+    Args:
+        name: Name of the file, a key of ``RELEASED_ONNX``.
+        exports: Directory ``satreg export`` wrote to, ``outputs/onnx``.
+        out: Directory the asset is written to.
+
+    Returns:
+        What the release says of the asset: the file, its hash and size, the
+        weights it was exported from and its refinements.
+
+    Raises:
+        ValueError: If no ONNX file is published under ``name``.
+        FileNotFoundError: If the export is not there.
+        WeightsRefused: If it is not the file the code pins.
+    """
+    exported = released_onnx(name)
+    source = exports / f"{name}.onnx"
+    if not source.is_file():
+        raise FileNotFoundError(f"no export at {source}: write it with satreg export")
+    check(source, exported)
+    out.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, out / exported.asset)
+    return {
+        "asset": exported.asset,
+        "sha256": exported.sha256,
+        "bytes": source.stat().st_size,
+        "weights": released(exported.weights).asset,
+        "refinements": exported.refinements,
+        "release": exported.tag,
+        "repository": REPOSITORY,
+    }
+
+
+def notes(cards: list[dict], onnx_cards: list[dict] | None = None) -> str:
     """The text of the release: what each asset is and how it is checked.
 
     Args:
         cards: The description of each asset, as ``export`` returns it.
+        onnx_cards: The description of each ONNX asset, as ``export_onnx``
+            returns it, if the release holds any.
 
     Returns:
         Markdown.
@@ -370,4 +531,21 @@ def notes(cards: list[dict]) -> str:
         "pairs simulated from Sentinel-2 chips (contains modified Copernicus "
         "Sentinel data 2025-2026).",
     ]
+    if onnx_cards:
+        lines += [
+            "",
+            "Each `.onnx` is one of these weights exported with a fixed number "
+            "of refinements, for ONNX Runtime: `satreg export` wrote it, image "
+            "size left free, and `satreg` checks it against its SHA-256 like "
+            "the weights. It runs without PyTorch.",
+            "",
+            "| asset | exported from | refinements | MB | SHA-256 |",
+            "|---|---|---:|---:|---|",
+        ]
+        lines += [
+            f"| `{described['asset']}` | `{described['weights']}` | "
+            f"{described['refinements']} | {described['bytes'] / 1e6:.1f} | "
+            f"`{described['sha256']}` |"
+            for described in onnx_cards
+        ]
     return "\n".join(lines) + "\n"

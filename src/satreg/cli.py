@@ -2,8 +2,9 @@
 merge``, ``satreg real-pairs``, ``satreg check-presets``, ``satreg cycle``,
 ``satreg false-change``, ``satreg fetch-train``, ``satreg train-pairs``,
 ``satreg train``, ``satreg validate``, ``satreg validate-cycle``, ``satreg
-ablation``, ``satreg small``, ``satreg fetch-weights`` and ``satreg
-export-weights``."""
+ablation``, ``satreg small``, ``satreg fetch-weights``, ``satreg
+export-weights``, ``satreg export``, ``satreg footprint`` and ``satreg
+curve``."""
 
 import argparse
 import dataclasses
@@ -18,8 +19,11 @@ import numpy as np
 
 from . import (
     ablation,
+    curve,
     cycle,
     falsechange,
+    footprint,
+    onnxexport,
     small,
     trainchips,
     trainpairs,
@@ -65,6 +69,8 @@ from .methods import (
     missing_dependencies,
 )
 from .methods.deep import DEVICES, check_available, missing_modules
+from .methods.raft import Raft
+from .methods.raft_onnx import RaftOnnx
 from .metrics import FAILURE_EPE_PX
 from .presetcheck import preset_row, real_row, role_order
 from .presetcheck import summarize as summarize_appearance
@@ -103,6 +109,8 @@ DEFAULT_TRAIN_OUT = Path("outputs/train")
 DEFAULT_ABLATION_OUT = Path("outputs/ablation")
 DEFAULT_SMALL_OUT = Path("outputs/small")
 DEFAULT_RELEASE_OUT = Path("outputs/release")
+DEFAULT_ONNX_OUT = Path("outputs/onnx")
+DEFAULT_CURVE_OUT = Path("outputs/curve")
 
 # The pretrained model and the two variants of the ablation, the same-date one
 # first (configs/methods.toml), and where `make ablation` scores the three,
@@ -124,6 +132,22 @@ SMALL_METHOD = "raft_small_ft_cross_date"
 SMALL_PRETRAINED = "raft_small"
 SMALL_LARGE = "raft_ft_cross_date"
 SMALL_LARGE_PRETRAINED = "raft"
+
+# The four models `satreg export` writes to ONNX unless told otherwise: RAFT
+# large and small, pretrained and with the published fine-tuned weights
+# (configs/methods.toml).
+EXPORT_METHODS = ("raft", "raft_small", "raft_ft", "raft_small_ft")
+
+# Where `make curve` scores the points of the cost curve, under the directory
+# the curve is written to: the PyTorch methods on the full validation set, the
+# ONNX Runtime methods then the PyTorch ones on the light set and on the CPU,
+# and each method's memory footprint. A run of the PyTorch methods on the light
+# set and on a GPU is read from the last one if it is there.
+CURVE_FULL = "validation"
+CURVE_COST = "onnx-light"
+CURVE_TORCH = "torch-light"
+CURVE_FOOTPRINT = "footprint"
+CURVE_GPU = "gpu-light"
 
 # Commands a run configuration file can set, and the table each one reads.
 RUN_TABLES = {
@@ -599,14 +623,16 @@ def _parser(
     )
     fetching = commands.add_parser(
         "fetch-weights",
-        help="download the published fine-tuned weights to PyTorch's cache and "
-        "check each file against the SHA-256 pinned in the code",
+        help="download the published fine-tuned weights and their ONNX exports "
+        "to PyTorch's cache and check each file against the SHA-256 pinned in "
+        "the code",
     )
     fetching.add_argument(
         "names",
         nargs="*",
         metavar="NAME",
-        help=f"weights to fetch (default: all of {', '.join(published.RELEASED)})",
+        help="files to fetch, fine-tuned weights or their ONNX exports (default: "
+        f"all of {', '.join([*published.RELEASED, *published.RELEASED_ONNX])})",
     )
     fetching.add_argument(
         "--from",
@@ -627,7 +653,82 @@ def _parser(
         default=DEFAULT_TRAIN_OUT,
         help="directory of the trainings, each with its best.pt",
     )
+    exporting.add_argument(
+        "--onnx",
+        type=Path,
+        default=DEFAULT_ONNX_OUT,
+        help="directory of the ONNX exports, as satreg export wrote them",
+    )
     exporting.add_argument("--out", type=Path, default=DEFAULT_RELEASE_OUT)
+    to_onnx = commands.add_parser(
+        "export",
+        help="write RAFT methods to ONNX files, one per method and refinement "
+        "count, and check each against PyTorch on one pair",
+    )
+    to_onnx.add_argument(
+        "--methods",
+        nargs="+",
+        default=list(EXPORT_METHODS),
+        metavar="METHOD",
+        help="RAFT methods of the methods' configuration to export: their "
+        "model and weights are written, not their refinement count",
+    )
+    to_onnx.add_argument(
+        "--refinements",
+        nargs="+",
+        type=int,
+        default=list(onnxexport.REFINEMENTS),
+        metavar="N",
+        help="refinement counts, one file each: the loop is unrolled in the file",
+    )
+    to_onnx.add_argument("--methods-config", type=Path, default=DEFAULT_METHODS_CONFIG)
+    to_onnx.add_argument("--out", type=Path, default=DEFAULT_ONNX_OUT)
+    footprinting = commands.add_parser(
+        "footprint",
+        help="read what calling each method adds to the memory of a process "
+        "of its own, the figure the cost curve gives for memory",
+    )
+    footprinting.add_argument(
+        "--methods", nargs="+", required=True, metavar="METHOD", help="methods to read"
+    )
+    footprinting.add_argument(
+        "--methods-config", type=Path, default=DEFAULT_METHODS_CONFIG
+    )
+    footprinting.add_argument(
+        "--size", type=int, default=256, help="side of the pair, in px"
+    )
+    footprinting.add_argument(
+        "--calls",
+        type=int,
+        default=footprint.CALLS,
+        help="calls each method makes on the pair, in each process",
+    )
+    footprinting.add_argument(
+        "--processes",
+        type=int,
+        default=footprint.PROCESSES,
+        help="new processes each method is read in; the median reading is kept",
+    )
+    footprinting.add_argument(
+        "--out", type=Path, default=DEFAULT_CURVE_OUT / CURVE_FOOTPRINT
+    )
+    reading_curve = commands.add_parser(
+        "curve",
+        help="read the cost curve of RAFT, large and small, pretrained and "
+        "fine-tuned, by refinement count, from the tables validate and "
+        "footprint wrote",
+    )
+    reading_curve.add_argument(
+        "--out",
+        type=Path,
+        default=DEFAULT_CURVE_OUT,
+        help="directory of the curve: the tables are read from its "
+        f"{CURVE_FULL}/, {CURVE_COST}/, {CURVE_TORCH}/ and {CURVE_FOOTPRINT}/, "
+        "where make curve writes them, and the curve is written to it",
+    )
+    reading_curve.add_argument(
+        "--methods-config", type=Path, default=DEFAULT_METHODS_CONFIG
+    )
     if run_config:
         {
             "benchmark": bench,
@@ -1075,6 +1176,12 @@ def configured_methods(args: argparse.Namespace) -> dict[str, Method]:
                 f"satreg: method {name} needs its checkpoint at {checkpoint}, not "
                 "there: train it with satreg train (see the README)"
             )
+        file = getattr(methods[name], "file", "")
+        if file and not Path(file).is_file():
+            raise SystemExit(
+                f"satreg: method {name} needs its ONNX file at {file}, not there: "
+                "write it with satreg export (see the README)"
+            )
         # The same for published weights that cannot be had: downloaded here,
         # once, if they are not in the cache.
         if release := getattr(methods[name], "release", ""):
@@ -1162,35 +1269,36 @@ def _run_context(
     return context, meters
 
 
-def _checkpoints(methods: dict[str, Method]) -> dict[str, dict[str, str]]:
-    """Name the weights of the fine-tuned methods of a run, by origin and hash.
+def _checkpoints(methods: dict[str, Method]) -> dict[str, dict[str, object]]:
+    """Name the files the methods of a run took their model from, by hash.
 
     A checkpoint's path says which training it comes from and not which
     weights: a run that goes on rewrites the file. The hash does. Published
-    weights are named by their release and asset, not by where the cache is on
-    the machine that ran.
+    files are named by their release and asset, not by where the cache is on
+    the machine that ran. An ONNX file also says which model it holds.
 
     Args:
         methods: The methods that ran.
 
     Returns:
         Method name to the path, or the release and asset, and the SHA-256 of
-        its weights file, for the methods that have one.
+        its file, for the methods that have one; and under ``holds``, for an
+        ONNX file, the model, weights and refinements written in it.
     """
-    recorded = {}
+    recorded: dict[str, dict[str, object]] = {}
     for name, method in methods.items():
-        if checkpoint := getattr(method, "checkpoint", ""):
-            recorded[name] = {
-                "path": checkpoint,
-                "sha256": file_sha256(Path(checkpoint)),
-            }
+        path = getattr(method, "checkpoint", "") or getattr(method, "file", "")
+        if path:
+            recorded[name] = {"path": path, "sha256": file_sha256(Path(path))}
         elif release := getattr(method, "release", ""):
-            weights = published.released(release)
+            weights = published.lookup(release)
             recorded[name] = {
                 "release": weights.tag,
                 "asset": weights.asset,
                 "sha256": file_sha256(published.fetch(release)),
             }
+        if isinstance(method, RaftOnnx):
+            recorded[name]["holds"] = method.described()
     return recorded
 
 
@@ -2427,28 +2535,22 @@ def read_small(args: argparse.Namespace) -> str:
 
 
 def fetch_weights(args: argparse.Namespace) -> list[Path]:
-    """Put the published fine-tuned weights in PyTorch's cache, checked.
+    """Put the published weights and ONNX files in PyTorch's cache, checked.
 
     Args:
         args: Parsed ``fetch-weights`` arguments.
 
     Returns:
-        The file of each of the weights asked for, in the cache.
+        The file of each name asked for, in the cache.
 
     Raises:
-        SystemExit: If PyTorch is not installed, a name is not one of the
-            published weights, or a file cannot be had or is not the one the
-            code pins.
+        SystemExit: If a name is not one of the published files, or a file
+            cannot be had or is not the one the code pins.
     """
-    if missing := missing_modules():
-        raise SystemExit(
-            f"satreg: fetch-weights needs {', '.join(missing)}, not installed "
-            "(see the README)"
-        )
     try:
         return [
             published.fetch(name, args.source)
-            for name in args.names or published.RELEASED
+            for name in args.names or [*published.RELEASED, *published.RELEASED_ONNX]
         ]
     except (
         ValueError,
@@ -2465,12 +2567,12 @@ def export_weights(args: argparse.Namespace) -> str:
         args: Parsed ``export-weights`` arguments.
 
     Returns:
-        The release's notes and the command that publishes it, as text. The
+        The release's notes and the commands that publish it, as text. The
         notes are also written to the output directory, as ``notes.md``.
 
     Raises:
         SystemExit: If PyTorch is not installed, or a training's kept weights
-            are missing or are not the file the code pins.
+            or an ONNX export are missing or are not the file the code pins.
     """
     if missing := missing_modules():
         raise SystemExit(
@@ -2481,27 +2583,242 @@ def export_weights(args: argparse.Namespace) -> str:
         cards = [
             published.export(name, args.runs, args.out) for name in published.RELEASED
         ]
+        onnx_cards = [
+            published.export_onnx(name, args.onnx, args.out)
+            for name in published.RELEASED_ONNX
+        ]
     except (FileNotFoundError, ValueError, published.WeightsRefused) as exc:
         raise SystemExit(f"satreg: {exc}") from None
-    notes = published.notes(cards)
+    notes = published.notes(cards, onnx_cards)
     (args.out / "notes.md").write_text(notes)
-    # One release holds them all today; one command per tag if that changes.
+    # One release holds them all today; one set of commands per tag if that
+    # changes. The ONNX files came after the weights: they are added to a
+    # release that is there, whose notes are then replaced.
     commands = []
     for tag in dict.fromkeys(w.tag for w in published.RELEASED.values()):
-        files = " ".join(
+        files = [
             str(args.out / name)
             for weights in published.RELEASED.values()
             if weights.tag == tag
             for name in (weights.asset, weights.card)
-        )
+        ]
+        exports = [
+            str(args.out / exported.asset)
+            for exported in published.RELEASED_ONNX.values()
+            if exported.tag == tag
+        ]
+        notes_file = args.out / "notes.md"
         commands.append(
-            f"    gh release create {tag} {files} --title {tag} "
-            f"--notes-file {args.out / 'notes.md'}\n"
+            f"    gh release create {tag} {' '.join(files + exports)} "
+            f"--title {tag} --notes-file {notes_file}\n"
         )
+        if exports:
+            commands.append(
+                "\nor, if the release is there without its ONNX files,\n\n"
+                f"    gh release upload {tag} {' '.join(exports)}\n"
+                f"    gh release edit {tag} --notes-file {notes_file}\n"
+            )
     return (
         f"{notes}\nWritten to {args.out}. Nothing is published: the release is "
         "created by hand, with\n\n" + "".join(commands)
     )
+
+
+def export_onnx(args: argparse.Namespace) -> str:
+    """Write RAFT methods to ONNX files and check each against PyTorch.
+
+    Args:
+        args: Parsed ``export`` arguments.
+
+    Returns:
+        The files written, as a markdown table. It is also written to the
+        output directory, with the files, their table as CSV and the context.
+
+    Raises:
+        SystemExit: If PyTorch, onnx or ONNX Runtime is not installed, a
+            method is not a RAFT one, a refinement count is below one, or a
+            file's flow is too far from PyTorch's.
+    """
+    if missing := [*missing_modules(), *onnxexport.missing_modules()]:
+        raise SystemExit(
+            f"satreg: export needs {', '.join(missing)}, not installed (see the README)"
+        )
+    if low := [count for count in args.refinements if count < 1]:
+        raise SystemExit(f"satreg: need --refinements of at least 1, got {low[0]}")
+    # The graph is traced on the CPU, the device its files run on.
+    options = argparse.Namespace(
+        methods=args.methods, methods_config=args.methods_config, device="cpu"
+    )
+    methods = configured_methods(options)
+    if others := [name for name, m in methods.items() if not isinstance(m, Raft)]:
+        raise SystemExit(
+            f"satreg: export writes RAFT methods under PyTorch, not {', '.join(others)}"
+        )
+    rows = []
+    try:
+        for name, method in methods.items():
+            for count in dict.fromkeys(args.refinements):
+                rows.append(onnxexport.export_checked(method, name, count, args.out))
+    except onnxexport.ParityError as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+    table = (
+        f"RAFT exported to ONNX (opset {onnxexport.OPSET}), one file per model, "
+        "weights and refinement count, the image size left free. Parity is the "
+        "largest difference between the file's flow under ONNX Runtime and "
+        f"PyTorch's on one {onnxexport.PARITY_SIDE} px pair, on the CPU; a file "
+        f"over {onnxexport.PARITY_TOLERANCE_PX:g} px is refused.\n\n"
+        + onnxexport.to_markdown(rows)
+    )
+    write_csv(rows, args.out / "exports.csv")
+    (args.out / "summary.md").write_text(table)
+    context = environment()
+    context["run"] = {k: v for k, v in sorted(vars(args).items()) if k != "command"}
+    context["checkpoints"] = _checkpoints(methods)
+    context["export"] = {
+        "opset": onnxexport.OPSET,
+        "trace_side": onnxexport.TRACE_SIDE,
+        "parity_tolerance_px": onnxexport.PARITY_TOLERANCE_PX,
+        "parity_side": onnxexport.PARITY_SIDE,
+    }
+    _write_context(context, args.out)
+    return table
+
+
+def read_footprints(args: argparse.Namespace) -> str:
+    """Read what each method adds to the memory of a process of its own.
+
+    Args:
+        args: Parsed ``footprint`` arguments.
+
+    Returns:
+        The footprints, as a markdown table. It is also written to the output
+        directory, with the footprints as CSV and the context.
+
+    Raises:
+        SystemExit: If a method is unknown or cannot run, or the platform has
+            no resident high-water mark to read.
+    """
+    # The methods run on the device their configuration names, the CPU.
+    options = argparse.Namespace(
+        methods=args.methods, methods_config=args.methods_config, device=None
+    )
+    methods = configured_methods(options)
+    try:
+        rows = footprint.footprints(
+            args.methods, args.methods_config, args.size, args.calls, args.processes
+        )
+    except ValueError as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+    table = (
+        f"What calling each method {args.calls} times on one {args.size} px pair "
+        "adds to the memory of a process that does nothing else: the rise of "
+        "its resident high-water mark above the baseline, the mark with the "
+        "method's runtime imported and the pair built. A lower bound on what "
+        "the method touched, weights included, and not the memory of one "
+        f"call. Each method is read in {args.processes} new processes: its line "
+        "is the reading whose rise is the median, with the lowest and the "
+        "highest rise beside it.\n\n" + footprint.to_markdown(rows)
+    )
+    args.out.mkdir(parents=True, exist_ok=True)
+    write_csv(rows, args.out / "footprints.csv")
+    (args.out / "summary.md").write_text(table)
+    context = environment()
+    context["run"] = {k: v for k, v in sorted(vars(args).items()) if k != "command"}
+    context["devices"] = {name: method_device(m) for name, m in methods.items()}
+    context["checkpoints"] = _checkpoints(methods)
+    _write_context(context, args.out)
+    return table
+
+
+def read_curve(args: argparse.Namespace) -> str:
+    """Read the cost curve from the runs ``make curve`` scored.
+
+    Nothing is run: the pairs are those ``validate`` scored for the points
+    under PyTorch and under ONNX Runtime, and the memory is what ``footprint``
+    read.
+
+    Args:
+        args: Parsed ``curve`` arguments.
+
+    Returns:
+        The curve, as markdown.
+
+    Raises:
+        SystemExit: If a run or the footprints are missing, a run was not run
+            as its configuration says, or the runs cannot be read together:
+            see ``curve.check``.
+    """
+    paths = {name: args.out / name for name in (CURVE_FULL, CURVE_COST, CURVE_TORCH)}
+    if (args.out / CURVE_GPU / "pairs.csv").is_file():
+        paths[CURVE_GPU] = args.out / CURVE_GPU
+    for path in paths.values():
+        _scored_run(path, "pairs.csv", "validate", "curve")
+    footprints = args.out / CURVE_FOOTPRINT / "footprints.csv"
+    if not footprints.is_file():
+        raise SystemExit(
+            f"satreg: no footprints at {footprints}: run make curve (see the README)"
+        )
+    try:
+        methods = load_methods(args.methods_config)
+    except FileNotFoundError:
+        raise SystemExit(
+            f"satreg: no method parameters at {args.methods_config} "
+            "(run from the repository root or pass --methods-config)"
+        ) from None
+    runs = {name: curve.read_run(path) for name, path in paths.items()}
+    try:
+        curve.check_methods(curve.POINTS, methods)
+        read = curve.read(
+            curve.POINTS,
+            runs[CURVE_COST],
+            runs[CURVE_TORCH],
+            runs[CURVE_FULL],
+            footprint.read(footprints),
+            runs.get(CURVE_GPU),
+        )
+    except ValueError as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+
+    table = (
+        "The cost curve of RAFT: the large and the small model, pretrained and "
+        "fine-tuned, with "
+        f"{', '.join(str(count) for count in curve.REFINEMENTS)} refinements. "
+        f"Error, failures and time are read on the light validation set of "
+        f"`{paths[CURVE_COST]}`, the same models under PyTorch on that of "
+        f"`{paths[CURVE_TORCH]}`, memory in `{footprints.parent}`, and the "
+        f"refinement counts on the full validation set of `{paths[CURVE_FULL]}`. "
+        "How each is measured is in docs/decisions.md.\n\n" + curve.to_markdown(read)
+    )
+    write_csv(read.rows, args.out / "points.csv")
+    write_csv(read.references, args.out / "references.csv")
+    write_csv(read.refinements, args.out / "refinements.csv")
+    curve.figure(read, args.out / "curve.png")
+    (args.out / "summary.md").write_text(table)
+    cost = runs[CURVE_COST].context
+    context = {
+        "code": code_version(),
+        "run": {k: v for k, v in sorted(vars(args).items()) if k != "command"},
+        # The files the points ran: the ONNX ones, and the weights under PyTorch.
+        "checkpoints": {
+            **runs[CURVE_FULL].context.get("checkpoints", {}),
+            **cost.get("checkpoints", {}),
+        },
+        "machine": cost.get("machine"),
+        "threads": cost.get("threads"),
+        "libraries": cost.get("libraries"),
+        "cost": cost.get("cost"),
+        # The code and the time of the runs the tables come from.
+        "read": {
+            name: {
+                "code": run.context.get("code"),
+                "recorded_at": run.context.get("recorded_at"),
+                "machine": run.context.get("machine"),
+            }
+            for name, run in runs.items()
+        },
+    }
+    _write_context(context, args.out)
+    return table
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -2547,3 +2864,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             print(path)
     elif args.command == "export-weights":
         print(export_weights(args), end="")
+    elif args.command == "export":
+        print(export_onnx(args), end="")
+    elif args.command == "footprint":
+        print(read_footprints(args), end="")
+    elif args.command == "curve":
+        print(read_curve(args), end="")

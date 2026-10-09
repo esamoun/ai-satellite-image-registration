@@ -10,7 +10,7 @@ the ``dl`` extra.
 import functools
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 
@@ -198,6 +198,9 @@ class Raft:
     device: str = "cpu"
     checkpoint: str = ""
     release: str = ""
+
+    # Modules the method runs on, imported before its memory footprint is read.
+    runtime: ClassVar[tuple[str, ...]] = deep.REQUIRED_MODULES
 
     def __post_init__(self) -> None:
         if self.model not in MODELS:

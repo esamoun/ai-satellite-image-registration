@@ -49,6 +49,7 @@ def publish(monkeypatch, content=CONTENT, model="small"):
         sha256=hashlib.sha256(content).hexdigest(),
     )
     monkeypatch.setattr(weights, "RELEASED", {"toy": toy})
+    monkeypatch.setattr(weights, "RELEASED_ONNX", {})
     return toy
 
 
@@ -299,7 +300,7 @@ def test_the_command_fetches_the_weights_it_is_asked_for(
 
     with pytest.raises(SystemExit, match=f"satreg: .*set {TOKEN_VARIABLE}"):
         main(["fetch-weights"])
-    with pytest.raises(SystemExit, match="satreg: no released weights named 'other'"):
+    with pytest.raises(SystemExit, match="satreg: no released file named 'other'"):
         main(["fetch-weights", "other"])
     main(["fetch-weights", "--from", str(tmp_path)])
 

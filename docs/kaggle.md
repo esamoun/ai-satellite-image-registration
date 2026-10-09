@@ -365,6 +365,10 @@ methods is missing, or if its pairs are not those of the M1 runs. Only the time
 is read from it: the error and the failures of a model are those of its ONNX
 Runtime run.
 
+The run of 2026-10-09 (commit `0b92663`) took 615 s on a T4, the clone, the
+install and the weights aside
+([`docs/results/n3/curve-gpu-light.md`](results/n3/curve-gpu-light.md)).
+
 ## What `context.json` records
 
 Besides the machine, the thread settings and the library versions:

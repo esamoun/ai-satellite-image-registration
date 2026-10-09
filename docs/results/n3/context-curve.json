@@ -1,7 +1,7 @@
 {
   "code": {
-    "commit": "a2c7c113cc88e9bfff985a2928ddeecb745969c6",
-    "dirty": true
+    "commit": "0b92663b45ef56526e738974a6148d6e91e17ce7",
+    "dirty": false
   },
   "run": {
     "methods_config": "configs/methods.toml",
@@ -267,6 +267,19 @@
         "architecture": "arm64",
         "cpu": "Apple M1",
         "memory_gib": 8.0
+      }
+    },
+    "gpu-light": {
+      "code": {
+        "commit": "0b92663b45ef56526e738974a6148d6e91e17ce7",
+        "dirty": false
+      },
+      "recorded_at": "2026-10-09T15:07:26+00:00",
+      "machine": {
+        "system": "Linux-6.18.48+-x86_64-with-glibc2.35",
+        "architecture": "x86_64",
+        "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+        "memory_gib": 31.346752166748047
       }
     }
   }

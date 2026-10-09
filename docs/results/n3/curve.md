@@ -19,20 +19,20 @@ ONNX Runtime on the CPU, 360 pairs:
 
 The same models under PyTorch on the same CPU and pairs:
 
-| model | weights | refinements | method | EPE (px) | failures | time (ms) | memory added (MiB) | whole process (MiB) | memory of a call (MiB) | largest gap with ONNX Runtime (px) |
-|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|
-| RAFT large | pretrained | 4 | raft_r4 | 0.1814 | 8.3 % | 239.2 | 294.8 | 699.5 | 105.5 | 2.2e-03 |
-| RAFT large | pretrained | 8 | raft_r8 | 0.1251 | 4.7 % | 304.9 | 295.1 | 699.9 | 105.5 | 4.3e-02 |
-| RAFT large | pretrained | 12 | raft | 0.1243 | 3.9 % | 371.1 | 295.5 | 701.0 | 105.5 | 2.0e-01 |
-| RAFT large | fine-tuned | 4 | raft_ft_r4 | 0.0963 | 0.0 % | 239.2 | 295.0 | 699.8 | 105.5 | 7.1e-07 |
-| RAFT large | fine-tuned | 8 | raft_ft_r8 | 0.0878 | 0.0 % | 304.8 | 295.0 | 699.9 | 105.5 | 1.6e-06 |
-| RAFT large | fine-tuned | 12 | raft_ft | 0.0854 | 0.0 % | 371.1 | 297.4 | 702.4 | 105.5 | 2.2e-06 |
-| RAFT small | pretrained | 4 | raft_small_r4 | 0.2294 | 31.9 % | 52.6 | 79.9 | 484.7 | 23.9 | 7.4e-04 |
-| RAFT small | pretrained | 8 | raft_small_r8 | 0.2451 | 15.6 % | 79.6 | 79.9 | 485.0 | 23.9 | 6.0e-02 |
-| RAFT small | pretrained | 12 | raft_small | 0.2448 | 10.3 % | 106.5 | 83.8 | 489.4 | 25.0 | 1.0e+00 |
-| RAFT small | fine-tuned | 4 | raft_small_ft_r4 | 0.1680 | 1.7 % | 52.5 | 79.9 | 485.0 | 23.9 | 1.2e-06 |
-| RAFT small | fine-tuned | 8 | raft_small_ft_r8 | 0.1461 | 0.0 % | 79.4 | 83.7 | 489.0 | 23.9 | 1.1e-06 |
-| RAFT small | fine-tuned | 12 | raft_small_ft | 0.1424 | 0.0 % | 106.2 | 83.7 | 488.2 | 25.0 | 1.4e-06 |
+| model | weights | refinements | method | EPE (px) | failures | time (ms) | memory added (MiB) | whole process (MiB) | memory of a call (MiB) | largest gap with ONNX Runtime (px) | time on cuda (ms) |
+|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| RAFT large | pretrained | 4 | raft_r4 | 0.1814 | 8.3 % | 239.2 | 294.8 | 699.5 | 105.5 | 2.2e-03 | 22.8 |
+| RAFT large | pretrained | 8 | raft_r8 | 0.1251 | 4.7 % | 304.9 | 295.1 | 699.9 | 105.5 | 4.3e-02 | 35.0 |
+| RAFT large | pretrained | 12 | raft | 0.1243 | 3.9 % | 371.1 | 295.5 | 701.0 | 105.5 | 2.0e-01 | 46.6 |
+| RAFT large | fine-tuned | 4 | raft_ft_r4 | 0.0963 | 0.0 % | 239.2 | 295.0 | 699.8 | 105.5 | 7.1e-07 | 23.2 |
+| RAFT large | fine-tuned | 8 | raft_ft_r8 | 0.0878 | 0.0 % | 304.8 | 295.0 | 699.9 | 105.5 | 1.6e-06 | 34.8 |
+| RAFT large | fine-tuned | 12 | raft_ft | 0.0854 | 0.0 % | 371.1 | 297.4 | 702.4 | 105.5 | 2.2e-06 | 46.4 |
+| RAFT small | pretrained | 4 | raft_small_r4 | 0.2294 | 31.9 % | 52.6 | 79.9 | 484.7 | 23.9 | 7.4e-04 | 17.2 |
+| RAFT small | pretrained | 8 | raft_small_r8 | 0.2451 | 15.6 % | 79.6 | 79.9 | 485.0 | 23.9 | 6.0e-02 | 24.4 |
+| RAFT small | pretrained | 12 | raft_small | 0.2448 | 10.3 % | 106.5 | 83.8 | 489.4 | 25.0 | 1.0e+00 | 31.8 |
+| RAFT small | fine-tuned | 4 | raft_small_ft_r4 | 0.1680 | 1.7 % | 52.5 | 79.9 | 485.0 | 23.9 | 1.2e-06 | 17.1 |
+| RAFT small | fine-tuned | 8 | raft_small_ft_r8 | 0.1461 | 0.0 % | 79.4 | 83.7 | 489.0 | 23.9 | 1.1e-06 | 24.3 |
+| RAFT small | fine-tuned | 12 | raft_small_ft | 0.1424 | 0.0 % | 106.2 | 83.7 | 488.2 | 25.0 | 1.4e-06 | 31.8 |
 
 The other methods, on the same CPU and pairs:
 

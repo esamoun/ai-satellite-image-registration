@@ -689,14 +689,14 @@ figure, and refuses runs that were not made on the same pairs.
 
 ![Error and failures against time, error against memory, for the twelve points](docs/results/n3/curve.png)
 
-| model, fine-tuned | refinements | EPE (px) | failures | time, ONNX Runtime (ms) | time, PyTorch (ms) | memory added, ONNX Runtime (MiB) | memory added, PyTorch (MiB) |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| RAFT large | 4 | 0.0963 | 0.0 % | 464 | 239 | 81.4 | 295.0 |
-| RAFT large | 8 | 0.0878 | 0.0 % | 713 | 305 | 83.8 | 295.0 |
-| RAFT large | 12 | 0.0854 | 0.0 % | 964 | 371 | 86.2 | 297.4 |
-| RAFT small | 4 | 0.1680 | 1.7 % | 141 | 52 | 45.2 | 79.9 |
-| RAFT small | 8 | 0.1461 | 0.0 % | 253 | 79 | 47.5 | 83.7 |
-| RAFT small | 12 | 0.1424 | 0.0 % | 360 | 106 | 49.6 | 83.7 |
+| model, fine-tuned | refinements | EPE (px) | failures | time, ONNX Runtime (ms) | time, PyTorch (ms) | time, PyTorch on a T4 (ms) | memory added, ONNX Runtime (MiB) | memory added, PyTorch (MiB) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| RAFT large | 4 | 0.0963 | 0.0 % | 464 | 239 | 23 | 81.4 | 295.0 |
+| RAFT large | 8 | 0.0878 | 0.0 % | 713 | 305 | 35 | 83.8 | 295.0 |
+| RAFT large | 12 | 0.0854 | 0.0 % | 964 | 371 | 46 | 86.2 | 297.4 |
+| RAFT small | 4 | 0.1680 | 1.7 % | 141 | 52 | 17 | 45.2 | 79.9 |
+| RAFT small | 8 | 0.1461 | 0.0 % | 253 | 79 | 24 | 47.5 | 83.7 |
+| RAFT small | 12 | 0.1424 | 0.0 % | 360 | 106 | 32 | 49.6 | 83.7 |
 
 On these 360 validation pairs, phase correlation is at 0.2165 px and 1.7 % of
 failures in 5.3 ms, and SIFT + RANSAC at 0.1257 px and 16.9 % in 21 ms. The
@@ -716,10 +716,12 @@ refinements on the 3,600 pairs are in
   curve gives the sustained run; differences under 10 % between two points
   are not to be read.
 
-The table has no GPU column yet: no run on a GPU was made. `satreg curve` adds
-one when it finds a run of the PyTorch methods on Kaggle in
-`outputs/curve/gpu-light` ([`docs/kaggle.md`](docs/kaggle.md)). The held-out
-sites are not read by any of this.
+The T4 column is a run of the same PyTorch methods on the same 360 pairs on a
+Kaggle GPU ([`docs/kaggle.md`](docs/kaggle.md),
+[`docs/results/n3/curve-gpu-light.md`](docs/results/n3/curve-gpu-light.md)),
+from which only the time is read. Against PyTorch on the M1's CPU the T4 is 8
+to 10 times faster for the large model and about 3 times for the small one.
+The held-out sites are not read by any of this.
 
 ### Under degraded conditions
 

@@ -4198,8 +4198,11 @@ overfit checkpoints are left as they were.
   API in about 5 seconds, 21,101,600 and 4,004,379 bytes, with the pinned
   hashes; a second call without a token reads the cache, and each method gives
   a dense displacement from the downloaded file.
-- **Two routes have still not run.** The notebook's cell on Kaggle, and the
-  public address without a token, which needs the repository public.
+- **Two routes had still not run.** The notebook's cell on Kaggle, and the
+  public address without a token, which needs the repository public. The
+  first ran on 2026-10-09, for the GPU column of the cost curve: the run's
+  `context.json` names the two assets of `weights-n3` with the pinned
+  hashes. The second has still not.
 - **What did run.** `satreg export-weights` wrote the two assets from the
   retained runs, `satreg fetch-weights --from outputs/release` put them in the
   cache through the same hash check, and the light validation set was scored
@@ -4625,8 +4628,17 @@ that entry gives.
   off read 787 to 808 ms where the default read 862 to 909, on a warm
   machine, the two in turn in one process over four rounds. It is one trial,
   made after the curve, and the curve does not use it.
-- The GPU column is empty. The notebook takes the run as a parameter
-  (`docs/kaggle.md`) and has not been run on Kaggle for it.
+- The GPU column was empty when this entry was first written. The notebook
+  was then run on Kaggle for it, later on 2026-10-09 (commit `0b92663`, a
+  Tesla T4, 615 s for the twelve PyTorch methods on the 360 pairs,
+  `docs/results/n3/curve-gpu-light.md`). A call takes 23 to 47 ms for the
+  large model and 17 to 32 ms for the small one, 8.0 to 10.5 and 3.1 to 3.3
+  times less than under PyTorch on the M1's CPU. Only the time is read from
+  that run. Its errors were looked at once, as a check: the same pairs fail
+  as on the M1 for eleven methods, and pretrained RAFT large at 12
+  refinements fails 13 pairs on the T4 where it fails 14 on the M1; the
+  fine-tuned models agree to under 1e-5 px on every pair neither fails.
+  Kaggle ran PyTorch 2.10.0, the M1 2.14.0.
 - The ONNX run of the curve was made after the PyTorch run and the
   footprints, not before as `make curve` orders them.
 - The code that ran was commit `a2c7c11` with this ticket's changes not yet

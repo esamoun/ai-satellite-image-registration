@@ -1,0 +1,106 @@
+# The final evaluation of N3: the single read of the held-out sites (alps,
+# libya4), next to the four sites N2 was run on. Simulated pairs, the real
+# triplets (cycle consistency), inter-band pairs, false change on simulated
+# pairs and the cost curve. `make n3` runs the M1 parts and merges the GPU
+# ones:
+#
+#   satreg benchmark --config configs/n3.toml               # M1, CPU     -> outputs/n3-m1
+#   satreg benchmark --config configs/n3-gpu.toml           # Kaggle, T4  -> outputs/n3-gpu
+#   satreg merge outputs/n3-m1 outputs/kaggle/outputs/n3-gpu --out outputs/n3
+#   satreg cycle --config configs/n3.toml                   # M1          -> outputs/n3-cycle
+#   satreg final --out outputs/n3-final                     # reads the two above
+#   satreg benchmark --config configs/n3-bands.toml         # M1, CPU     -> outputs/n3-bands
+#   satreg false-change --config configs/n3.toml            # M1          -> outputs/n3-false-change
+#   satreg benchmark --config configs/n3-curve.toml         # M1, CPU     -> outputs/n3-curve/onnx
+#   satreg benchmark --config configs/n3-curve.toml ...     # M1, CPU     -> outputs/n3-curve/torch
+#   satreg benchmark --config configs/n3-curve-gpu.toml     # Kaggle, T4  -> outputs/n3-curve-gpu
+#   satreg footprint ...                                    # M1          -> outputs/n3-curve/footprint
+#   satreg curve --benchmark --out outputs/n3-curve         # reads the four above
+#
+# Every command that reads a held-out site is given --allow-held-out, on the
+# command line and not here: the Makefile and the Kaggle notebook pass it, and
+# `make n3-dry` rehearses every part on the seen sites without it. What is
+# evaluated was frozen before the run (docs/decisions.md, "The freeze").
+#
+# Each command reads the table named after it. Keys are its options, with
+# underscores; an option given on the command line overrides its key here.
+# Paths are relative to the repository root.
+
+# Simulated pairs on the M1's CPU, the classic methods. The pairs of N2
+# (configs/n2.toml) on its four sites, since a pair depends on the seed, the
+# site and its index only, and the same on the two held-out sites: 6 sites x 3
+# scenarios x 3 presets x 100 = 5,400 pairs, x 4 methods. configs/n3-gpu.toml
+# makes the same pairs for the deep-learning methods on a GPU.
+[benchmark]
+sites = ["beauce", "toulouse", "vosges", "marseille", "alps", "libya4"]
+scenarios = ["translation", "affine", "dense"]
+degradations = ["clean", "mild", "hard"]
+methods = [
+    "phase_correlation",
+    "phase_correlation_hann",
+    "sift_ransac",
+    "arosics",
+]
+device = "cpu"
+
+pairs = 100
+size = 256
+seed = 0
+
+# Displacement ranges, as in N1 and N2.
+max_shift = 4.0
+max_rotation = 0.2
+max_scale_change = 0.002
+max_shear = 0.002
+max_local_shift = 0.8
+local_length = 64.0
+
+failure_threshold = 1.0
+warmup = 1
+repeats = 3
+
+sites_config = "configs/sites.toml"
+degradations_config = "configs/degradations.toml"
+methods_config = "configs/methods.toml"
+data_dir = "data"
+out = "outputs/n3-m1"
+
+# Real triplets of each site's series (configs/real.toml): 16 windows x 4
+# triplets = 64 per site and method, and 5 simulated triplets per site, scenario
+# and preset next to them, as in N2. RAFT large and small, pretrained and
+# fine-tuned, with N2's other methods beside them; RoMa is left out, its rows
+# on the four N2 sites are those of outputs/n2-cycle.
+[cycle]
+sites = ["beauce", "toulouse", "vosges", "marseille", "alps", "libya4"]
+methods = [
+    "phase_correlation",
+    "sift_ransac",
+    "arosics",
+    "lightglue",
+    "raft",
+    "raft_ft",
+    "raft_small",
+    "raft_small_ft",
+]
+simulated_triplets = 5
+scenarios = ["translation", "affine", "dense"]
+seed = 0
+failure_threshold = 1.0
+warmup = 1
+repeats = 1
+out = "outputs/n3-cycle"
+
+# False change on simulated pairs only: 20 pairs per site, scenario and preset,
+# for the fine-tuned models next to the pretrained ones. The real pairs are not
+# run again: the fine-tuned models are not read on them (docs/decisions.md).
+[false_change]
+sites = ["beauce", "toulouse", "vosges", "marseille", "alps", "libya4"]
+methods = ["raft", "raft_ft", "raft_small", "raft_small_ft"]
+pairs = 20
+scenarios = ["translation", "affine"]
+real = false
+seed = 0
+failure_threshold = 1.0
+warmup = 1
+repeats = 1
+out = "outputs/n3-false-change"

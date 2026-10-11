@@ -1,0 +1,46 @@
+# The GPU half of the simulated table of the final evaluation (N3): the
+# deep-learning methods of N2 and the two fine-tuned models, on the same 5,400
+# pairs as the [benchmark] table of configs/n3.toml, on a Kaggle T4
+# (kaggle/satreg-gpu-benchmark.ipynb with CONFIG = "configs/n3-gpu.toml",
+# WITH_FINE_TUNED = True and OPTIONS = ["--allow-held-out"], see
+# docs/kaggle.md). The criterion of N3 is read on this run's rows for `raft_ft`
+# and `raft` on the two held-out sites. `satreg merge` puts both runs in one
+# table, by device. Only the methods, the device and the output differ from
+# configs/n3.toml.
+
+[benchmark]
+sites = ["beauce", "toulouse", "vosges", "marseille", "alps", "libya4"]
+scenarios = ["translation", "affine", "dense"]
+degradations = ["clean", "mild", "hard"]
+methods = [
+    "raft",
+    "raft_small",
+    "raft_ft",
+    "raft_small_ft",
+    "lightglue",
+    "lightglue_disk",
+    "roma",
+    "roma_dense",
+]
+device = "cuda"
+
+pairs = 100
+size = 256
+seed = 0
+
+max_shift = 4.0
+max_rotation = 0.2
+max_scale_change = 0.002
+max_shear = 0.002
+max_local_shift = 0.8
+local_length = 64.0
+
+failure_threshold = 1.0
+warmup = 1
+repeats = 3
+
+sites_config = "configs/sites.toml"
+degradations_config = "configs/degradations.toml"
+methods_config = "configs/methods.toml"
+data_dir = "data"
+out = "outputs/n3-gpu"

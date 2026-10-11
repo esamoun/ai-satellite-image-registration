@@ -11,6 +11,8 @@ import pytest
 from satreg import curve
 from satreg.benchmark import PairResult
 from satreg.cli import (
+    CURVE_BENCHMARK_COST,
+    CURVE_BENCHMARK_TORCH,
     CURVE_COST,
     CURVE_FOOTPRINT,
     CURVE_FULL,
@@ -706,6 +708,151 @@ def test_curve_refuses_runs_that_cannot_be_read_together(tmp_path):
         main(args)
 
     assert not (tmp_path / "curve" / "summary.md").exists()
+
+
+# The options that draw the pairs of a benchmark, and the directories
+# `make n3-curve` leaves.
+DRAWN = {"sites": ["lyon"], "pairs": 2, "seed": 0}
+
+
+def scored_benchmark_curve(tmp_path, held_out=("lyon",), **options):
+    """Write the directories make n3-curve leaves for the curve to read."""
+    out = tmp_path / "n3-curve"
+    config = tmp_path / "n3-curve.toml"
+    config.write_text(
+        '[benchmark]\nsites = ["lyon"]\npairs = 2\nseed = 0\nmethods = ["raft"]\n'
+    )
+    cost, torch, _ = runs(POINTS)
+    drawn = {"run": {**DRAWN, **options}, "held_out_sites": list(held_out)}
+    cost = changed(cost, **drawn)
+    torch = changed(torch, **drawn)
+    write_run(out / CURVE_BENCHMARK_COST, cost, config, threads={"onnxruntime": 4})
+    write_run(out / CURVE_BENCHMARK_TORCH, torch, config)
+    on_gpu = changed(torch, devices={point.torch: "cuda" for point in POINTS})
+    write_run(tmp_path / "n3-curve-gpu", on_gpu, config, device="cuda")
+    known = footprints(POINTS)
+    write_csv(list(known.values()), out / CURVE_FOOTPRINT / "footprints.csv")
+    return [
+        *("curve", "--benchmark", "--out", str(out)),
+        *("--methods-config", str(CONFIGS / METHODS)),
+    ]
+
+
+def test_curve_reads_the_pairs_of_a_benchmark_under_both_runtimes(tmp_path, capsys):
+    args = scored_benchmark_curve(tmp_path)
+    out = tmp_path / "n3-curve"
+
+    main(args)
+
+    printed = capsys.readouterr().out
+    assert printed == (out / "summary.md").read_text()
+    assert printed.startswith("The cost curve of RAFT: the large and the small model")
+    assert "are read on the benchmark's pairs of lyon, under ONNX Runtime in" in printed
+    assert f"`{out / CURVE_BENCHMARK_COST}`" in printed
+    assert (
+        f"under PyTorch on the same pairs in `{out / CURVE_BENCHMARK_TORCH}`" in printed
+    )
+    assert "Fewer refinements, under PyTorch on the same pairs, 4 pairs:" in printed
+    assert "validation" not in printed and "time on cuda" not in printed
+    assert printed.endswith(
+        "Held-out sites in this table: lyon. They are kept for the final "
+        "evaluation: no threshold, preset or variant may be chosen on their rows.\n"
+    )
+    for table, lines in (("points", 12), ("references", 1), ("refinements", 36)):
+        assert len((out / f"{table}.csv").read_text().splitlines()) == lines + 1
+    assert (out / "curve.png").read_bytes().startswith(b"\x89PNG")
+    context = json.loads((out / "context.json").read_text())
+    assert context["held_out_sites"] == ["lyon"]
+    # The PyTorch run is read twice: for the times and for the refinements.
+    assert list(context["read"]) == [CURVE_BENCHMARK_TORCH, CURVE_BENCHMARK_COST]
+
+
+def test_curve_reads_the_gpu_run_of_a_benchmark_where_it_is_told(tmp_path, capsys):
+    args = scored_benchmark_curve(tmp_path)
+
+    main([*args, "--gpu", str(tmp_path / "n3-curve-gpu")])
+
+    assert "| time on cuda (ms) |" in capsys.readouterr().out
+    context = json.loads((tmp_path / "n3-curve" / "context.json").read_text())
+    assert "n3-curve-gpu" in context["read"]
+
+
+def test_curve_refuses_benchmarks_that_did_not_score_the_same_sites(tmp_path):
+    args = scored_benchmark_curve(tmp_path)
+    path = tmp_path / "n3-curve-gpu" / "context.json"
+    context = json.loads(path.read_text())
+    context["run"]["sites"] = ["paris"]
+    path.write_text(json.dumps(context))
+
+    with pytest.raises(SystemExit, match="n3-curve-gpu was not run as .* sites differ"):
+        main([*args, "--gpu", str(path.parent)])
+
+
+def test_a_rehearsal_of_the_curve_reads_fewer_pairs_and_says_so(tmp_path, capsys):
+    args = scored_benchmark_curve(tmp_path, held_out=(), pairs=1)
+
+    with pytest.raises(SystemExit, match="was not run as .*n3-curve.toml says: pairs"):
+        main(args)
+    main([*args, "--rehearsal"])
+
+    printed = capsys.readouterr().out
+    assert printed.startswith("**Rehearsal.** These runs check that the final")
+    assert (
+        "nothing here is a result, and no choice is made on it.\n\nThe cost" in printed
+    )
+    assert "Held-out sites" not in printed
+
+
+def test_a_rehearsal_of_the_curve_refuses_rows_of_a_held_out_site(tmp_path):
+    args = scored_benchmark_curve(tmp_path)
+
+    with pytest.raises(
+        SystemExit, match="a rehearsal reads no held-out site, .* rows of lyon"
+    ):
+        main([*args, "--rehearsal"])
+    with pytest.raises(SystemExit, match="--rehearsal reads runs of --benchmark"):
+        main([arg for arg in args if arg != "--benchmark"] + ["--rehearsal"])
+    assert not (tmp_path / "n3-curve" / "summary.md").exists()
+
+
+def test_curve_says_which_recipe_scores_the_runs_of_a_benchmark(tmp_path):
+    args = scored_benchmark_curve(tmp_path)
+    (tmp_path / "n3-curve" / CURVE_BENCHMARK_TORCH / "pairs.csv").unlink()
+
+    with pytest.raises(SystemExit, match="no pairs.csv and .* run make n3-curve"):
+        main(args)
+
+
+def test_the_curve_s_benchmark_scores_the_points_and_the_int8_copies_on_the_cpu():
+    recipe = (ROOT / "Makefile").read_text()
+    cost = tomllib.loads((CONFIGS / "n3-curve.toml").read_text())["benchmark"]
+    gpu = tomllib.loads((CONFIGS / "n3-curve-gpu.toml").read_text())["benchmark"]
+    int8 = recipe.split("\nN3_INT8 = ")[1].splitlines()[0].split()
+    references = recipe.split("\nCURVE_REFERENCES = ")[1].splitlines()[0].split()
+
+    assert cost["device"] == curve.COST_DEVICE
+    # The published int8 copies: the static ones of fine-tuned RAFT large.
+    assert int8 == [
+        f"{point.onnx}_int8"
+        for point in POINTS
+        if point.model == "large" and point.fine_tuned
+    ]
+    assert sorted(cost["methods"]) == sorted(
+        [*(point.onnx for point in POINTS), *int8, *references]
+    )
+    assert gpu["methods"] == [point.torch for point in POINTS]
+    # The runs are written where the reading looks for them.
+    assert cost["out"] == f"outputs/n3-curve/{CURVE_BENCHMARK_COST}"
+    assert (
+        "N3_FOOTPRINT = $(CURVE_ONNX) $(N3_INT8) $(CURVE_TORCH) $(CURVE_REFERENCES)\n"
+        in (recipe)
+    )
+    for line in (
+        f"--methods $(CURVE_TORCH) --out $(N3_CURVE)/{CURVE_BENCHMARK_TORCH}\n",
+        f"--methods $(N3_FOOTPRINT) --out $(N3_CURVE)/{CURVE_FOOTPRINT}\n",
+        "satreg curve --benchmark --gpu $(N3_CURVE_GPU) --out $(N3_CURVE)\n",
+    ):
+        assert line in recipe
 
 
 def test_the_cost_runs_score_the_pairs_of_the_validation_set():

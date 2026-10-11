@@ -1,0 +1,48 @@
+# The GPU column of the cost curve of the final evaluation (N3): the twelve
+# float points under PyTorch on the pairs of configs/n3-curve.toml, on a Kaggle
+# T4 (kaggle/satreg-gpu-benchmark.ipynb with CONFIG =
+# "configs/n3-curve-gpu.toml", WITH_FINE_TUNED = True, WITH_ROMA = False and
+# OPTIONS = ["--allow-held-out"], see docs/kaggle.md). Only its times are read.
+# The int8 copies have no row here: they are ONNX files, run on a CPU. Only the
+# methods, the device and the output differ from configs/n3-curve.toml.
+
+[benchmark]
+sites = ["alps", "libya4"]
+scenarios = ["translation", "affine", "dense"]
+degradations = ["clean", "mild", "hard"]
+methods = [
+    "raft_r4",
+    "raft_r8",
+    "raft",
+    "raft_ft_r4",
+    "raft_ft_r8",
+    "raft_ft",
+    "raft_small_r4",
+    "raft_small_r8",
+    "raft_small",
+    "raft_small_ft_r4",
+    "raft_small_ft_r8",
+    "raft_small_ft",
+]
+device = "cuda"
+
+pairs = 100
+size = 256
+seed = 0
+
+max_shift = 4.0
+max_rotation = 0.2
+max_scale_change = 0.002
+max_shear = 0.002
+max_local_shift = 0.8
+local_length = 64.0
+
+failure_threshold = 1.0
+warmup = 1
+repeats = 1
+
+sites_config = "configs/sites.toml"
+degradations_config = "configs/degradations.toml"
+methods_config = "configs/methods.toml"
+data_dir = "data"
+out = "outputs/n3-curve-gpu"

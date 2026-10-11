@@ -1,0 +1,62 @@
+# The cost curve of the final evaluation (N3), on the two held-out sites: the
+# fifteen frozen points under ONNX Runtime on the M1's CPU, the twelve float
+# files of configs/curve.toml and the three static int8 copies of fine-tuned
+# RAFT large, with the classic methods beside them.
+#
+#   satreg benchmark --config configs/n3-curve.toml --allow-held-out
+#   satreg benchmark --config configs/n3-curve.toml --allow-held-out \
+#       --methods <the same models under PyTorch> --out outputs/n3-curve/torch
+#
+# `make n3-curve` runs both, and the rest of what `satreg curve --benchmark` reads.
+# The pairs are the 1,800 held-out pairs of the simulated table
+# (configs/n3.toml): a test checks that every option that draws them is the
+# same in the two files. Each call is timed once after a warm-up: the time of a
+# method is the median over its 1,800 pairs, in a sustained run. About 3 h 30 on
+# the M1 for the first run and 1 h 45 for the second: on mains, lid open,
+# nothing else running. The reasoning is in docs/decisions.md.
+[benchmark]
+sites = ["alps", "libya4"]
+scenarios = ["translation", "affine", "dense"]
+degradations = ["clean", "mild", "hard"]
+methods = [
+    "raft_r4_onnx",
+    "raft_r8_onnx",
+    "raft_onnx",
+    "raft_ft_r4_onnx",
+    "raft_ft_r8_onnx",
+    "raft_ft_onnx",
+    "raft_ft_r4_onnx_int8",
+    "raft_ft_r8_onnx_int8",
+    "raft_ft_onnx_int8",
+    "raft_small_r4_onnx",
+    "raft_small_r8_onnx",
+    "raft_small_onnx",
+    "raft_small_ft_r4_onnx",
+    "raft_small_ft_r8_onnx",
+    "raft_small_ft_onnx",
+    "phase_correlation",
+    "sift_ransac",
+    "arosics",
+]
+device = "cpu"
+
+pairs = 100
+size = 256
+seed = 0
+
+max_shift = 4.0
+max_rotation = 0.2
+max_scale_change = 0.002
+max_shear = 0.002
+max_local_shift = 0.8
+local_length = 64.0
+
+failure_threshold = 1.0
+warmup = 1
+repeats = 1
+
+sites_config = "configs/sites.toml"
+degradations_config = "configs/degradations.toml"
+methods_config = "configs/methods.toml"
+data_dir = "data"
+out = "outputs/n3-curve/onnx"

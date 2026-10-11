@@ -522,6 +522,122 @@ def test_repository_n2_bands_configs_make_the_same_pairs_on_both_machines():
     assert all(not hasattr(methods[name], "device") for name in m1["methods"])
 
 
+SEEN = ["beauce", "toulouse", "vosges", "marseille"]
+HELD_OUT = ["alps", "libya4"]
+FOUR_RAFT = ["raft", "raft_ft", "raft_small", "raft_small_ft"]
+
+
+def test_repository_n3_config_is_valid_for_each_command():
+    benchmark = load_run_config(CONFIGS / "n3.toml")
+    closing = load_run_config(CONFIGS / "n3.toml", "cycle")
+    changes = load_run_config(CONFIGS / "n3.toml", "false-change")
+    methods = load_methods(CONFIGS / "methods.toml")
+    sites = load_sites(CONFIGS / "sites.toml").sites
+
+    assert [name for name in SEEN + HELD_OUT if sites[name].held_out] == HELD_OUT
+    for options in (benchmark, closing, changes):
+        assert options["sites"] == SEEN + HELD_OUT
+        assert set(options["methods"]) <= set(methods)
+    # The closure of the fine-tuned models is read next to the pretrained ones.
+    assert set(FOUR_RAFT) <= set(closing["methods"])
+    # False change: the four RAFT, on simulated pairs alone.
+    assert changes["methods"] == FOUR_RAFT
+    assert (changes["real"], changes["pairs"]) == (False, 20)
+
+
+def test_repository_n3_configs_make_the_pairs_of_n2_on_two_more_sites():
+    n2 = load_run_config(CONFIGS / "n2.toml")
+    n2_gpu = load_run_config(CONFIGS / "n2-gpu.toml")
+    m1 = load_run_config(CONFIGS / "n3.toml")
+    gpu = load_run_config(CONFIGS / "n3-gpu.toml")
+    own = {"methods", "device", "out"}
+
+    assert {k: v for k, v in m1.items() if k not in own} == {
+        k: v for k, v in gpu.items() if k not in own
+    }
+    # A pair depends on the seed, its site and its index: with the options of
+    # N2, the pairs of its four sites are N2's.
+    assert {k: v for k, v in m1.items() if k not in own | {"sites"}} == {
+        k: v for k, v in n2.items() if k not in own | {"sites"}
+    }
+    assert m1["sites"] == n2["sites"] + HELD_OUT
+    assert (m1["pairs"], m1["seed"], m1["failure_threshold"]) == (100, 0, 1.0)
+    # The ten methods of N2 and the two fine-tuned models.
+    assert m1["methods"] == n2["methods"]
+    assert sorted(gpu["methods"]) == sorted(
+        n2_gpu["methods"] + ["raft_ft", "raft_small_ft"]
+    )
+    assert (m1["device"], gpu["device"]) == ("cpu", "cuda")
+    assert len(m1["methods"] + gpu["methods"]) == 12
+
+
+def test_repository_n3_bands_config_makes_the_inter_band_pairs_of_n2():
+    n2 = load_run_config(CONFIGS / "n2-bands.toml")
+    bands = load_run_config(CONFIGS / "n3-bands.toml")
+    # Each pair is timed once: these rows are read for their error.
+    own = {"methods", "device", "out", "repeats"}
+
+    assert {k: v for k, v in bands.items() if k not in own} == {
+        k: v for k, v in n2.items() if k not in own
+    }
+    assert bands["sites"] == ["beauce", "toulouse"]
+    assert (bands["methods"], bands["device"]) == (FOUR_RAFT, "cpu")
+
+
+def test_repository_n3_curve_configs_score_the_held_out_pairs_of_the_table():
+    table = load_run_config(CONFIGS / "n3.toml")
+    cost = load_run_config(CONFIGS / "n3-curve.toml")
+    gpu = load_run_config(CONFIGS / "n3-curve-gpu.toml")
+    own = {"methods", "device", "out"}
+
+    assert {k: v for k, v in cost.items() if k not in own} == {
+        k: v for k, v in gpu.items() if k not in own
+    }
+    # The pairs of the table on the held-out sites, each timed once.
+    assert {k: v for k, v in cost.items() if k not in own | {"sites", "repeats"}} == {
+        k: v for k, v in table.items() if k not in own | {"sites", "repeats"}
+    }
+    assert cost["sites"] == HELD_OUT
+    assert (cost["warmup"], cost["repeats"]) == (1, 1)
+    assert (cost["device"], gpu["device"]) == ("cpu", "cuda")
+
+
+def test_false_change_is_run_on_real_pairs_unless_told_not_to(tmp_path):
+    config = tmp_path / "run.toml"
+    config.write_text("[false_change]\nreal = false\n")
+
+    assert parse_args(["false-change"]).real is True
+    assert parse_args(["false-change", "--no-real"]).real is False
+    assert parse_args(["false-change", "--config", str(config)]).real is False
+    assert parse_args(["false-change", "--config", str(config), "--real"]).real is True
+
+
+def test_false_change_on_simulated_pairs_alone_reads_no_land_cover(
+    tmp_path, capsys, monkeypatch
+):
+    def fetched(*args, **kwargs):
+        raise AssertionError("the land cover was fetched")
+
+    monkeypatch.setattr(cli, "fetch_landcover", fetched)
+    out = tmp_path / "out"
+
+    main(
+        ["false-change", "--no-real", "--methods", "phase_correlation"]
+        + ["--pairs", "2", "--degradations", "clean", "--out", str(out)]
+        + PRESETS
+        # A chip with room for a 256 px pair and its margin.
+        + _cached_series(tmp_path, chip_px=320)
+    )
+
+    printed = capsys.readouterr().out
+    assert printed == (out / "summary.md").read_text()
+    assert "## Simulated pairs" in printed and "## Real pairs" not in printed
+    assert (out / "simulated.csv").is_file() and not (out / "real.csv").exists()
+    context = json.loads((out / "context.json").read_text())
+    assert context["run"]["real"] is False
+    assert context["stable_share"] == {} and context["checkpoints"] == {}
+
+
 def test_repository_cuda_configs_list_only_methods_the_kaggle_notebook_installs():
     # The notebook installs the dl extra and RoMa, not AROSICS: a CUDA config
     # listing a classic method stops on Kaggle before its first pair.
@@ -553,13 +669,13 @@ SERIES_DATES = {
 }
 
 
-def _cached_series(tmp_path, extra=""):
+def _cached_series(tmp_path, extra="", chip_px=256):
     """Configure a site and a series, and put every date of it in the cache."""
-    site = site_at(*CENTRE, chip_px=256)
+    site = site_at(*CENTRE, chip_px=chip_px)
     sites_config = tmp_path / "sites.toml"
     sites_config.write_text(
         '[stac]\nurl = "https://stac.example"\ncollection = "sentinel-2-c1-l2a"\n'
-        f"[sites.beauce]\nlon = {site.lon}\nlat = {site.lat}\nchip_px = 256\n"
+        f"[sites.beauce]\nlon = {site.lon}\nlat = {site.lat}\nchip_px = {chip_px}\n"
         "start = 2025-04-01\nend = 2025-09-30\nmax_cloud = 5.0\n" + extra
     )
     series_config = tmp_path / "real.toml"
@@ -570,20 +686,20 @@ def _cached_series(tmp_path, extra=""):
     )
     sites = load_sites(sites_config)
     config = load_series_config(series_config)
-    base = np.random.default_rng(0).integers(1000, 5000, (256, 256), np.uint16)
+    base = np.random.default_rng(0).integers(1000, 5000, (chip_px, chip_px), np.uint16)
     for i, (role, (day, platform)) in enumerate(SERIES_DATES.items()):
         path = series_path(
             sites.sites["beauce"], sites.catalogue, config, role, tmp_path / "data"
         )
         path.parent.mkdir(parents=True, exist_ok=True)
-        scl = np.full((256, 256), 4, np.uint16)
+        scl = np.full((chip_px, chip_px), 4, np.uint16)
         scl[0, : 10 * (i + 1)] = 9  # a few cloudy pixels, more each date
         with rasterio.open(
             path,
             "w",
             driver="GTiff",
-            width=256,
-            height=256,
+            width=chip_px,
+            height=chip_px,
             count=2,
             dtype=np.uint16,
             crs=CRS,

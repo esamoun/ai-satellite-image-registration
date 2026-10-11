@@ -3,8 +3,8 @@ merge``, ``satreg real-pairs``, ``satreg check-presets``, ``satreg cycle``,
 ``satreg false-change``, ``satreg fetch-train``, ``satreg train-pairs``,
 ``satreg train``, ``satreg validate``, ``satreg validate-cycle``, ``satreg
 ablation``, ``satreg small``, ``satreg fetch-weights``, ``satreg
-export-weights``, ``satreg export``, ``satreg footprint`` and ``satreg
-curve``."""
+export-weights``, ``satreg export``, ``satreg footprint``, ``satreg curve``
+and ``satreg final``."""
 
 import argparse
 import dataclasses
@@ -22,6 +22,7 @@ from . import (
     curve,
     cycle,
     falsechange,
+    final,
     footprint,
     onnxexport,
     quantize,
@@ -150,6 +151,22 @@ CURVE_COST = "onnx-light"
 CURVE_TORCH = "torch-light"
 CURVE_FOOTPRINT = "footprint"
 CURVE_GPU = "gpu-light"
+# The same two runs when `satreg benchmark` scored them (`satreg curve
+# --benchmark`): the pairs are the benchmark's, and the PyTorch run is also the
+# one the refinement counts are read on.
+CURVE_BENCHMARK_COST = "onnx"
+CURVE_BENCHMARK_TORCH = "torch"
+
+# The final evaluation (N3): where `make n3` writes the merged table, the
+# closure run and the reading, and the published weights the two fine-tuned
+# methods must have run.
+DEFAULT_FINAL_TABLE = Path("outputs/n3")
+DEFAULT_FINAL_CLOSURE = Path("outputs/n3-cycle")
+DEFAULT_FINAL_OUT = Path("outputs/n3-final")
+FINAL_WEIGHTS = {"raft_ft": "raft_large_ft", "raft_small_ft": "raft_small_ft"}
+# Options a rehearsal of the final evaluation may change besides
+# ``ABLATION_FREE``: it runs on seen sites, with fewer pairs and timed calls.
+REHEARSAL_FREE = ("sites", "pairs", "simulated_triplets", "repeats")
 
 # Where the int8 files are read: their scores next to the float files', and in
 # directories of it the table of the files and their memory.
@@ -404,6 +421,13 @@ def _parser(
         type=Path,
         default=DEFAULT_DEGRADATIONS_CONFIG,
         help="TOML file declaring the degradation presets",
+    )
+    changes.add_argument(
+        "--real",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="run the real pairs of each site, which needs its land cover "
+        "(--no-real: simulated pairs only)",
     )
     changes.add_argument("--seed", type=int, default=defaults.seed)
     changes.add_argument(
@@ -806,6 +830,63 @@ def _parser(
     reading_curve.add_argument(
         "--methods-config", type=Path, default=DEFAULT_METHODS_CONFIG
     )
+    reading_curve.add_argument(
+        "--benchmark",
+        action="store_true",
+        help="read runs of satreg benchmark in place of runs of satreg validate: "
+        f"the ONNX Runtime methods in {CURVE_BENCHMARK_COST}/ and the PyTorch "
+        f"ones in {CURVE_BENCHMARK_TORCH}/ under --out, on the same pairs, "
+        "where make n3-curve writes them",
+    )
+    reading_curve.add_argument(
+        "--gpu",
+        type=Path,
+        metavar="RUN",
+        help="directory of the run of the PyTorch methods on a GPU, on the same "
+        f"pairs (default: {CURVE_GPU}/ under --out, if it is there and "
+        "--benchmark is not given)",
+    )
+    reading_curve.add_argument(
+        "--rehearsal",
+        action="store_true",
+        help="with --benchmark, read a rehearsal of the final evaluation: runs "
+        "on seen sites, with fewer pairs than their configuration says",
+    )
+    reading_final = commands.add_parser(
+        "final",
+        help="read the final evaluation of N3: the criterion on the simulated "
+        "pairs of the held-out sites, with its interval, and the closure of "
+        "the real triplets, from the tables merge and cycle wrote",
+    )
+    reading_final.add_argument(
+        "--table",
+        type=Path,
+        default=DEFAULT_FINAL_TABLE,
+        help="directory of the merged table of the final evaluation",
+    )
+    reading_final.add_argument(
+        "--closure",
+        type=Path,
+        default=DEFAULT_FINAL_CLOSURE,
+        help="directory of its closure run",
+    )
+    reading_final.add_argument(
+        "--rehearsal",
+        nargs="+",
+        metavar="SITE",
+        help="rehearse the reading on tables of seen sites only, these sites "
+        "standing in for the held-out ones: the report is not a result",
+    )
+    reading_final.add_argument(
+        "--resamples",
+        type=int,
+        default=final.RESAMPLES,
+        help="resamples of each interval of a difference of mean error",
+    )
+    reading_final.add_argument(
+        "--seed", type=int, default=final.SEED, help="seed of the resamples"
+    )
+    reading_final.add_argument("--out", type=Path, default=DEFAULT_FINAL_OUT)
     if run_config:
         {
             "benchmark": bench,
@@ -1782,12 +1863,15 @@ def false_change(args: argparse.Namespace) -> str:
         site = sites.sites[name]
         acquisitions = load_series(site, sites.catalogue, series, args.data_dir)
         anchor = next(a for a in acquisitions if a.role == ANCHOR)
-        cover = fetch_landcover(name, anchor.georef, anchor.image.shape, args.data_dir)
-        stable = stable_ground(read_landcover(cover))
-        stable_share[name] = float(stable.mean())
-        real += falsechange.run_real(
-            name, acquisitions, stable, methods, config, warmed
-        )
+        if args.real:
+            cover = fetch_landcover(
+                name, anchor.georef, anchor.image.shape, args.data_dir
+            )
+            stable = stable_ground(read_landcover(cover))
+            stable_share[name] = float(stable.mean())
+            real += falsechange.run_real(
+                name, acquisitions, stable, methods, config, warmed
+            )
         if not degradations:
             continue
         more_curve, more_rows = falsechange.run_simulated(
@@ -1822,6 +1906,7 @@ def false_change(args: argparse.Namespace) -> str:
         "run_seconds": run_seconds,
     }
     context["devices"] = {name: method_device(m) for name, m in methods.items()}
+    context["checkpoints"] = _checkpoints(methods)
     context["held_out_sites"] = held_out
     context["stable_share"] = stable_share
     context["run"] = {k: v for k, v in sorted(vars(args).items()) if k != "command"}
@@ -2380,31 +2465,27 @@ def validate_cycle(args: argparse.Namespace) -> str:
     return table
 
 
-def _scored_run(
-    path: Path, table: str, command: str, recipe: str
-) -> tuple[Path, dict[str, object]]:
-    """Find the per-item table and the context of a run a report reads.
+def _as_configured(
+    path: Path | str,
+    context: dict[str, object],
+    command: str,
+    recipe: str,
+    free: Sequence[str] = ABLATION_FREE,
+) -> None:
+    """Check that a run was given the options of its run configuration.
 
     Args:
-        path: Directory of the run.
-        table: Its per-item table, ``pairs.csv`` or ``triplets.csv``.
+        path: Directory of the run, for the messages.
+        context: The run's context.
         command: The command that wrote it, one of ``RUN_TABLES``.
         recipe: The ``make`` target that scores the run.
-
-    Returns:
-        The path of the table and the run's context.
+        free: Options the run may have been given another value for.
 
     Raises:
-        SystemExit: If the run is missing, or was given an option that is not
-            the one of its run configuration, other than ``ABLATION_FREE``: a
-            run of fewer pairs is not the validation set.
+        SystemExit: If the run was not run from a run configuration, or was
+            given an option that is not the one of its configuration, other
+            than ``free``: a run of fewer pairs is not the validation set.
     """
-    if not (path / table).is_file() or not (path / "context.json").is_file():
-        raise SystemExit(
-            f"satreg: no {table} and context.json in {path}: run make {recipe} "
-            "(see the README)"
-        )
-    context = json.loads((path / "context.json").read_text())
     run = context.get("run", {})
     if not run.get("config"):
         raise SystemExit(
@@ -2415,13 +2496,45 @@ def _scored_run(
     unlike = sorted(
         option
         for option, value in configured.items()
-        if option not in ABLATION_FREE and run.get(option) != value
+        if option not in free and run.get(option) != value
     )
     if unlike:
         raise SystemExit(
             f"satreg: {path} was not run as {run['config']} says: "
             f"{', '.join(unlike)} differ"
         )
+
+
+def _scored_run(
+    path: Path,
+    table: str,
+    command: str,
+    recipe: str,
+    free: Sequence[str] = ABLATION_FREE,
+) -> tuple[Path, dict[str, object]]:
+    """Find the per-item table and the context of a run a report reads.
+
+    Args:
+        path: Directory of the run.
+        table: Its per-item table, ``pairs.csv`` or ``triplets.csv``.
+        command: The command that wrote it, one of ``RUN_TABLES``.
+        recipe: The ``make`` target that scores the run.
+        free: Options the run may have been given another value for.
+
+    Returns:
+        The path of the table and the run's context.
+
+    Raises:
+        SystemExit: If the run is missing, or was not run as its run
+            configuration says: see ``_as_configured``.
+    """
+    if not (path / table).is_file() or not (path / "context.json").is_file():
+        raise SystemExit(
+            f"satreg: no {table} and context.json in {path}: run make {recipe} "
+            "(see the README)"
+        )
+    context = json.loads((path / "context.json").read_text())
+    _as_configured(path, context, command, recipe, free)
     return path / table, context
 
 
@@ -3035,11 +3148,12 @@ def read_footprints(args: argparse.Namespace) -> str:
 
 
 def read_curve(args: argparse.Namespace) -> str:
-    """Read the cost curve from the runs ``make curve`` scored.
+    """Read the cost curve from the runs ``make curve`` or ``make n3-curve`` scored.
 
     Nothing is run: the pairs are those ``validate`` scored for the points
     under PyTorch and under ONNX Runtime, and the memory is what ``footprint``
-    read.
+    read. With ``--benchmark`` the pairs are those ``benchmark`` scored, the
+    same under both runtimes, and the refinement counts are read on them too.
 
     Args:
         args: Parsed ``curve`` arguments.
@@ -3049,18 +3163,42 @@ def read_curve(args: argparse.Namespace) -> str:
 
     Raises:
         SystemExit: If a run or the footprints are missing, a run was not run
-            as its configuration says, or the runs cannot be read together:
-            see ``curve.check``.
+            as its configuration says, a rehearsal has rows of a held-out
+            site, or the runs cannot be read together: see ``curve.check``.
     """
-    paths = {name: args.out / name for name in (CURVE_FULL, CURVE_COST, CURVE_TORCH)}
-    if (args.out / CURVE_GPU / "pairs.csv").is_file():
-        paths[CURVE_GPU] = args.out / CURVE_GPU
+    if args.rehearsal and not args.benchmark:
+        raise SystemExit("satreg: --rehearsal reads runs of --benchmark")
+    command, recipe, free = "validate", "curve", ABLATION_FREE
+    cost, torch, full = (args.out / n for n in (CURVE_COST, CURVE_TORCH, CURVE_FULL))
+    gpu = args.gpu
+    if args.benchmark:
+        command, recipe = "benchmark", "n3-curve"
+        cost, torch = (
+            args.out / name for name in (CURVE_BENCHMARK_COST, CURVE_BENCHMARK_TORCH)
+        )
+        full = torch
+        if args.rehearsal:
+            free = (*ABLATION_FREE, *REHEARSAL_FREE)
+    elif gpu is None and (args.out / CURVE_GPU / "pairs.csv").is_file():
+        gpu = args.out / CURVE_GPU
+    paths = {"full": full, "cost": cost, "torch": torch}
+    if gpu is not None:
+        paths["gpu"] = gpu
+    held_out: list[str] = []
     for path in paths.values():
-        _scored_run(path, "pairs.csv", "validate", "curve")
+        _, scored = _scored_run(path, "pairs.csv", command, recipe, free)
+        held_out += [
+            name for name in scored.get("held_out_sites", []) if name not in held_out
+        ]
+    if args.rehearsal and held_out:
+        raise SystemExit(
+            f"satreg: a rehearsal reads no held-out site, and the runs have rows "
+            f"of {', '.join(held_out)}"
+        )
     footprints = args.out / CURVE_FOOTPRINT / "footprints.csv"
     if not footprints.is_file():
         raise SystemExit(
-            f"satreg: no footprints at {footprints}: run make curve (see the README)"
+            f"satreg: no footprints at {footprints}: run make {recipe} (see the README)"
         )
     try:
         methods = load_methods(args.methods_config)
@@ -3069,16 +3207,16 @@ def read_curve(args: argparse.Namespace) -> str:
             f"satreg: no method parameters at {args.methods_config} "
             "(run from the repository root or pass --methods-config)"
         ) from None
-    runs = {name: curve.read_run(path) for name, path in paths.items()}
+    runs = {role: curve.read_run(path) for role, path in paths.items()}
     try:
         curve.check_methods(curve.POINTS, methods)
         read = curve.read(
             curve.POINTS,
-            runs[CURVE_COST],
-            runs[CURVE_TORCH],
-            runs[CURVE_FULL],
+            runs["cost"],
+            runs["torch"],
+            runs["full"],
             footprint.read(footprints),
-            runs.get(CURVE_GPU),
+            runs.get("gpu"),
         )
     except ValueError as exc:
         raise SystemExit(f"satreg: {exc}") from None
@@ -3087,42 +3225,237 @@ def read_curve(args: argparse.Namespace) -> str:
         "The cost curve of RAFT: the large and the small model, pretrained and "
         "fine-tuned, with "
         f"{', '.join(str(count) for count in curve.REFINEMENTS)} refinements. "
-        f"Error, failures and time are read on the light validation set of "
-        f"`{paths[CURVE_COST]}`, the same models under PyTorch on that of "
-        f"`{paths[CURVE_TORCH]}`, memory in `{footprints.parent}`, and the "
-        f"refinement counts on the full validation set of `{paths[CURVE_FULL]}`. "
-        "How each is measured is in docs/decisions.md.\n\n" + curve.to_markdown(read)
     )
+    if args.benchmark:
+        sites = ", ".join(runs["cost"].context["run"]["sites"])
+        pairs = f"pairs of {sites}"
+        if args.rehearsal:
+            table = (
+                "**Rehearsal.** These runs check that the final evaluation's "
+                "commands work, on seen sites and a few pairs: nothing here is a "
+                "result, and no choice is made on it.\n\n" + table
+            )
+        table += (
+            f"Error, failures and time are read on the benchmark's {pairs}, "
+            f"under ONNX Runtime in `{cost}` and the same models under PyTorch on "
+            f"the same pairs in `{torch}`, and memory in `{footprints.parent}`. "
+            "How each is measured is in docs/decisions.md.\n\n"
+            + curve.to_markdown(read, full="the same pairs")
+            + held_out_note(held_out)
+        )
+    else:
+        pairs = "validation pairs"
+        table += (
+            f"Error, failures and time are read on the light validation set of "
+            f"`{cost}`, the same models under PyTorch on that of "
+            f"`{torch}`, memory in `{footprints.parent}`, and the "
+            f"refinement counts on the full validation set of `{full}`. "
+            "How each is measured is in docs/decisions.md.\n\n"
+            + curve.to_markdown(read)
+        )
     write_csv(read.rows, args.out / "points.csv")
     write_csv(read.references, args.out / "references.csv")
     write_csv(read.refinements, args.out / "refinements.csv")
-    curve.figure(read, args.out / "curve.png")
+    curve.figure(read, args.out / "curve.png", pairs)
     (args.out / "summary.md").write_text(table)
-    cost = runs[CURVE_COST].context
+    cost = runs["cost"].context
     context = {
         "code": code_version(),
         "run": {k: v for k, v in sorted(vars(args).items()) if k != "command"},
         # The files the points ran: the ONNX ones, and the weights under PyTorch.
         "checkpoints": {
-            **runs[CURVE_FULL].context.get("checkpoints", {}),
+            **runs["full"].context.get("checkpoints", {}),
             **cost.get("checkpoints", {}),
         },
+        "held_out_sites": held_out,
         "machine": cost.get("machine"),
         "threads": cost.get("threads"),
         "libraries": cost.get("libraries"),
         "cost": cost.get("cost"),
         # The code and the time of the runs the tables come from.
         "read": {
-            name: {
+            paths[role].name: {
                 "code": run.context.get("code"),
                 "recorded_at": run.context.get("recorded_at"),
                 "machine": run.context.get("machine"),
             }
-            for name, run in runs.items()
+            for role, run in runs.items()
         },
     }
     _write_context(context, args.out)
     return table
+
+
+def _published_weights(
+    path: Path | str, context: dict[str, object]
+) -> dict[str, dict[str, object]]:
+    """Check that a run scored the published fine-tuned weights.
+
+    Args:
+        path: Directory of the run, for the message.
+        context: The run's context.
+
+    Returns:
+        What the run recorded of the weights of each fine-tuned method.
+
+    Raises:
+        SystemExit: If a fine-tuned method did not run the published weights:
+            the final evaluation is of those and no others.
+    """
+    recorded = context.get("checkpoints", {})
+    for method, release in FINAL_WEIGHTS.items():
+        if recorded.get(method, {}).get("sha256") != published.lookup(release).sha256:
+            raise SystemExit(
+                f"satreg: {path} did not run {method} with the published weights "
+                f"{release}"
+            )
+    return {method: recorded[method] for method in FINAL_WEIGHTS}
+
+
+def read_final(args: argparse.Namespace) -> str:
+    """Read the final evaluation of N3: the criterion, then the closure.
+
+    Nothing is run: the pairs are those of the table ``merge`` wrote from the
+    two runs of ``benchmark``, and the triplets those ``cycle`` scored. The
+    criterion is read on the sites the run of the RAFT methods marked held
+    out, or in a rehearsal on the seen sites named in their place.
+
+    Args:
+        args: Parsed ``final`` arguments.
+
+    Returns:
+        The report, as markdown: the verdict first.
+
+    Raises:
+        SystemExit: If a run is missing, the table is not a merged one, a run
+            was not run as its configuration says, the four RAFT methods are
+            not in one run of the table, a fine-tuned method did not run the
+            published weights, the table has no held-out site, a rehearsal has
+            one, or the runs cannot be read together: see ``final.read``.
+    """
+    rehearsal = bool(args.rehearsal)
+    free = (*ABLATION_FREE, *REHEARSAL_FREE) if rehearsal else ABLATION_FREE
+    pairs = args.table / "pairs.csv"
+    if not pairs.is_file() or not (args.table / "context.json").is_file():
+        raise SystemExit(
+            f"satreg: no pairs.csv and context.json in {args.table}: run make n3 "
+            "(see the README)"
+        )
+    parts = json.loads((args.table / "context.json").read_text()).get("merged")
+    if not parts:
+        raise SystemExit(
+            f"satreg: {args.table} is not a table satreg merge wrote: run make n3 "
+            "(see the README)"
+        )
+    for part in parts:
+        _as_configured(part["path"], part["context"], "benchmark", "n3", free)
+    methods = [method for model in final.MODELS for method in model]
+    scored = [
+        part
+        for part in parts
+        if all(method in part["context"].get("devices", {}) for method in methods)
+    ]
+    if len(scored) != 1:
+        raise SystemExit(
+            f"satreg: {args.table} does not have {', '.join(methods)} from one run: "
+            "a model and its reference are read on one machine"
+        )
+    table = scored[0]["context"]
+    triplets, closure = _scored_run(args.closure, "triplets.csv", "cycle", "n3", free)
+    weights = _published_weights(scored[0]["path"], table)
+    _published_weights(args.closure, closure)
+
+    held_out = list(table.get("held_out_sites", []))
+    looked = [part["context"].get("held_out_sites", []) for part in parts]
+    looked.append(closure.get("held_out_sites", []))
+    if rehearsal:
+        if seen := sorted({name for names in looked for name in names}):
+            raise SystemExit(
+                "satreg: a rehearsal reads no held-out site, and the runs have "
+                f"rows of {', '.join(seen)}"
+            )
+        target = list(dict.fromkeys(args.rehearsal))
+    elif not held_out:
+        raise SystemExit(
+            f"satreg: {args.table} has no held-out site to read the criterion on "
+            "(--rehearsal names seen sites to stand in for them)"
+        )
+    elif any(names != held_out for names in looked):
+        raise SystemExit(
+            f"satreg: the runs of {args.table} and {args.closure} are not of the "
+            "same held-out sites"
+        )
+    else:
+        target = held_out
+    try:
+        read = final.read(
+            ablation.read_pairs(pairs),
+            ablation.read_triplets(triplets),
+            target,
+            rehearsal,
+            args.resamples,
+            args.seed,
+        )
+    except ValueError as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+    # Every pair the run was to score: a table cut short is not the criterion.
+    run = table["run"]
+    expected = (
+        len(target) * len(run["scenarios"]) * len(run["degradations"]) * run["pairs"]
+    )
+    if (found := read.pairs_of(final.LARGE, read.target)[0].pairs) != expected:
+        raise SystemExit(
+            f"satreg: {args.table} has {found} pairs of {', '.join(target)} for "
+            f"{final.LARGE[0]}, not the {expected} its run was to score"
+        )
+
+    devices = ", ".join(dict.fromkeys(table["devices"][m] for m in methods))
+    report = (
+        "The final evaluation of N3: fine-tuned RAFT next to the pretrained "
+        f"model, on the simulated pairs of `{args.table}` and the real triplets "
+        f"of `{args.closure}`. The criterion and the reading of the closure are "
+        "in docs/decisions.md, written before any training ran, and the freeze "
+        "before these tables were made.\n\n"
+        + final.to_markdown(read)
+        + f"\nThe pairs of the four RAFT methods were scored on {describe(table)} "
+        f"({devices}), and the triplets on {describe(closure)}. The fine-tuned "
+        "weights are the published ones: "
+        + "; ".join(
+            f"{method} is `{found['asset']}` of release `{found['release']}`, "
+            f"SHA-256 `{found['sha256']}`"
+            for method, found in weights.items()
+        )
+        + ".\n"
+        + held_out_note(held_out)
+    )
+    args.out.mkdir(parents=True, exist_ok=True)
+    write_csv(read.criterion, args.out / "criterion.csv")
+    write_csv(read.closure, args.out / "closure.csv")
+    (args.out / "summary.md").write_text(report)
+    context = {
+        "code": code_version(),
+        "run": {k: v for k, v in sorted(vars(args).items()) if k != "command"},
+        "checkpoints": weights,
+        "held_out_sites": held_out,
+        "rehearsal": rehearsal,
+        # A rehearsal answers nothing.
+        "answer": None if rehearsal else read.answer,
+        # The code, the time and the machine of the runs the tables come from.
+        "read": {
+            str(path): {
+                "code": run.get("code"),
+                "recorded_at": run.get("recorded_at"),
+                "machine": run.get("machine"),
+                "gpu": run.get("gpu"),
+            }
+            for path, run in (
+                *((part["path"], part["context"]) for part in parts),
+                (args.closure, closure),
+            )
+        },
+    }
+    _write_context(context, args.out)
+    return report
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -3178,3 +3511,5 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(read_footprints(args), end="")
     elif args.command == "curve":
         print(read_curve(args), end="")
+    elif args.command == "final":
+        print(read_final(args), end="")

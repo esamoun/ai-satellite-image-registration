@@ -1,4 +1,4 @@
-.PHONY: install install-arosics install-dl install-roma install-onnx lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle ablation small onnx curve int8 clean
+.PHONY: install install-arosics install-dl install-roma install-onnx lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle ablation small onnx curve int8 n3 n3-m1 n3-merge n3-cycle n3-final n3-bands n3-false-change n3-curve n3-dry clean
 
 install:
 	pip install -e ".[dev]"
@@ -216,6 +216,76 @@ int8:
 	satreg quantize --config configs/quantization.toml
 	satreg footprint --methods $(INT8_FLOAT) $(INT8) --out $(QUANTIZATION)/footprint
 	satreg int8 --config configs/quantization.toml
+
+# The final evaluation of N3, published in docs/evaluation.md: the single read
+# of the held-out sites (alps, libya4), after the freeze of docs/decisions.md.
+# The M1 parts of configs/n3.toml, configs/n3-bands.toml and
+# configs/n3-curve.toml, the merge with the GPU half of the simulated table
+# (configs/n3-gpu.toml), and the verdict and the cost curve read from them.
+# The GPU runs (configs/n3-gpu.toml, configs/n3-curve-gpu.toml) are made on
+# Kaggle and downloaded to outputs/kaggle/ before `make n3` (docs/kaggle.md).
+# --allow-held-out is given here, on each command that reads a held-out site,
+# and nowhere else. Needs `make onnx` for the pretrained ONNX files. About 7
+# hours on the M1, the cost curve being most of it: on mains with the lid open
+# and nothing else running, as the times and the memory are read on it.
+N3_GPU = outputs/kaggle/outputs/n3-gpu
+N3_CURVE = outputs/n3-curve
+N3_CURVE_GPU = outputs/kaggle/outputs/n3-curve-gpu
+N3_INT8 = raft_ft_r4_onnx_int8 raft_ft_r8_onnx_int8 raft_ft_onnx_int8
+N3_FOOTPRINT = $(CURVE_ONNX) $(N3_INT8) $(CURVE_TORCH) $(CURVE_REFERENCES)
+
+n3: n3-m1 n3-merge n3-cycle n3-final n3-bands n3-false-change n3-curve
+
+n3-m1:
+	satreg benchmark --config configs/n3.toml --allow-held-out
+
+n3-merge:
+	satreg merge outputs/n3-m1 $(N3_GPU) --out outputs/n3
+
+n3-cycle:
+	satreg cycle --config configs/n3.toml --allow-held-out
+
+n3-final:
+	satreg final --table outputs/n3 --closure outputs/n3-cycle --out outputs/n3-final
+
+n3-bands:
+	satreg benchmark --config configs/n3-bands.toml
+
+n3-false-change:
+	satreg false-change --config configs/n3.toml --allow-held-out
+
+n3-curve:
+	satreg benchmark --config configs/n3-curve.toml --allow-held-out
+	satreg benchmark --config configs/n3-curve.toml --allow-held-out --methods $(CURVE_TORCH) --out $(N3_CURVE)/torch
+	satreg footprint --methods $(N3_FOOTPRINT) --out $(N3_CURVE)/footprint
+	satreg curve --benchmark --gpu $(N3_CURVE_GPU) --out $(N3_CURVE)
+
+# The rehearsal of `make n3`, before the freeze: every config and every
+# command of the final evaluation on the four seen sites, two pairs a cell,
+# without --allow-held-out, so that no command can read a held-out site. The
+# GPU configs run here on $(N3_DRY_DEVICE). It checks that the commands run
+# and read each other's tables: its numbers are not results, and nothing is
+# chosen on them. About 40 minutes on the M1.
+N3_DRY = outputs/n3-dry
+N3_DRY_DEVICE = mps
+N3_SEEN = beauce toulouse vosges marseille
+N3_STAND_IN = vosges marseille
+N3_DRY_SITES = $(addprefix --site ,$(N3_SEEN))
+N3_DRY_CURVE_SITES = $(addprefix --site ,$(N3_STAND_IN))
+
+n3-dry:
+	satreg benchmark --config configs/n3.toml $(N3_DRY_SITES) --pairs 2 --repeats 1 --out $(N3_DRY)/n3-m1
+	satreg benchmark --config configs/n3-gpu.toml $(N3_DRY_SITES) --pairs 2 --repeats 1 --device $(N3_DRY_DEVICE) --out $(N3_DRY)/n3-gpu
+	satreg merge $(N3_DRY)/n3-m1 $(N3_DRY)/n3-gpu --out $(N3_DRY)/n3
+	satreg cycle --config configs/n3.toml $(N3_DRY_SITES) --simulated-triplets 1 --out $(N3_DRY)/n3-cycle
+	satreg final --table $(N3_DRY)/n3 --closure $(N3_DRY)/n3-cycle --rehearsal $(N3_STAND_IN) --out $(N3_DRY)/n3-final
+	satreg benchmark --config configs/n3-bands.toml --pairs 2 --out $(N3_DRY)/n3-bands
+	satreg false-change --config configs/n3.toml $(N3_DRY_SITES) --pairs 2 --out $(N3_DRY)/n3-false-change
+	satreg benchmark --config configs/n3-curve.toml $(N3_DRY_CURVE_SITES) --pairs 2 --out $(N3_DRY)/n3-curve/onnx
+	satreg benchmark --config configs/n3-curve.toml $(N3_DRY_CURVE_SITES) --pairs 2 --methods $(CURVE_TORCH) --out $(N3_DRY)/n3-curve/torch
+	satreg benchmark --config configs/n3-curve-gpu.toml $(N3_DRY_CURVE_SITES) --pairs 2 --device $(N3_DRY_DEVICE) --out $(N3_DRY)/n3-curve-gpu
+	satreg footprint --methods $(N3_FOOTPRINT) --calls 2 --processes 1 --out $(N3_DRY)/n3-curve/footprint
+	satreg curve --benchmark --rehearsal --gpu $(N3_DRY)/n3-curve-gpu --out $(N3_DRY)/n3-curve
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

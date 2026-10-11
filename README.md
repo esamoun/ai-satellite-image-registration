@@ -835,6 +835,45 @@ It refuses runs that measured the same device, or whose pairs or scoring differ.
 The procedure, where the weights go and how long a run takes are in
 [`docs/kaggle.md`](docs/kaggle.md).
 
+### The N3 run
+
+```bash
+make install-dl install-arosics install-roma install-onnx
+make onnx      # the pretrained ONNX files, once
+make n3-dry    # the rehearsal: every command on the four seen sites, about 40 min
+make n3        # the final evaluation, about 7 hours on the M1
+```
+
+`make n3` is the final evaluation of N3: the one read of the two held-out
+sites, `alps` and `libya4`, after the freeze written in
+[`docs/decisions.md`](docs/decisions.md). It runs the M1 part of
+[`configs/n3.toml`](configs/n3.toml) (the simulated table, the closure of real
+triplets, the false change), of [`configs/n3-bands.toml`](configs/n3-bands.toml)
+and of [`configs/n3-curve.toml`](configs/n3-curve.toml), and merges the GPU
+part, which the Kaggle notebook produces first from
+[`configs/n3-gpu.toml`](configs/n3-gpu.toml) and
+[`configs/n3-curve-gpu.toml`](configs/n3-curve-gpu.toml)
+([`docs/kaggle.md`](docs/kaggle.md)). Then two commands read the runs without
+scoring anything:
+
+```bash
+satreg final --table outputs/n3 --closure outputs/n3-cycle   # the verdict
+satreg curve --benchmark --gpu outputs/kaggle/outputs/n3-curve-gpu --out outputs/n3-curve
+```
+
+`satreg final` answers the criterion written before the training, yes or no:
+on the 1,800 held-out pairs, fine-tuned RAFT large fails at most as many pairs
+as the pretrained one and has a lower mean EPE on the pairs neither fails. It
+gives the difference with a 95 % interval, by site and by cell, the same for
+RAFT small, and the closure of the real triplets as better, equal or worse. It
+refuses a table that was not run as its config says, or whose fine-tuned
+weights are not the published ones.
+
+A command stops on a held-out site unless it is given `--allow-held-out`,
+which only the recipe of `make n3` does. `make n3-dry` never does: it runs the
+same commands on seen sites, two pairs a cell, to check that they run and read
+each other's tables, and its reading is headed as a rehearsal.
+
 ### The N2 run
 
 ```bash

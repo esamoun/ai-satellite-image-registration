@@ -369,6 +369,66 @@ The run of 2026-10-09 (commit `0b92663`) took 615 s on a T4, the clone, the
 install and the weights aside
 ([`docs/results/n3/curve-gpu-light.md`](results/n3/curve-gpu-light.md)).
 
+## The final evaluation of N3
+
+The final evaluation (`make n3`, see the README) reads the two held-out sites,
+once, after the freeze written in [`decisions.md`](decisions.md). Two of its
+runs are made on a T4, each in its own session, from the commit the freeze
+names: set `COMMIT` to its hash, not to `main`.
+
+The GPU half of the simulated table,
+[`configs/n3-gpu.toml`](../configs/n3-gpu.toml): the four RAFT models, the two
+LightGlue and the two RoMa on the 5,400 pairs of the six sites.
+
+```python
+COMMAND = "benchmark"
+CONFIG = "configs/n3-gpu.toml"
+OPTIONS = ["--allow-held-out"]
+WITH_ROMA = True
+WITH_FINE_TUNED = True
+```
+
+The twelve points of the cost curve under PyTorch,
+[`configs/n3-curve-gpu.toml`](../configs/n3-curve-gpu.toml), on the 1,800
+pairs of the two held-out sites, for the curve's time on a T4:
+
+```python
+COMMAND = "benchmark"
+CONFIG = "configs/n3-curve-gpu.toml"
+OPTIONS = ["--allow-held-out"]
+WITH_ROMA = False
+WITH_FINE_TUNED = True
+```
+
+`--allow-held-out` is what lets a run read `alps` and `libya4`; without it the
+command stops before it fetches a chip. It is given for these two runs and for
+no other. Both runs land where `make n3` looks for them:
+
+```bash
+kaggle kernels output <user>/satreg-gpu-benchmark -p outputs/kaggle
+ls outputs/kaggle/outputs/n3-gpu outputs/kaggle/outputs/n3-curve-gpu
+```
+
+Download each run before the next session starts: a new version of the
+notebook replaces the output of the one before. `satreg merge` joins the first
+run to the M1 half of the table, `satreg final` reads the verdict on the merged
+table and refuses it if either half was not run as its config says, and
+`satreg curve --benchmark --gpu` reads the second run for its times only.
+
+The first run is about 3.5 hours on a T4 (the N2 one, with two sites and two
+methods fewer, took a little over two), the second about half an hour.
+
+A rehearsal of the same two sessions on the four seen sites, a few minutes
+each, checks the notebook before the freeze. It needs no `--allow-held-out`:
+
+```python
+OPTIONS = [
+    "--site", "beauce", "--site", "toulouse",
+    "--site", "vosges", "--site", "marseille",
+    "--pairs", "2",
+]
+```
+
 ## What `context.json` records
 
 Besides the machine, the thread settings and the library versions:

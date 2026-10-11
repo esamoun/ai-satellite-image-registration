@@ -1,6 +1,7 @@
 import ast
 import json
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -115,3 +116,41 @@ def test_the_benchmark_notebook_runs_a_command_given_as_a_parameter():
     code = source(NOTEBOOK)
     assert 'out = out.with_name(out.name + "-light")' in code
     assert code.index('"-light"') > code.index('command = [COMMAND, "--config"')
+
+
+def test_the_kaggle_procedure_of_the_final_evaluation_runs_what_make_n3_reads():
+    procedure = (ROOT / "docs" / "kaggle.md").read_text()
+    section = procedure.split("\n## The final evaluation of N3\n")[1].split("\n## ")[0]
+    recipe = (ROOT / "Makefile").read_text()
+    cells = [
+        {
+            node.targets[0].id: ast.literal_eval(node.value)
+            for node in ast.parse(cell.split("```")[0]).body
+        }
+        for cell in section.split("```python\n")[1:]
+    ]
+    runs, rehearsal = cells[:2], cells[2]
+
+    assert [run["CONFIG"] for run in runs] == [
+        "configs/n3-gpu.toml",
+        "configs/n3-curve-gpu.toml",
+    ]
+    for run, looked_for in zip(runs, ("N3_GPU", "N3_CURVE_GPU"), strict=True):
+        assert run["OPTIONS"] == ["--allow-held-out"]
+        assert run["WITH_FINE_TUNED"] is True
+        options = ["--config", run["CONFIG"], *run["OPTIONS"]]
+        args = _parser().parse_args([run["COMMAND"], *options])
+        assert args.allow_held_out
+        config = tomllib.loads((ROOT / run["CONFIG"]).read_text())["benchmark"]
+        assert run["WITH_ROMA"] == any("roma" in name for name in config["methods"])
+        # The notebook writes to outputs/<the config's name>, and the download
+        # puts that under outputs/kaggle, where the recipe looks.
+        stem = Path(run["CONFIG"]).stem
+        assert f"\n{looked_for} = outputs/kaggle/outputs/{stem}\n" in recipe
+        assert f"outputs/kaggle/outputs/{stem}" in section
+    # The rehearsal names seen sites and does not open the held-out ones.
+    args = _parser().parse_args(
+        ["benchmark", "--config", "configs/n3-gpu.toml", *rehearsal["OPTIONS"]]
+    )
+    seen = recipe.split("\nN3_SEEN = ")[1].splitlines()[0].split()
+    assert (args.sites, args.pairs, args.allow_held_out) == (seen, 2, False)

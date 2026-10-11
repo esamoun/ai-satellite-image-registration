@@ -63,6 +63,9 @@ PAIRS_OPTIONS = (
     "local_length",
     "failure_threshold",
 )
+# What says it for a run of `satreg benchmark`, in place of the chips: the
+# sites the pairs are cut from, and the bands of an inter-band run.
+BENCHMARK_OPTIONS = ("sites", "band_pairs")
 
 
 @dataclass(frozen=True)
@@ -444,7 +447,8 @@ def _read_alike(footprints: Mapping[str, Footprint]) -> None:
 def _same_pairs(run: Run, other: Run) -> None:
     """Refuse two runs whose options did not draw the same pairs."""
     scored, beside = (r.context.get("run", {}) for r in (run, other))
-    if unlike := [o for o in PAIRS_OPTIONS if scored.get(o) != beside.get(o)]:
+    options = (*PAIRS_OPTIONS, *BENCHMARK_OPTIONS)
+    if unlike := [o for o in options if scored.get(o) != beside.get(o)]:
         raise ValueError(
             f"{run.name} and {other.name} did not score the same pairs: "
             f"{', '.join(unlike)} differ"
@@ -703,16 +707,17 @@ def _spread(footprints: Mapping[str, Footprint]) -> str:
     )
 
 
-def to_markdown(curve: Curve) -> str:
+def to_markdown(curve: Curve, full: str = "the full validation set") -> str:
     """Render the curve as tables.
 
     Args:
         curve: The curve.
+        full: What the pairs of the full run are, in the heading of its table.
 
     Returns:
         Markdown: the curve under ONNX Runtime, the same models under PyTorch
         beside it, the other methods of the cost run, and the refinement counts
-        on the full validation set.
+        on the full run.
     """
     pairs = curve.rows[0].pairs
     lines = [
@@ -790,8 +795,7 @@ def to_markdown(curve: Curve) -> str:
     full_pairs = curve.refinements[0].pairs
     lines += [
         "",
-        f"Fewer refinements, under PyTorch on the full validation set, {full_pairs} "
-        "pairs:",
+        f"Fewer refinements, under PyTorch on {full}, {full_pairs} pairs:",
         "",
         "| model | weights | refinements | "
         + " | ".join(
@@ -822,7 +826,7 @@ def to_markdown(curve: Curve) -> str:
     return "\n".join(lines) + "\n"
 
 
-def figure(curve: Curve, path: Path) -> None:
+def figure(curve: Curve, path: Path, kind: str = "validation pairs") -> None:
     """Save the curve: error and failures against time, error against memory.
 
     Each line is a model with its weights, from the fewest refinements to the
@@ -832,6 +836,7 @@ def figure(curve: Curve, path: Path) -> None:
     Args:
         curve: The curve.
         path: Output PNG; parent directories are created.
+        kind: What the pairs of the cost run are, in the figure's title.
     """
     import matplotlib
 
@@ -905,7 +910,7 @@ def figure(curve: Curve, path: Path) -> None:
         ax.grid(alpha=0.3, which="both")
     error.legend(fontsize=8)
     fig.suptitle(
-        f"ONNX Runtime on the CPU, {pairs} validation pairs: the number at a "
+        f"ONNX Runtime on the CPU, {pairs} {kind}: the number at a "
         "point is its refinements",
         fontsize=10,
     )

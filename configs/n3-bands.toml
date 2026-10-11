@@ -1,0 +1,33 @@
+# The inter-band part of the final evaluation (N3): RAFT large and small,
+# pretrained and fine-tuned, on the inter-band pairs of N2
+# (configs/n2-bands.toml): red (B04) against near infrared (B08) and against
+# green (B03), Beauce and Toulouse, translation only, 2 sites x 2 band pairs x
+# 3 presets x 50 = 600 pairs. Not a target: the fine-tuned models are trained
+# on B04 only, and the rows are reported as they come, next to N2's
+# (docs/decisions.md). Neither site is held out. On the M1's CPU, the
+# pretrained models included, so that the four are read on one machine; one
+# timed call a pair, since the cost is not what this part reads.
+
+[benchmark]
+sites = ["beauce", "toulouse"]
+band_pairs = [["B04", "B08"], ["B04", "B03"]]
+scenarios = ["translation"]
+degradations = ["clean", "mild", "hard"]
+methods = ["raft", "raft_ft", "raft_small", "raft_small_ft"]
+device = "cpu"
+
+pairs = 50
+size = 256
+seed = 0
+
+max_shift = 4.0
+
+failure_threshold = 1.0
+warmup = 1
+repeats = 1
+
+sites_config = "configs/sites.toml"
+degradations_config = "configs/degradations.toml"
+methods_config = "configs/methods.toml"
+data_dir = "data"
+out = "outputs/n3-bands"

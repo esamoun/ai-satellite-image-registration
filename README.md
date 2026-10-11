@@ -659,8 +659,8 @@ file) and the threads a call may use (`threads`).
 The six fine-tuned files are assets of the release `weights-n3` beside the
 weights, pinned by their SHA-256 in
 [`src/satreg/weights.py`](src/satreg/weights.py) and downloaded on first use
-like them (`satreg fetch-weights` with no name fetches the eight files, about
-100 MB). So running a fine-tuned model under ONNX Runtime needs the `onnx`
+like them, as are the three int8 copies of the section below
+(`satreg fetch-weights` with no name fetches the eleven files, about 120 MB). So running a fine-tuned model under ONNX Runtime needs the `onnx`
 extra and neither PyTorch nor `satreg export`. The pretrained files are not
 published again: `make onnx` writes them from torchvision's weights. The export
 gave the same bytes twice on the M1; another version of PyTorch may not, which
@@ -722,6 +722,68 @@ Kaggle GPU ([`docs/kaggle.md`](docs/kaggle.md),
 from which only the time is read. Against PyTorch on the M1's CPU the T4 is 8
 to 10 times faster for the large model and about 3 times for the small one.
 The held-out sites are not read by any of this.
+
+### Int8 copies
+
+```bash
+make int8                       # needs `make onnx`; about 40 minutes on the M1
+```
+
+An int8 copy is an exported model whose convolutions compute on 8-bit integers
+instead of 32-bit floats (quantization): a file three times smaller and a
+shorter call, for a flow that moves a little. `satreg quantize` writes two
+kinds from a fine-tuned file. A static copy sets the scale of each integer
+once, on 36 calibration pairs of the validation set, one per chip, scenario
+and preset, none of which is scored afterwards; a dynamic copy works its
+scales out at each call and needs no pair. `satreg int8` then reads each copy
+next to the float file it was made from, on the 360 pairs of the light
+validation set: on every pair the float file runs, then its copies, so that
+the two times are read seconds apart
+([`configs/quantization.toml`](configs/quantization.toml)).
+
+| model, fine-tuned | refinements | file | MB | EPE (px) | failures | time (ms) | share of float | flow moved (px) | memory added (MiB) |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| RAFT large | 12 | float | 21.5 | 0.0854 | 0.0 % | 913 | | | 87.6 |
+| | | static int8 | 7.1 | 0.0889 | 0.0 % | 552 | 0.60 | 0.018 | 100.2 |
+| | | dynamic int8 | 6.3 | 0.0934 | 0.0 % | 656 | 0.72 | 0.035 | 86.7 |
+| RAFT large | 8 | float | 21.3 | 0.0878 | 0.0 % | 691 | | | 85.0 |
+| | | static int8 | 6.7 | 0.0911 | 0.0 % | 392 | 0.57 | 0.019 | 83.2 |
+| RAFT large | 4 | float | 21.2 | 0.0963 | 0.0 % | 464 | | | 83.4 |
+| | | static int8 | 6.4 | 0.1005 | 0.0 % | 232 | 0.50 | 0.024 | 77.5 |
+| RAFT small | 12 | float | 4.3 | 0.1424 | 0.0 % | 368 | | | 50.2 |
+| | | static int8 | 2.0 | 0.1838 | 0.0 % | 293 | 0.80 | 0.107 | 52.9 |
+| | | dynamic int8 | 1.9 | 0.1998 | 0.0 % | 333 | 0.91 | 0.127 | 50.0 |
+
+"Flow moved" is the mean distance between the flow of a copy and of its float
+file on a pair. The times are those of this run, a few percent from the
+curve's. By preset in [`docs/results/n3/int8.md`](docs/results/n3/int8.md);
+the files and what each computes on integers in
+[`int8-files.md`](docs/results/n3/int8-files.md). What it says:
+
+- On RAFT large a static copy takes 40 to 50 % off the time for 0.003 to
+  0.004 px more error, and fails no pair. The copy at 8 refinements is faster
+  and more accurate than the float file at 4.
+- Static beats dynamic, on time and on error.
+- On RAFT small it does not pay: 20 % off the time for 0.041 px more, where
+  running the float file with 8 refinements takes 30 % off for 0.004 px.
+- The file is three times smaller; the memory a process needs is not.
+- It is still not faster than PyTorch on this CPU (371 ms at 12 refinements,
+  239 ms at 4): at 4 refinements the two are level.
+
+Not everything can go to integers. ONNX Runtime has no int8 version of
+`GridSample`, the operator RAFT reads its correlation pyramid with, and the
+25 convolutions that read the flow, write its update or write the upsampling
+mask are left in float on purpose: quantized too, they move the flow twice as
+much on RAFT small. A static copy of the large model computes 165 of its 190
+convolutions on integers. Those become four times faster and the call 1.6
+times: the lookups and the arithmetic that prepares their coordinates, which
+stay in float, are then two thirds of it
+([`docs/decisions.md`](docs/decisions.md)).
+
+The three static copies of RAFT large are in the release `weights-n3`, as the
+methods `raft_ft_r4_onnx_int8`, `raft_ft_r8_onnx_int8` and
+`raft_ft_onnx_int8`. The dynamic copy and the two copies of RAFT small are
+measured and not published: `make int8` writes them.
 
 ### Under degraded conditions
 

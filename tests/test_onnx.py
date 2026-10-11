@@ -213,7 +213,12 @@ def test_each_point_of_the_curve_is_a_pytorch_method_and_its_onnx_twin():
         else:
             # Where satreg export writes the pretrained model.
             assert twin.file == f"outputs/onnx/{stem}{point.refinements}.onnx"
-    onnx = {name for name, m in methods.items() if isinstance(m, RaftOnnx)}
+    # The float ones: their int8 copies are no point of this curve.
+    onnx = {
+        name
+        for name, m in methods.items()
+        if isinstance(m, RaftOnnx) and weights.INT8_SUFFIX not in name
+    }
     assert onnx == {point.onnx for point in curve.POINTS}
     # satreg export writes the four models of the curve by default.
     assert {methods[name] for name in EXPORT_METHODS} == {
@@ -225,8 +230,13 @@ def test_each_point_of_the_curve_is_a_pytorch_method_and_its_onnx_twin():
 
 
 def test_every_released_weights_is_published_with_each_refinement_count():
-    assert set(RELEASED_ONNX) == {
+    floats = {name for name, exported in RELEASED_ONNX.items() if not exported.int8}
+    assert floats == {
         f"{name}_r{count}" for name in RELEASED for count in curve.REFINEMENTS
+    }
+    # An int8 copy is published under the name of its float file.
+    assert set(RELEASED_ONNX) - floats <= {
+        f"{name}{weights.INT8_SUFFIX}" for name in floats
     }
     for name, exported in RELEASED_ONNX.items():
         assert exported.name == name
@@ -241,7 +251,9 @@ def test_every_released_weights_is_published_with_each_refinement_count():
 
 @pytest.mark.parametrize("name", RELEASED_ONNX)
 def test_the_pinned_hash_is_the_one_of_the_published_export(name):
-    table = (REPO / "docs" / "results" / "n3" / "onnx.md").read_text()
+    # The table satreg export wrote, or satreg quantize for an int8 copy.
+    written = "int8-files.md" if RELEASED_ONNX[name].int8 else "onnx.md"
+    table = (REPO / "docs" / "results" / "n3" / written).read_text()
 
     assert f"| `{name}.onnx` |" in table
     assert f"`{RELEASED_ONNX[name].sha256}`" in table
@@ -322,14 +334,15 @@ def test_a_published_export_is_the_file_satreg_export_wrote_unchanged(
         "bytes": len(CONTENT),
         "weights": toy.asset,
         "refinements": 4,
+        "int8": False,
         "release": "toy-tag",
         "repository": weights.REPOSITORY,
     }
     # The release's notes list it under the weights it was exported from.
     notes = weights.notes([], [card])
     assert (
-        f"| `{exported.asset}` | `{toy.asset}` | 4 | 0.0 | `{exported.sha256}` |"
-        in notes
+        f"| `{exported.asset}` | `{toy.asset}` | 4 | float | 0.0 | "
+        f"`{exported.sha256}` |" in notes
     )
     assert ".onnx" not in weights.notes([])
 

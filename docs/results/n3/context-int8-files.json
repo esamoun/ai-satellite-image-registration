@@ -1,0 +1,99 @@
+{
+  "recorded_at": "2026-10-10T23:52:04+00:00",
+  "code": {
+    "commit": "c23a11f93af151c3c0d8e86845791d6ea25036fd",
+    "dirty": true
+  },
+  "machine": {
+    "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "cpu": "Apple M1",
+    "memory_gib": 8.0
+  },
+  "gpu": null,
+  "threads": {
+    "cpu_count": 8,
+    "usable_cpus": 8,
+    "opencv": 8,
+    "torch": null,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+  },
+  "python": "3.13.7",
+  "libraries": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "scikit-image": "0.26.0",
+    "opencv-python-headless": "5.0.0.93",
+    "rasterio": "1.5.1",
+    "arosics": "1.13.2",
+    "GDAL": "3.13.3",
+    "torch": "2.14.0",
+    "torchvision": "0.29.0",
+    "onnx": "1.23.0",
+    "onnxruntime": "1.30.0"
+  },
+  "run": {
+    "calibration_pair": 10,
+    "chips": [
+      "santerre",
+      "lyon",
+      "morvan",
+      "sete"
+    ],
+    "config": "configs/quantization.toml",
+    "data_dir": "data",
+    "degradations": [
+      "clean",
+      "mild",
+      "hard"
+    ],
+    "degradations_config": "configs/degradations.toml",
+    "dynamic": [
+      "raft_large_ft_r12",
+      "raft_small_ft_r12"
+    ],
+    "local_length": 64.0,
+    "max_local_shift": 0.8,
+    "max_rotation": 0.2,
+    "max_scale_change": 0.002,
+    "max_shear": 0.002,
+    "max_shift": 4.0,
+    "onnx": "outputs/onnx",
+    "out": "outputs/quantization/files",
+    "scenarios": [
+      "translation",
+      "affine",
+      "dense"
+    ],
+    "seed": 0,
+    "series_config": "configs/real.toml",
+    "sites_config": "configs/sites.toml",
+    "size": 256,
+    "static": [
+      "raft_large_ft_r12",
+      "raft_large_ft_r8",
+      "raft_large_ft_r4",
+      "raft_small_ft_r12"
+    ],
+    "train_config": "configs/train-sites.toml"
+  },
+  "calibration": {
+    "method": "minmax",
+    "pairs": 36,
+    "pair_index": 10,
+    "chips": {
+      "santerre": "S2A_T31UDR_20250429T110413_L2A",
+      "lyon": "S2A_T31TFL_20250811T103955_L2A",
+      "morvan": "S2B_T31TEN_20250807T104621_L2A",
+      "sete": "S2C_T31TEJ_20250610T103712_L2A"
+    },
+    "float_convolutions": [
+      "/motion_encoder/convflow1/",
+      "/flow_head/conv2",
+      "/mask_predictor/conv/"
+    ]
+  }
+}

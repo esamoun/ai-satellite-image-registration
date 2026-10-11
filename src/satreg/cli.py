@@ -24,6 +24,7 @@ from . import (
     falsechange,
     footprint,
     onnxexport,
+    quantize,
     small,
     trainchips,
     trainpairs,
@@ -38,6 +39,7 @@ from .benchmark import (
     PairResult,
     method_device,
     run_benchmark,
+    simulated_pairs,
 )
 from .compute import (
     code_version,
@@ -149,6 +151,12 @@ CURVE_TORCH = "torch-light"
 CURVE_FOOTPRINT = "footprint"
 CURVE_GPU = "gpu-light"
 
+# Where the int8 files are read: their scores next to the float files', and in
+# directories of it the table of the files and their memory.
+DEFAULT_QUANTIZATION_OUT = Path("outputs/quantization")
+QUANTIZATION_FILES = "files"
+QUANTIZATION_FOOTPRINT = "footprint"
+
 # Commands a run configuration file can set, and the table each one reads.
 RUN_TABLES = {
     "benchmark": "benchmark",
@@ -156,6 +164,8 @@ RUN_TABLES = {
     "false-change": "false_change",
     "validate": "validate",
     "validate-cycle": "validate_cycle",
+    "quantize": "quantize",
+    "int8": "int8",
 }
 
 
@@ -683,6 +693,73 @@ def _parser(
     )
     to_onnx.add_argument("--methods-config", type=Path, default=DEFAULT_METHODS_CONFIG)
     to_onnx.add_argument("--out", type=Path, default=DEFAULT_ONNX_OUT)
+    quantizing = commands.add_parser(
+        "quantize",
+        help="write int8 copies of exported RAFT files: static ones, whose "
+        "scales are set on pairs of the validation set, and dynamic ones",
+    )
+    _add_config_argument(quantizing, "quantize")
+    _add_training_arguments(
+        quantizing,
+        "validation chip to cut calibration pairs from, repeatable (default: "
+        "every validation chip)",
+    )
+    _add_drawing_arguments(quantizing, defaults)
+    quantizing.add_argument(
+        "--static",
+        nargs="+",
+        default=[],
+        metavar="FILE",
+        help="exports to write a static int8 copy of, by name without suffix",
+    )
+    quantizing.add_argument(
+        "--dynamic",
+        nargs="+",
+        default=[],
+        metavar="FILE",
+        help="exports to write a dynamic int8 copy of",
+    )
+    quantizing.add_argument(
+        "--calibration-pair",
+        type=int,
+        default=quantize.CALIBRATION_PAIR,
+        help="index, in every chip, scenario and preset of the validation set, "
+        "of the pair the static copies are calibrated on",
+    )
+    quantizing.add_argument(
+        "--onnx",
+        type=Path,
+        default=DEFAULT_ONNX_OUT,
+        help="directory of the exports, as satreg export wrote them; the int8 "
+        "copies are written next to them",
+    )
+    quantizing.add_argument(
+        "--out",
+        type=Path,
+        default=DEFAULT_QUANTIZATION_OUT / QUANTIZATION_FILES,
+        help="directory the table of the copies and the context are written to",
+    )
+    reading_int8 = commands.add_parser(
+        "int8",
+        help="score int8 ONNX methods next to the float method each was made "
+        "from, on the first pairs of every cell of the validation set: error, "
+        "failures, time, and how far the flow moved",
+    )
+    _add_config_argument(reading_int8, "int8")
+    _add_training_arguments(
+        reading_int8,
+        "validation chip to cut pairs from, repeatable (default: every "
+        "validation chip)",
+    )
+    _add_scoring_arguments(reading_int8, defaults)
+    reading_int8.add_argument(
+        "--footprints",
+        type=Path,
+        help="footprints.csv of satreg footprint for these methods, for the "
+        f"memory column (default: {QUANTIZATION_FOOTPRINT}/footprints.csv "
+        "under --out, if it is there)",
+    )
+    reading_int8.add_argument("--out", type=Path, default=DEFAULT_QUANTIZATION_OUT)
     footprinting = commands.add_parser(
         "footprint",
         help="read what calling each method adds to the memory of a process "
@@ -736,14 +813,16 @@ def _parser(
             "false-change": changes,
             "validate": validating,
             "validate-cycle": validating_closure,
+            "quantize": quantizing,
+            "int8": reading_int8,
         }[command].set_defaults(**run_config)
     return parser
 
 
-def _add_scoring_arguments(
+def _add_drawing_arguments(
     parser: argparse.ArgumentParser, defaults: BenchmarkConfig
 ) -> None:
-    """Add the options of a command that scores methods on simulated pairs."""
+    """Add the options that say how simulated pairs are drawn."""
     parser.add_argument(
         "--degradations",
         nargs="+",
@@ -756,7 +835,6 @@ def _add_scoring_arguments(
         default=DEFAULT_DEGRADATIONS_CONFIG,
         help="TOML file declaring the degradation presets",
     )
-    parser.add_argument("--pairs", type=int, default=defaults.n_pairs)
     parser.add_argument("--size", type=int, default=defaults.size)
     parser.add_argument(
         "--scenarios",
@@ -804,6 +882,14 @@ def _add_scoring_arguments(
         help="correlation length of the local field of a dense pair, in px",
     )
     parser.add_argument("--seed", type=int, default=defaults.seed)
+
+
+def _add_scoring_arguments(
+    parser: argparse.ArgumentParser, defaults: BenchmarkConfig
+) -> None:
+    """Add the options of a command that scores methods on simulated pairs."""
+    _add_drawing_arguments(parser, defaults)
+    parser.add_argument("--pairs", type=int, default=defaults.n_pairs)
     parser.add_argument(
         "--failure-threshold",
         type=float,
@@ -932,10 +1018,10 @@ def load_run_config(path: Path, command: str = "benchmark") -> dict[str, object]
     Args:
         path: TOML file with a table named after the command (``[benchmark]``,
             ``[cycle]``, ``[false_change]``, ``[validate]``,
-            ``[validate_cycle]``). Its keys are that command's options
-            by destination name (``max_shift`` for ``--max-shift``). Paths are
-            read relative to the working directory, like the command-line
-            options. The file's other tables are not read.
+            ``[validate_cycle]``, ``[quantize]``, ``[int8]``). Its keys are that
+            command's options by destination name (``max_shift`` for
+            ``--max-shift``). Paths are read relative to the working directory,
+            like the command-line options. The file's other tables are not read.
         command: The command, one of ``RUN_TABLES``.
 
     Returns:
@@ -2684,6 +2770,224 @@ def export_onnx(args: argparse.Namespace) -> str:
     return table
 
 
+def _validation_chips(args: argparse.Namespace) -> dict[str, Acquisition]:
+    """Load the validation chips a command cuts its pairs from, and no other."""
+    training, series = _training(args)
+    try:
+        return validation.load_validation_chips(
+            training, series, args.data_dir, args.chips
+        )
+    except ValueError as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+
+
+def quantize_files(args: argparse.Namespace) -> str:
+    """Write int8 copies of exported RAFT files.
+
+    The static copies are calibrated on one pair of every chip, scenario and
+    preset of the validation set. No benchmark chip and no held-out site is
+    read.
+
+    Args:
+        args: Parsed ``quantize`` arguments.
+
+    Returns:
+        The files written, as a markdown table. It is also written to the
+        output directory, with the table as CSV and the context.
+
+    Raises:
+        SystemExit: If onnx or ONNX Runtime is not installed, no file is
+            named, an export is missing, or a configuration is missing or
+            invalid.
+    """
+    if missing := quantize.missing_modules():
+        raise SystemExit(
+            f"satreg: quantize needs {', '.join(missing)}, not installed "
+            "(see the README)"
+        )
+    if not args.static and not args.dynamic:
+        raise SystemExit("satreg: quantize needs --static or --dynamic files")
+    if args.calibration_pair < 0:
+        raise SystemExit("satreg: need a --calibration-pair of at least 0")
+    wanted = [
+        (name, kind)
+        for kind, names in (
+            (quantize.STATIC, args.static),
+            (quantize.DYNAMIC, args.dynamic),
+        )
+        for name in dict.fromkeys(names)
+    ]
+    for name, _ in wanted:
+        if not (args.onnx / f"{name}.onnx").is_file():
+            raise SystemExit(
+                f"satreg: no export at {args.onnx / f'{name}.onnx'}: write it "
+                "with satreg export (see the README)"
+            )
+    pairs, anchors = [], {}
+    if args.static:
+        anchors = _validation_chips(args)
+        # Only how the pairs are drawn is read: nothing is timed or scored.
+        drawing = argparse.Namespace(
+            **vars(args), pairs=1, failure_threshold=FAILURE_EPE_PX, warmup=0, repeats=1
+        )
+        pairs = quantize.calibration_pairs(
+            {name: anchor.image for name, anchor in anchors.items()},
+            _benchmark_config(drawing),
+            degradation_presets(args),
+            args.calibration_pair,
+        )
+    rows = [
+        quantize.quantize(
+            args.onnx / f"{name}.onnx", kind, args.onnx, pairs, args.calibration_pair
+        )
+        for name, kind in wanted
+    ]
+    table = (
+        "Exported RAFT files copied to 8-bit integers, written next to them. A "
+        "static copy computes every convolution on integers, with one scale "
+        "per output channel, but the ones that read the flow or write its "
+        "update and its upsampling weights"
+        + (
+            f"; its scales are set by {quantize.CALIBRATION_METHOD} on "
+            f"{len(pairs)} pairs, pair {args.calibration_pair} of every chip, "
+            f"scenario and preset of the validation set ({', '.join(anchors)})"
+            if pairs
+            else ""
+        )
+        + ". A dynamic copy stores the weights of its convolutions as integers "
+        "and works out the other scales at each call. The correlation lookup, "
+        "`GridSample`, has no integer version in ONNX Runtime and stays in "
+        "float in both.\n\n" + quantize.files_markdown(rows)
+    )
+    write_csv(rows, args.out / "files.csv")
+    (args.out / "summary.md").write_text(table)
+    context = environment()
+    context["run"] = {k: v for k, v in sorted(vars(args).items()) if k != "command"}
+    context["calibration"] = {
+        "method": quantize.CALIBRATION_METHOD,
+        "pairs": len(pairs),
+        "pair_index": args.calibration_pair,
+        "chips": {name: anchor.item_id for name, anchor in anchors.items()},
+        "float_convolutions": list(quantize.FLOW_EDGES),
+    }
+    _write_context(context, args.out)
+    return table
+
+
+def read_int8(args: argparse.Namespace) -> str:
+    """Score int8 ONNX methods next to the float method each was made from.
+
+    The pairs are the first of every cell of the validation set, drawn and
+    scored as ``validate`` does. Each int8 method runs right after its float
+    twin on every pair: their times are read in the same minute, on the same
+    machine in the same state.
+
+    Args:
+        args: Parsed ``int8`` arguments.
+
+    Returns:
+        The reading, as markdown. It is also written to the output directory,
+        with its pairs and its lines as CSV and the context.
+
+    Raises:
+        SystemExit: If a method is not an int8 ONNX method with a float twin
+            in the methods' configuration, a file was calibrated on a pair
+            the reading would score, or a configuration is missing or invalid.
+    """
+    names = list(dict.fromkeys(args.methods))
+    if others := [name for name in names if quantize.kind_of(name) == quantize.FLOAT]:
+        raise SystemExit(
+            f"satreg: int8 reads int8 methods, named after their float twin "
+            f"with {' or '.join(quantize.SUFFIXES.values())}: not {others[0]}"
+        )
+    # Each float twin once, before its copies.
+    ordered = list(
+        dict.fromkeys(
+            method for name in names for method in (quantize.float_twin(name), name)
+        )
+    )
+    options = argparse.Namespace(
+        methods=ordered, methods_config=args.methods_config, device=None
+    )
+    methods = configured_methods(options)
+    if others := [name for name, m in methods.items() if not isinstance(m, RaftOnnx)]:
+        raise SystemExit(f"satreg: int8 reads ONNX methods, not {', '.join(others)}")
+    for name in names:
+        calibrated = methods[name].described().get("calibration_pair_index")
+        if calibrated is not None and int(calibrated) < args.pairs:
+            raise SystemExit(
+                f"satreg: {name} was calibrated on pair {calibrated} of every "
+                f"cell, which --pairs {args.pairs} would score"
+            )
+    anchors = _validation_chips(args)
+    config = _benchmark_config(args)
+    degradations = degradation_presets(args)
+    started = perf_counter()
+    rows = quantize.read_pairs(
+        methods,
+        simulated_pairs(
+            {name: anchor.image for name, anchor in anchors.items()},
+            config,
+            degradations,
+        ),
+        config,
+    )
+    run_seconds = perf_counter() - started
+    context, _ = _run_context(args, config, methods, run_seconds, [])
+    footprints = args.footprints or (
+        args.out / QUANTIZATION_FOOTPRINT / "footprints.csv"
+    )
+    memory = {}
+    if footprints.is_file():
+        memory = {
+            name: read.rise_mib for name, read in footprint.read(footprints).items()
+        }
+    elif args.footprints:
+        raise SystemExit(f"satreg: no footprints at {footprints}")
+    megabytes = {}
+    for name, method in methods.items():
+        path = method.file or published.fetch(method.release)
+        megabytes[name] = Path(path).stat().st_size / 1e6
+    readings = quantize.summarize(rows, megabytes, memory)
+    table = (
+        f"Int8 copies of exported RAFT files next to the float file each was "
+        f"made from, on the first {config.n_pairs} pairs of every chip, scenario "
+        f"and preset of the validation set ({', '.join(anchors)}), seed "
+        f"{config.seed}: {readings[0].pairs} pairs.\n\n"
+        + quantize.to_markdown(readings)
+        + "\nEPE is the mean end-point error over the pairs not failed. Time "
+        "is the median over the pairs; its share of float is that time over "
+        "the float file's. Flow moved is the distance between the flow of "
+        "the int8 file and of its float file, averaged over the valid pixels "
+        "of a pair, then over the pairs; the worst pair is the one where it is "
+        "largest."
+        + (
+            " Memory is what calling the method adds to a process of its own "
+            "(`satreg footprint`)."
+            if memory
+            else ""
+        )
+        + "\n\nBy preset:\n\n"
+        + quantize.by_degradation(rows)
+        + f"\nMeasured on {describe(context)}, ONNX Runtime on the CPU. On every "
+        "pair each float file runs, then its int8 copies: the times of a line "
+        "and of its float file are read seconds apart. A pair's time is the "
+        f"median of {config.repeats} call(s), after {config.warmup} warm-up "
+        "call(s) per method. Details in `context.json`.\n"
+    )
+    write_csv(rows, args.out / "pairs.csv")
+    write_csv(readings, args.out / "summary.csv")
+    (args.out / "summary.md").write_text(table)
+    context["validation"] = {
+        "chips": {name: anchor.item_id for name, anchor in anchors.items()},
+        "pairs_per_cell": config.n_pairs,
+    }
+    context["footprints"] = str(footprints) if memory else None
+    context["megabytes"] = megabytes
+    _write_context(context, args.out)
+    return table
+
+
 def read_footprints(args: argparse.Namespace) -> str:
     """Read what each method adds to the memory of a process of its own.
 
@@ -2866,6 +3170,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(export_weights(args), end="")
     elif args.command == "export":
         print(export_onnx(args), end="")
+    elif args.command == "quantize":
+        print(quantize_files(args), end="")
+    elif args.command == "int8":
+        print(read_int8(args), end="")
     elif args.command == "footprint":
         print(read_footprints(args), end="")
     elif args.command == "curve":

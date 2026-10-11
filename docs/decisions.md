@@ -4654,3 +4654,194 @@ times. Turning spinning off for the curve: a setting chosen on a result,
 after one trial; it belongs with ticket 11 if anywhere. Timing each method in
 a run of its own: twelve times the pauses, and the classic methods would no
 longer be read in the same conditions as the points.
+
+## 2026-10-11: Static int8 takes 40 to 50 % off RAFT large's time under ONNX Runtime for 0.004 px, and does not pay on RAFT small
+
+**Decision.** The quantized points of the cost curve are the static int8
+copies of fine-tuned RAFT large, at 4, 8 and 12 refinements
+(`raft_ft_r4_onnx_int8`, `raft_ft_r8_onnx_int8`, `raft_ft_onnx_int8`). The
+three files are assets of the release `weights-n3`, pinned by their SHA-256.
+Left out, measured and in the table below: the dynamic copy of RAFT large,
+slower and further from the float file than the static one; and both copies
+of RAFT small, which the float small model at 8 refinements beats on time and
+error. Their files are not published. Which point is kept in the end is the
+final evaluation's (ticket 12).
+
+*My call* (2026-10-11, after the trial, the options laid out):
+- the static copy quantizes every convolution but the 25 that read the flow,
+  write its update or write the upsampling mask, with one scale per output
+  channel, rather than every convolution or every operator ONNX Runtime can;
+- its scales are set by min-max on 36 validation pairs, one per chip, scenario
+  and preset, rather than on 12, or by percentile;
+- RAFT large is quantized at 4 and 8 refinements as well as at 12;
+- RAFT small is measured at 12 refinements, static and dynamic, and published
+  as the negative result it is, without its files in the release.
+
+**What was measured.** By `make int8`, on the M1 (MacBook Air, 8 GB, no fan),
+on mains power and with nothing else running, ONNX Runtime 1.30.0 on 4
+threads:
+- `satreg quantize` writes the six copies in 2 minutes. The calibration pairs
+  are pair 10 of every cell of the validation set, the first one past the
+  light set, so no pair is both calibrated on and scored. No benchmark chip
+  and no held-out site is read.
+- `satreg footprint` reads what each copy and each float twin adds to a
+  process of its own, 3 processes each, in about 5 minutes.
+- `satreg int8` scores them on the light validation set (360 pairs) in 30
+  minutes. On every pair each float file runs, then its copies: a copy and
+  its twin are timed seconds apart, once each, and a time is the median over
+  the 360 pairs.
+
+"Flow moved" is the mean distance between the flow of a copy and of its float
+twin on a pair (`docs/results/n3/int8.md`, `int8-files.md`,
+`int8-footprint.md`).
+
+| model, fine-tuned | refinements | file | MB | failures | EPE (px) | time (ms) | share of float | flow moved (px) | on the worst pair (px) | memory added (MiB) |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| RAFT large | 12 | float | 21.5 | 0.0 % | 0.0854 | 913 | | | | 87.6 |
+| | | static | 7.1 | 0.0 % | 0.0889 | 552 | 0.60 | 0.018 | 0.205 | 100.2 |
+| | | dynamic | 6.3 | 0.0 % | 0.0934 | 656 | 0.72 | 0.035 | 0.124 | 86.7 |
+| RAFT large | 8 | float | 21.3 | 0.0 % | 0.0878 | 691 | | | | 85.0 |
+| | | static | 6.7 | 0.0 % | 0.0911 | 392 | 0.57 | 0.019 | 0.208 | 83.2 |
+| RAFT large | 4 | float | 21.2 | 0.0 % | 0.0963 | 464 | | | | 83.4 |
+| | | static | 6.4 | 0.0 % | 0.1005 | 232 | 0.50 | 0.024 | 0.188 | 77.5 |
+| RAFT small | 12 | float | 4.3 | 0.0 % | 0.1424 | 368 | | | | 50.2 |
+| | | static | 2.0 | 0.0 % | 0.1838 | 293 | 0.80 | 0.107 | 0.202 | 52.9 |
+| | | dynamic | 1.9 | 0.0 % | 0.1998 | 333 | 0.91 | 0.127 | 0.219 | 50.0 |
+
+The float files score as on the curve, to the fourth digit. Pair by pair, a
+static copy of RAFT large is faster than its twin on all 360, by a ratio that
+holds between 0.57 and 0.64 at 12 refinements (5th to 95th percentile).
+
+**What it says.**
+- On RAFT large, static int8 buys time for almost no error: 40 % off the time
+  at 12 refinements, 43 % at 8, 50 % at 4, for 0.003 to 0.004 px more, and no
+  failed pair. At 12 refinements the loss is 0.003 px under the clean and mild
+  presets (0.0422 to 0.0451 px clean) and 0.005 under the hard one (0.1647 to
+  0.1699).
+- It moves the large model's line of the curve to the left. The int8 copy at 8
+  refinements (392 ms, 0.0911 px) is faster and more accurate than the float
+  file at 4 (464 ms, 0.0963 px). The copy at 4 (232 ms, 0.1005 px) is faster
+  than the float small model at 8 (253 ms on the curve, 0.1461 px), with a
+  third less error.
+- The flow of a pair does move: by 0.02 px on average, and by 0.2 px on the
+  worst pair, a hard pair of the Sète chip whose error goes from 0.23 to
+  0.39 px. Three pairs in ten are scored better by the copy than by the float
+  file (109 of 360 at 12 refinements).
+- Static beats dynamic. The dynamic copy takes 28 % off the time and adds
+  0.008 px: slower and less accurate. What it has for it is that it needs no
+  calibration, and so has no calibration set to fall outside of.
+- On RAFT small quantization does not pay. The static copy takes 20 % off the
+  time and adds 0.041 px (0.1424 to 0.1838), the dynamic one 9 % and
+  0.057 px. Run with 8 refinements instead of 12, the float file loses
+  0.004 px and takes 30 % off (253 ms, 0.1461 px, entry of 2026-10-09): fewer
+  refinements beat int8 there. In the trial, leaving the recurrent unit in
+  float brought the small model back to 0.04 px from its float flow, at 0.94
+  of the float time: the loss is in the refinements, where it compounds, and
+  what is left to gain outside them is small.
+- The file is three times smaller and the memory is not. A static copy is
+  14 MB lighter on disk and adds 77.5 MiB to a process against 83.4 at 4
+  refinements, 83.2 against 85.0 at 8, and 100.2 against 87.6 at 12, more
+  than its twin. The three processes of that reading agree (100.1 to 100.9);
+  why 12 refinements differ from 8 was not looked into.
+- It is still not faster than PyTorch. On this CPU PyTorch runs the float
+  model in 371 ms at 12 refinements and 239 ms at 4 (the curve): the int8
+  copy under ONNX Runtime is at 552 and 232 ms. Quantization brings ONNX
+  Runtime back level with PyTorch at 4 refinements and no further.
+
+**The `GridSample` limit, and what it costs.** ONNX Runtime 1.30 has no int8
+`GridSample`, the operator RAFT looks its correlation pyramid up with, four
+times a refinement: the 48 lookups of a file at 12 refinements stay in float,
+in the dynamic copies too. A static copy computes 165 of its 190 convolutions
+on integers. Time by kind of operator, with ONNX Runtime's profiler on one
+validation pair (`scripts/raft_int8_profile.py`, RAFT large at 12 refinements,
+mean of 10 calls):
+
+| | convolutions | `GridSample` | `Div`, `Mul`, `Sub` | others | all operators |
+|---|---:|---:|---:|---:|---:|
+| float | 386 ms | 25 ms | 243 ms | 41 ms | 695 ms |
+| static int8 | 92 ms on integers | 27 ms | 262 ms | 65 ms | 447 ms |
+
+Quantization makes the convolutions four times faster and the call 1.6 times.
+The lookup itself is 4 % of the float call: an int8 `GridSample` would change
+little. What holds the int8 copy back is the arithmetic around it: 288 `Div`,
+`Mul` and `Sub` nodes, two of each per lookup, that rescale the lookup's
+coordinates to the range `GridSample` expects. They take 0.85 ms each on a
+tensor of 83,000 values, where a `Mul` of 131,000 values in the recurrent unit
+takes 0.015 ms; why was not looked into. With the lookup they are 39 % of the
+float call and 65 % of the int8 one. They must stay in float: coordinates of
+tens of pixels read to a hundredth do not fit in 8 bits, and the setting that
+quantized them moved the flow by 0.5 to 0.7 px. The same shows in the reading:
+a refinement goes from 56 to 40 ms, and what is outside the refinements (the
+encoders, the correlation volume, the upsampling) from 239 to 72 ms, which is
+why the gain is larger at 4 refinements than at 12. This arithmetic is also
+20 of the 58 ms a refinement of the float file costs under ONNX Runtime,
+against 16.5 ms under PyTorch, a gap the entry of 2026-10-09 left unprofiled.
+
+**What the trial settled** (`scripts/raft_int8_trial.py`, 36 pairs, the first
+of each cell; 12 calibration pairs unless said):
+
+| fine-tuned model | setting | EPE (px) | share of float time | flow moved (px) |
+|---|---|---:|---:|---:|
+| RAFT large | float | 0.0948 | | |
+| | every operator ONNX Runtime can, per channel | 0.4711 | 0.75 | 0.467 |
+| | every convolution | 0.1030 | 0.57 | 0.043 |
+| | guarded | 0.1019 | 0.58 | 0.040 |
+| | guarded, per channel | 0.0983 | 0.58 | 0.020 |
+| | guarded, per channel, percentile | 0.0978 | 0.58 | 0.019 |
+| | guarded, per channel, 36 calibration pairs | 0.0973 | 0.57 | 0.017 |
+| | guarded without the recurrent unit | 0.1007 | 0.71 | 0.033 |
+| | dynamic | 0.0999 | 0.69 | 0.038 |
+| RAFT small | float | 0.1423 | | |
+| | every convolution, per channel | 0.2384 | 0.78 | 0.182 |
+| | guarded, per channel | 0.1821 | 0.79 | 0.105 |
+| | guarded without the recurrent unit, per channel | 0.1504 | 0.94 | 0.041 |
+| | dynamic | 0.1937 | 0.90 | 0.126 |
+
+One scale per channel halves what the flow moves by, at no cost in time. The
+calibration pairs must hold every preset: set on clean pairs alone, a static
+copy of pretrained RAFT large failed 7 hard pairs of 36 (`docs/failures.md`).
+
+**Limits.**
+- One machine, one image size (256 px), one thread count. The int8
+  convolutions run on ARM's instructions here; an x86 CPU has others and was
+  not read.
+- The times are those of a sustained run on a machine without a fan, one
+  timed call a pair. Over the run the float file at 12 refinements went from
+  904 ms (first tenth of the pairs) to 947 ms (last tenth), and its copies
+  with it. The shares hold, as a copy is timed right after its twin; a time
+  in ms does not compare to another run's to better than 10 % (913 ms here
+  for the float file at 12, 964 on the curve of 2026-10-09).
+- A static copy is calibrated on the three presets of the validation set and
+  on four chips. A degradation outside them is not covered, and the held-out
+  sites have not been read.
+- The profile is one pair, with the profiler on, in a process of its own: its
+  695 ms are not the 913 of the reading.
+- ONNX Runtime's defaults, as for the curve. The trial of 2026-10-09 with the
+  threads' spinning turned off was not made again on the int8 copies.
+- Quantizing twice gave the same bytes on this machine. Nothing says it does
+  on another: the files are published, and identified by their own hash.
+- The code that ran was commit `c23a11f` with this ticket's changes not yet
+  committed (`context.json` says `dirty`).
+- **The release was updated by hand, on 2026-10-11.** The three int8 files
+  were added to `weights-n3` (`gh release upload`) from `outputs/release/`.
+  From an empty cache on the M1, with `GITHUB_TOKEN`, `satreg fetch-weights`
+  then brings the eleven files, 122 MB, and refuses none: the hashes are the
+  pinned ones. The notes of the release were replaced the same day (`gh
+  release edit`, from `outputs/release/notes.md`) and list the nine `.onnx`
+  with their hashes.
+
+**Rejected.** Every operator ONNX Runtime can quantize: the flow moves by half
+a pixel, and it is slower than the convolutions alone. Every convolution, the
+flow's included: on pretrained RAFT large it moved the flow of hard pairs by
+0.21 px where the guarded setting moved it by 0.12. Leaving the recurrent
+unit in float: the only setting that keeps RAFT small near its float flow,
+for 6 % of the time, which is within what two runs differ by. Calibration by
+entropy: with ONNX Runtime's defaults it gave the min-max scales to four
+decimals. By percentile: 0.019 px against 0.020, for two minutes instead of
+twenty seconds. Unsigned 8-bit activations: the same flow. RAFT small at 4
+and 8 refinements: its copy at 12 already loses to the float file at 8.
+Publishing the dynamic and the small copies: a file in the release is one a
+method runs, and nothing is to run these. Not tried: training with
+quantization in the loop, which is what RAFT small would need, and rewriting
+the lookup's coordinate arithmetic in the export, which would change the
+published float files and every point of the curve.

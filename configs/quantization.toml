@@ -1,0 +1,81 @@
+# Int8 copies of the fine-tuned RAFT files (N3): how they are made and read.
+#
+#   satreg quantize --config configs/quantization.toml   # -> outputs/onnx, outputs/quantization/files
+#   satreg int8 --config configs/quantization.toml       # -> outputs/quantization
+#
+# Each command reads the table named after it, as with configs/validation.toml.
+# Both cut their pairs from the validation chips, drawn as the validation set
+# draws them (same ranges, presets and seed): neither can read a benchmark chip
+# or a held-out site. `make int8` runs both, with the memory reading between
+# them. The reasoning behind the values is in docs/decisions.md.
+
+# The copies. A static one is calibrated on pair 10 of every chip, scenario and
+# preset, 4 x 3 x 3 = 36 pairs: one past the light validation set (pairs 0 to
+# 9), which `int8` scores the copies on. The large model is copied at each
+# refinement count of the curve; the small one at 12 only, where the trial
+# showed what quantization does to it. A dynamic copy needs no pair.
+[quantize]
+static = ["raft_large_ft_r12", "raft_large_ft_r8", "raft_large_ft_r4", "raft_small_ft_r12"]
+dynamic = ["raft_large_ft_r12", "raft_small_ft_r12"]
+calibration_pair = 10
+
+chips = ["santerre", "lyon", "morvan", "sete"]
+scenarios = ["translation", "affine", "dense"]
+degradations = ["clean", "mild", "hard"]
+size = 256
+seed = 0
+
+max_shift = 4.0
+max_rotation = 0.2
+max_scale_change = 0.002
+max_shear = 0.002
+max_local_shift = 0.8
+local_length = 64.0
+
+train_config = "configs/train-sites.toml"
+series_config = "configs/real.toml"
+sites_config = "configs/sites.toml"
+degradations_config = "configs/degradations.toml"
+onnx = "outputs/onnx"
+out = "outputs/quantization/files"
+
+# The reading: each copy next to its float twin, which `int8` adds by itself,
+# on the light validation set, 4 x 3 x 3 x 10 = 360 pairs. On every pair a
+# float file runs, then its copies, each once after a warm-up call on the first
+# pair: the time of a copy and of its twin are read seconds apart, and their
+# ratio does not depend on how warm the machine is.
+[int8]
+methods = [
+    "raft_ft_onnx_int8",
+    "raft_ft_onnx_int8_dynamic",
+    "raft_ft_r8_onnx_int8",
+    "raft_ft_r4_onnx_int8",
+    "raft_small_ft_onnx_int8",
+    "raft_small_ft_onnx_int8_dynamic",
+]
+
+chips = ["santerre", "lyon", "morvan", "sete"]
+scenarios = ["translation", "affine", "dense"]
+degradations = ["clean", "mild", "hard"]
+pairs = 10
+size = 256
+seed = 0
+
+max_shift = 4.0
+max_rotation = 0.2
+max_scale_change = 0.002
+max_shear = 0.002
+max_local_shift = 0.8
+local_length = 64.0
+
+failure_threshold = 1.0
+warmup = 1
+repeats = 1
+
+train_config = "configs/train-sites.toml"
+series_config = "configs/real.toml"
+sites_config = "configs/sites.toml"
+degradations_config = "configs/degradations.toml"
+methods_config = "configs/methods.toml"
+data_dir = "data"
+out = "outputs/quantization"

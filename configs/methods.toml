@@ -219,6 +219,43 @@ method = "raft_onnx"
 release = "raft_small_ft_r4"
 threads = 4
 
+# Int8 copies of the fine-tuned files, as `satreg quantize` writes them to
+# outputs/onnx (configs/quantization.toml): each under the name of its float
+# twin with `_int8` for a static copy, calibrated on validation pairs, and
+# `_int8_dynamic` for a dynamic one. `satreg int8` scores them next to their
+# twin. The static copies of RAFT large are published, and downloaded like
+# their twins; the three others are not (docs/decisions.md) and are read from
+# where `satreg quantize` writes them.
+[methods.raft_ft_onnx_int8]
+method = "raft_onnx"
+release = "raft_large_ft_r12_int8"
+threads = 4
+
+[methods.raft_ft_r8_onnx_int8]
+method = "raft_onnx"
+release = "raft_large_ft_r8_int8"
+threads = 4
+
+[methods.raft_ft_r4_onnx_int8]
+method = "raft_onnx"
+release = "raft_large_ft_r4_int8"
+threads = 4
+
+[methods.raft_ft_onnx_int8_dynamic]
+method = "raft_onnx"
+file = "outputs/onnx/raft_large_ft_r12_int8_dynamic.onnx"
+threads = 4
+
+[methods.raft_small_ft_onnx_int8]
+method = "raft_onnx"
+file = "outputs/onnx/raft_small_ft_r12_int8.onnx"
+threads = 4
+
+[methods.raft_small_ft_onnx_int8_dynamic]
+method = "raft_onnx"
+file = "outputs/onnx/raft_small_ft_r12_int8_dynamic.onnx"
+threads = 4
+
 # A training still at work: the weights of a checkpoint written by
 # `satreg train`, read from where it writes by default.
 #   checkpoint  path of the checkpoint, relative to the working directory

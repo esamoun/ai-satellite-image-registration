@@ -137,6 +137,24 @@ The largest difference, at any pixel, between the flow an exported model gives
 under ONNX Runtime and the one PyTorch gives on the same pair.
 _Avoid_: Equivalence, drift
 
+**Int8 copy**:
+An exported model whose convolutions compute on 8-bit integers instead of
+32-bit floats, written by `satreg quantize`: a smaller file and a shorter call,
+for a flow that moves a little. A static copy sets its scales once, on
+calibration pairs; a dynamic copy works them out at each call. A method named
+with `_int8` runs a static copy, one named with `_int8_dynamic` a dynamic one.
+_Avoid_: Quantized model, compressed model
+
+**Float twin**:
+The exported model an int8 copy was made from, which it is read next to: same
+model, weights and refinements, on the same pairs and in the same run.
+_Avoid_: Baseline, original model
+
+**Calibration pairs**:
+The validation pairs a static int8 copy sets its scales on: one per chip,
+scenario and preset, and none of those a copy is then scored on.
+_Avoid_: Calibration set, representative dataset
+
 **Footprint**:
 What calling a method adds to the memory of a process that does nothing else:
 the rise of the process's resident high-water mark above its mark with the

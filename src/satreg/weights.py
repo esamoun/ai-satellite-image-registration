@@ -123,19 +123,24 @@ class ReleasedOnnx:
             key of ``RELEASED``.
         refinements: Refinements of the flow the file holds, unrolled.
         tag: Tag of the release that holds it.
-        sha256: SHA-256 of the file ``satreg export`` wrote.
+        sha256: SHA-256 of the file ``satreg export`` wrote, or of the int8
+            copy ``satreg quantize`` made of it.
+        int8: Whether the file is that copy, quantized to 8-bit integers.
     """
 
     weights: str
     refinements: int
     tag: str
     sha256: str
+    int8: bool = False
 
     @property
     def name(self) -> str:
         """What the file is called in ``configs/methods.toml``, and by
-        ``satreg export`` without the suffix."""
-        return onnx_name(self.weights, self.refinements)
+        ``satreg export`` or ``satreg quantize`` without the suffix."""
+        return onnx_name(self.weights, self.refinements) + (
+            INT8_SUFFIX if self.int8 else ""
+        )
 
     @property
     def asset(self) -> str:
@@ -144,6 +149,11 @@ class ReleasedOnnx:
 
 
 Released = ReleasedWeights | ReleasedOnnx
+
+
+# What the name of an ONNX export takes when the file is its int8 copy, the one
+# calibrated on validation pairs (see satreg.quantize).
+INT8_SUFFIX = "_int8"
 
 
 def onnx_name(weights: str, refinements: int) -> str:
@@ -155,7 +165,9 @@ def onnx_name(weights: str, refinements: int) -> str:
 # and 12 refinements, as `satreg export` wrote them on the machine of
 # docs/results/n3/context-onnx.json. An export is byte for byte the same there
 # from one run to the next, and nothing says it is on another machine or
-# version of PyTorch: these files are downloaded, not rebuilt.
+# version of PyTorch: these files are downloaded, not rebuilt. Then the int8
+# copies kept for the cost curve, as `satreg quantize` wrote them there
+# (docs/results/n3/int8-files.md): the static ones of RAFT large.
 RELEASED_ONNX = {
     exported.name: exported
     for exported in (
@@ -194,6 +206,27 @@ RELEASED_ONNX = {
             refinements=12,
             tag="weights-n3",
             sha256="c7671f015621fa28434bd9f39b61632ebec45650791fd6611ce2cecbddf4ed76",
+        ),
+        ReleasedOnnx(
+            weights="raft_large_ft",
+            refinements=4,
+            tag="weights-n3",
+            sha256="51b27700729010b0d2ecd67f8ebdb22619c8bcb3de1fbfd3ef81ecca63e05dd0",
+            int8=True,
+        ),
+        ReleasedOnnx(
+            weights="raft_large_ft",
+            refinements=8,
+            tag="weights-n3",
+            sha256="3d91f7b91ca04418de0f119c2d7738ed2272ace7b5548b290aa367dbb72e4dd3",
+            int8=True,
+        ),
+        ReleasedOnnx(
+            weights="raft_large_ft",
+            refinements=12,
+            tag="weights-n3",
+            sha256="97b6a8c7e0e66f008de4ffcc61030c03bc18a9587e236af8ef5173b12ccff609",
+            int8=True,
         ),
     )
 }
@@ -464,12 +497,14 @@ def export_onnx(name: str, exports: Path, out: Path) -> dict:
 
     Args:
         name: Name of the file, a key of ``RELEASED_ONNX``.
-        exports: Directory ``satreg export`` wrote to, ``outputs/onnx``.
+        exports: Directory ``satreg export`` wrote to, and ``satreg quantize``
+            the int8 copies, ``outputs/onnx``.
         out: Directory the asset is written to.
 
     Returns:
         What the release says of the asset: the file, its hash and size, the
-        weights it was exported from and its refinements.
+        weights it was exported from, its refinements and whether it is an
+        int8 copy.
 
     Raises:
         ValueError: If no ONNX file is published under ``name``.
@@ -479,7 +514,8 @@ def export_onnx(name: str, exports: Path, out: Path) -> dict:
     exported = released_onnx(name)
     source = exports / f"{name}.onnx"
     if not source.is_file():
-        raise FileNotFoundError(f"no export at {source}: write it with satreg export")
+        writer = "quantize" if exported.int8 else "export"
+        raise FileNotFoundError(f"no export at {source}: write it with satreg {writer}")
     check(source, exported)
     out.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, out / exported.asset)
@@ -489,6 +525,7 @@ def export_onnx(name: str, exports: Path, out: Path) -> dict:
         "bytes": source.stat().st_size,
         "weights": released(exported.weights).asset,
         "refinements": exported.refinements,
+        "int8": exported.int8,
         "release": exported.tag,
         "repository": REPOSITORY,
     }
@@ -538,14 +575,24 @@ def notes(cards: list[dict], onnx_cards: list[dict] | None = None) -> str:
             "of refinements, for ONNX Runtime: `satreg export` wrote it, image "
             "size left free, and `satreg` checks it against its SHA-256 like "
             "the weights. It runs without PyTorch.",
+        ]
+        if any(described["int8"] for described in onnx_cards):
+            lines[-1] += (
+                " An int8 file is the copy `satreg quantize` made of the float "
+                "one with the same refinements: its convolutions compute on "
+                "8-bit integers, with scales set on pairs of the validation "
+                "set."
+            )
+        lines += [
             "",
-            "| asset | exported from | refinements | MB | SHA-256 |",
-            "|---|---|---:|---:|---|",
+            "| asset | exported from | refinements | computes in | MB | SHA-256 |",
+            "|---|---|---:|---|---:|---|",
         ]
         lines += [
             f"| `{described['asset']}` | `{described['weights']}` | "
-            f"{described['refinements']} | {described['bytes'] / 1e6:.1f} | "
-            f"`{described['sha256']}` |"
+            f"{described['refinements']} | "
+            f"{'int8' if described['int8'] else 'float'} | "
+            f"{described['bytes'] / 1e6:.1f} | `{described['sha256']}` |"
             for described in onnx_cards
         ]
     return "\n".join(lines) + "\n"

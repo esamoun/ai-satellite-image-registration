@@ -1,4 +1,4 @@
-.PHONY: install install-arosics install-dl install-roma install-onnx lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle ablation small onnx curve clean
+.PHONY: install install-arosics install-dl install-roma install-onnx lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle ablation small onnx curve int8 clean
 
 install:
 	pip install -e ".[dev]"
@@ -203,6 +203,19 @@ curve:
 	satreg validate --config configs/curve.toml --light --methods $(CURVE_TORCH) --out $(CURVE)/torch
 	satreg footprint --methods $(CURVE_ONNX) $(CURVE_TORCH) $(CURVE_REFERENCES) --out $(CURVE)/footprint
 	satreg curve --out $(CURVE)
+
+# The int8 copies of the fine-tuned ONNX files (N3). Needs `make onnx`
+# for the float files, and the Mac on mains with nothing else running: the
+# reading times each copy next to its float twin. About 2 minutes to quantize,
+# 5 for the memory and 30 for the reading.
+QUANTIZATION = outputs/quantization
+INT8 = raft_ft_onnx_int8 raft_ft_onnx_int8_dynamic raft_ft_r8_onnx_int8 raft_ft_r4_onnx_int8 raft_small_ft_onnx_int8 raft_small_ft_onnx_int8_dynamic
+INT8_FLOAT = raft_ft_onnx raft_ft_r8_onnx raft_ft_r4_onnx raft_small_ft_onnx
+
+int8:
+	satreg quantize --config configs/quantization.toml
+	satreg footprint --methods $(INT8_FLOAT) $(INT8) --out $(QUANTIZATION)/footprint
+	satreg int8 --config configs/quantization.toml
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

@@ -1,0 +1,279 @@
+{
+  "recorded_at": "2026-10-11T00:29:06+00:00",
+  "code": {
+    "commit": "c23a11f93af151c3c0d8e86845791d6ea25036fd",
+    "dirty": true
+  },
+  "machine": {
+    "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "cpu": "Apple M1",
+    "memory_gib": 8.0
+  },
+  "gpu": null,
+  "threads": {
+    "cpu_count": 8,
+    "usable_cpus": 8,
+    "opencv": 8,
+    "torch": null,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+  },
+  "python": "3.13.7",
+  "libraries": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "scikit-image": "0.26.0",
+    "opencv-python-headless": "5.0.0.93",
+    "rasterio": "1.5.1",
+    "arosics": "1.13.2",
+    "GDAL": "3.13.3",
+    "torch": "2.14.0",
+    "torchvision": "0.29.0",
+    "onnx": "1.23.0",
+    "onnxruntime": "1.30.0"
+  },
+  "cost": {
+    "warmup": 1,
+    "repeats": 1,
+    "process_peak_rss_mib": 988.34375,
+    "memory": {
+      "raft_ft_onnx": "onnxruntime",
+      "raft_ft_onnx_int8": "onnxruntime",
+      "raft_ft_onnx_int8_dynamic": "onnxruntime",
+      "raft_ft_r8_onnx": "onnxruntime",
+      "raft_ft_r8_onnx_int8": "onnxruntime",
+      "raft_ft_r4_onnx": "onnxruntime",
+      "raft_ft_r4_onnx_int8": "onnxruntime",
+      "raft_small_ft_onnx": "onnxruntime",
+      "raft_small_ft_onnx_int8": "onnxruntime",
+      "raft_small_ft_onnx_int8_dynamic": "onnxruntime"
+    },
+    "run_seconds": 1809.7805559579283
+  },
+  "devices": {
+    "raft_ft_onnx": "cpu",
+    "raft_ft_onnx_int8": "cpu",
+    "raft_ft_onnx_int8_dynamic": "cpu",
+    "raft_ft_r8_onnx": "cpu",
+    "raft_ft_r8_onnx_int8": "cpu",
+    "raft_ft_r4_onnx": "cpu",
+    "raft_ft_r4_onnx_int8": "cpu",
+    "raft_small_ft_onnx": "cpu",
+    "raft_small_ft_onnx_int8": "cpu",
+    "raft_small_ft_onnx_int8_dynamic": "cpu"
+  },
+  "checkpoints": {
+    "raft_ft_onnx": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft_r12-da410478.onnx",
+      "sha256": "da410478e79cb32343b6f8c2c0f88e53d0b93d192a1152d8b3e088aef242fcfe",
+      "holds": {
+        "weights_sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13",
+        "model": "large",
+        "iterations": "12",
+        "fine_tuned": "true",
+        "weights": "raft_large_ft-44bcc668.pth"
+      }
+    },
+    "raft_ft_onnx_int8": {
+      "path": "outputs/onnx/raft_large_ft_r12_int8.onnx",
+      "sha256": "97b6a8c7e0e66f008de4ffcc61030c03bc18a9587e236af8ef5173b12ccff609",
+      "holds": {
+        "model": "large",
+        "iterations": "12",
+        "weights_sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13",
+        "calibration_pairs": "36",
+        "fine_tuned": "true",
+        "calibration_pair_index": "10",
+        "calibration_method": "minmax",
+        "weights": "raft_large_ft-44bcc668.pth",
+        "quantization": "static",
+        "quantized_from_sha256": "da410478e79cb32343b6f8c2c0f88e53d0b93d192a1152d8b3e088aef242fcfe"
+      }
+    },
+    "raft_ft_onnx_int8_dynamic": {
+      "path": "outputs/onnx/raft_large_ft_r12_int8_dynamic.onnx",
+      "sha256": "94b9823eef594003e4676b4d8b32a3b5f68b4024ed2b763be5316f22d49d3e61",
+      "holds": {
+        "model": "large",
+        "iterations": "12",
+        "weights_sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13",
+        "fine_tuned": "true",
+        "weights": "raft_large_ft-44bcc668.pth",
+        "quantization": "dynamic",
+        "quantized_from_sha256": "da410478e79cb32343b6f8c2c0f88e53d0b93d192a1152d8b3e088aef242fcfe"
+      }
+    },
+    "raft_ft_r8_onnx": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft_r8-81366280.onnx",
+      "sha256": "813662803b0cca223bcde6a9c1be0f7d6c1e7e515301961624c2ebf8213afe2c",
+      "holds": {
+        "weights_sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13",
+        "model": "large",
+        "iterations": "8",
+        "fine_tuned": "true",
+        "weights": "raft_large_ft-44bcc668.pth"
+      }
+    },
+    "raft_ft_r8_onnx_int8": {
+      "path": "outputs/onnx/raft_large_ft_r8_int8.onnx",
+      "sha256": "3d91f7b91ca04418de0f119c2d7738ed2272ace7b5548b290aa367dbb72e4dd3",
+      "holds": {
+        "model": "large",
+        "iterations": "8",
+        "weights_sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13",
+        "calibration_pairs": "36",
+        "fine_tuned": "true",
+        "calibration_pair_index": "10",
+        "calibration_method": "minmax",
+        "weights": "raft_large_ft-44bcc668.pth",
+        "quantization": "static",
+        "quantized_from_sha256": "813662803b0cca223bcde6a9c1be0f7d6c1e7e515301961624c2ebf8213afe2c"
+      }
+    },
+    "raft_ft_r4_onnx": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft_r4-c8ee13ca.onnx",
+      "sha256": "c8ee13ca706020957af22b3f0b1a686e6bc562e010cfbc83c8ebbb6fa39b1ede",
+      "holds": {
+        "weights_sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13",
+        "model": "large",
+        "iterations": "4",
+        "fine_tuned": "true",
+        "weights": "raft_large_ft-44bcc668.pth"
+      }
+    },
+    "raft_ft_r4_onnx_int8": {
+      "path": "outputs/onnx/raft_large_ft_r4_int8.onnx",
+      "sha256": "51b27700729010b0d2ecd67f8ebdb22619c8bcb3de1fbfd3ef81ecca63e05dd0",
+      "holds": {
+        "model": "large",
+        "iterations": "4",
+        "weights_sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13",
+        "calibration_pairs": "36",
+        "fine_tuned": "true",
+        "calibration_pair_index": "10",
+        "calibration_method": "minmax",
+        "weights": "raft_large_ft-44bcc668.pth",
+        "quantization": "static",
+        "quantized_from_sha256": "c8ee13ca706020957af22b3f0b1a686e6bc562e010cfbc83c8ebbb6fa39b1ede"
+      }
+    },
+    "raft_small_ft_onnx": {
+      "release": "weights-n3",
+      "asset": "raft_small_ft_r12-c7671f01.onnx",
+      "sha256": "c7671f015621fa28434bd9f39b61632ebec45650791fd6611ce2cecbddf4ed76",
+      "holds": {
+        "weights_sha256": "b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137",
+        "model": "small",
+        "iterations": "12",
+        "fine_tuned": "true",
+        "weights": "raft_small_ft-b666aaad.pth"
+      }
+    },
+    "raft_small_ft_onnx_int8": {
+      "path": "outputs/onnx/raft_small_ft_r12_int8.onnx",
+      "sha256": "32f8f2f851992dc01554495d6bac67612ba5dcbad5ea1bdd7687d5d9ab060f21",
+      "holds": {
+        "model": "small",
+        "iterations": "12",
+        "weights_sha256": "b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137",
+        "calibration_pairs": "36",
+        "fine_tuned": "true",
+        "calibration_pair_index": "10",
+        "calibration_method": "minmax",
+        "weights": "raft_small_ft-b666aaad.pth",
+        "quantization": "static",
+        "quantized_from_sha256": "c7671f015621fa28434bd9f39b61632ebec45650791fd6611ce2cecbddf4ed76"
+      }
+    },
+    "raft_small_ft_onnx_int8_dynamic": {
+      "path": "outputs/onnx/raft_small_ft_r12_int8_dynamic.onnx",
+      "sha256": "93dc1bff0cd388dc5afd57e6e0af63bceb5a2a8b2ad613bdb5bacf2427729fa1",
+      "holds": {
+        "model": "small",
+        "iterations": "12",
+        "weights_sha256": "b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137",
+        "fine_tuned": "true",
+        "weights": "raft_small_ft-b666aaad.pth",
+        "quantization": "dynamic",
+        "quantized_from_sha256": "c7671f015621fa28434bd9f39b61632ebec45650791fd6611ce2cecbddf4ed76"
+      }
+    }
+  },
+  "held_out_sites": [],
+  "run": {
+    "chips": [
+      "santerre",
+      "lyon",
+      "morvan",
+      "sete"
+    ],
+    "config": "configs/quantization.toml",
+    "data_dir": "data",
+    "degradations": [
+      "clean",
+      "mild",
+      "hard"
+    ],
+    "degradations_config": "configs/degradations.toml",
+    "device": null,
+    "failure_threshold": 1.0,
+    "footprints": null,
+    "local_length": 64.0,
+    "max_local_shift": 0.8,
+    "max_rotation": 0.2,
+    "max_scale_change": 0.002,
+    "max_shear": 0.002,
+    "max_shift": 4.0,
+    "methods": [
+      "raft_ft_onnx_int8",
+      "raft_ft_onnx_int8_dynamic",
+      "raft_ft_r8_onnx_int8",
+      "raft_ft_r4_onnx_int8",
+      "raft_small_ft_onnx_int8",
+      "raft_small_ft_onnx_int8_dynamic"
+    ],
+    "methods_config": "configs/methods.toml",
+    "out": "outputs/quantization",
+    "pairs": 10,
+    "repeats": 1,
+    "scenarios": [
+      "translation",
+      "affine",
+      "dense"
+    ],
+    "seed": 0,
+    "series_config": "configs/real.toml",
+    "sites_config": "configs/sites.toml",
+    "size": 256,
+    "train_config": "configs/train-sites.toml",
+    "warmup": 1
+  },
+  "validation": {
+    "chips": {
+      "santerre": "S2A_T31UDR_20250429T110413_L2A",
+      "lyon": "S2A_T31TFL_20250811T103955_L2A",
+      "morvan": "S2B_T31TEN_20250807T104621_L2A",
+      "sete": "S2C_T31TEJ_20250610T103712_L2A"
+    },
+    "pairs_per_cell": 10
+  },
+  "footprints": "outputs/quantization/footprint/footprints.csv",
+  "megabytes": {
+    "raft_ft_onnx": 21.464056,
+    "raft_ft_onnx_int8": 7.09597,
+    "raft_ft_onnx_int8_dynamic": 6.279717,
+    "raft_ft_r8_onnx": 21.345099,
+    "raft_ft_r8_onnx_int8": 6.742241,
+    "raft_ft_r4_onnx": 21.226857,
+    "raft_ft_r4_onnx_int8": 6.389989,
+    "raft_small_ft_onnx": 4.341694,
+    "raft_small_ft_onnx_int8": 2.023655,
+    "raft_small_ft_onnx_int8_dynamic": 1.854035
+  }
+}

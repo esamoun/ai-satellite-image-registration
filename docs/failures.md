@@ -283,3 +283,58 @@ pair by pair on `hard`; evaluation.md says so in its limits. Why RoMa finds
 fewer certain pixels on hard Toulouse pairs than on hard Beauce ones, the
 opposite of every keypoint method, is not explained.
 
+
+## 2026-10-11: An int8 RAFT calibrated on clean pairs failed the hard ones
+
+**Attempted.** The trial of static int8 quantization, on pretrained RAFT large
+(`scripts/raft_int8_trial.py`): every convolution computed on 8-bit integers
+but the 25 that read the flow, write its update or write the upsampling mask,
+the scales set on 12 validation pairs, the file then scored on 36 others, one
+per chip, scenario and preset.
+
+**What happened.** The file failed 7 of the 36 pairs, all of the `hard`
+preset, where the float file fails none: its flow was 0.46 px from the float
+file's on average and 2.1 px on the worst pair. One scale per channel, the
+entropy calibration and the percentile one failed the same 7. A variant with
+only the convolution that writes the flow update left in float failed 9, its
+flow about 10 px off on those pairs.
+
+**Why.** The 12 calibration pairs were all clean. They were taken as one pair
+in three of a list in which the preset is the innermost loop (clean, mild,
+hard), so one in three is one preset. A static file fixes the range of every
+tensor from what the calibration pairs showed it; the `hard` preset (clouds on
+a third of the image, noise at 15 dB, a darker and blurred moving image) sends
+tensors outside those ranges, where the values are clipped. It is not the
+graph optimizer: the numbers are the same with ONNX Runtime's optimizations
+turned off. Not explained: with the same 12 pairs, the file with every
+convolution on integers failed no pair.
+
+**What was done instead.** With 4 clean, 4 mild and 4 hard pairs, no failure
+and a flow 0.07 px from the float file's. `quantize.calibration_pairs` draws
+one pair per chip, scenario and preset, 36 pairs, and a test checks every cell
+is among them. A static file is only as wide as its calibration set: a
+degradation no calibration pair has is not covered, and nothing in the file
+says so.
+
+## 2026-10-11: ONNX Runtime's quantization pre-processing does not get through RAFT's graph
+
+**Attempted.** `quant_pre_process`, the step ONNX Runtime asks for before a
+static quantization, on the exported RAFT files, with its defaults
+(onnxruntime 1.30.0, onnx 1.23.0).
+
+**What happened.** It raises "Incomplete symbolic shape inference", and leaves
+`sym_shape_infer_temp.onnx` and a 21 MB `.data` file in the working directory,
+the repository's root.
+
+**Why.** Not looked into further than the message. The files are exported with
+a free image size, and the unrolled refinements build the lookup coordinates
+from that size: the symbolic pass does not resolve those shapes.
+
+**What was done instead.** The step runs with `skip_symbolic_shape=True`: it
+still folds constants and runs ONNX's own shape inference, which is enough for
+the quantizer. A test quantizes a file twice and checks the working directory
+is left as it was. A second trap of the same tool: the calibrator raises "No
+data is collected" when `CalibMaxIntermediateOutputs`, the number of pairs it
+holds before folding them into ranges, divides the number of calibration
+pairs, as it then ends on an empty batch. `quantize._chunk` picks a size that
+does not divide it.

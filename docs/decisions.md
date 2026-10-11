@@ -4845,3 +4845,160 @@ method runs, and nothing is to run these. Not tried: training with
 quantization in the loop, which is what RAFT small would need, and rewriting
 the lookup's coordinate arithmetic in the export, which would change the
 published float files and every point of the curve.
+
+## 2026-10-11: The freeze: what the final evaluation runs on the held-out sites, and how it is read
+
+**Decision.** This entry freezes the final evaluation of N3 (ticket 12), as
+the entry of 2026-10-02 asks, before `alps` and `libya4` are run. From here
+nothing upstream changes: no new checkpoint, no new calibration, no new point
+on the curve, no change to a config. The held-out rows have not been read:
+the state of that claim is under "What has been seen of the held-out sites".
+
+*My call* (2026-10-11, on review, the options laid out):
+- the held-out curve is timed on all 1,800 pairs, once a call, rather than on
+  ten pairs a cell, three times a call, with a full PyTorch run beside them;
+- the closure of the real triplets is run without RoMa, rather than with it
+  for about three more hours on the M1.
+
+**The code.** Commit `1f80a5abcf85b5cbcef9cd24daefd27f7daa9db7`. The commit
+that adds this entry changes this file and nothing that runs. The Kaggle
+sessions check out `1f80a5a`; the M1 parts run from the commit of this entry,
+and each `context.json` names the commit it ran.
+
+**The weights.** The two fine-tuned checkpoints and the nine ONNX files made
+from them are assets of the release `weights-n3`, pinned in
+`src/satreg/weights.py`. The pretrained ONNX files are not published
+(`satreg export` writes them from torchvision's weights); the six below are
+the files on the M1 that the run reads.
+
+| file | what it is | SHA-256 |
+|---|---|---|
+| `raft_large_ft-44bcc668.pth` | `raft_ft`, the model of the criterion | `44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13` |
+| `raft_small_ft-b666aaad.pth` | `raft_small_ft` | `b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137` |
+| `raft_large_C_T_SKHT_V2-ff5fadd5.pth` | `raft`, torchvision's weights | `ff5fadd56d26b40647388883af1547351ea17868b765c05b27231e72dd16a322` |
+| `raft_small_C_T_V2-01064c6d.pth` | `raft_small`, torchvision's weights | `01064c6dba73b0fc9fc8edf772248560a00a3acfd62ac6677e9eeebad9680e27` |
+| `raft_large_ft_r4-c8ee13ca.onnx` | `raft_ft_r4_onnx` | `c8ee13ca706020957af22b3f0b1a686e6bc562e010cfbc83c8ebbb6fa39b1ede` |
+| `raft_large_ft_r8-81366280.onnx` | `raft_ft_r8_onnx` | `813662803b0cca223bcde6a9c1be0f7d6c1e7e515301961624c2ebf8213afe2c` |
+| `raft_large_ft_r12-da410478.onnx` | `raft_ft_onnx` | `da410478e79cb32343b6f8c2c0f88e53d0b93d192a1152d8b3e088aef242fcfe` |
+| `raft_small_ft_r4-72fa35ab.onnx` | `raft_small_ft_r4_onnx` | `72fa35ab2a2c537a6f3dda9aacc057498cbd69a7ac676c6eee0352b189f17361` |
+| `raft_small_ft_r8-7cac1561.onnx` | `raft_small_ft_r8_onnx` | `7cac15615efd9ec3771421f6eab8daa3b19da78f21e86b2aba6a238fcbec6359` |
+| `raft_small_ft_r12-c7671f01.onnx` | `raft_small_ft_onnx` | `c7671f015621fa28434bd9f39b61632ebec45650791fd6611ce2cecbddf4ed76` |
+| `raft_large_ft_r4_int8-51b27700.onnx` | `raft_ft_r4_onnx_int8` | `51b27700729010b0d2ecd67f8ebdb22619c8bcb3de1fbfd3ef81ecca63e05dd0` |
+| `raft_large_ft_r8_int8-3d91f7b9.onnx` | `raft_ft_r8_onnx_int8` | `3d91f7b91ca04418de0f119c2d7738ed2272ace7b5548b290aa367dbb72e4dd3` |
+| `raft_large_ft_r12_int8-97b6a8c7.onnx` | `raft_ft_onnx_int8` | `97b6a8c7e0e66f008de4ffcc61030c03bc18a9587e236af8ef5173b12ccff609` |
+| `outputs/onnx/raft_large_r4.onnx` | `raft_r4_onnx`, local | `9423fb88287f9cac25e81e3e2a8c66a1648bedaffb216f77db3aafd1bb137a89` |
+| `outputs/onnx/raft_large_r8.onnx` | `raft_r8_onnx`, local | `4f676bd522d6fbdad0888f241fb621740cf48cbd0dbd674e3a0ab2bacab5a85a` |
+| `outputs/onnx/raft_large_r12.onnx` | `raft_onnx`, local | `9b94acd758745fa7498d44988e3e94a5e911fd88edb28a509bfead804d065d4f` |
+| `outputs/onnx/raft_small_r4.onnx` | `raft_small_r4_onnx`, local | `631803dddd730f657a91a551af8dedfd5204714946676042a2c6e562525381c8` |
+| `outputs/onnx/raft_small_r8.onnx` | `raft_small_r8_onnx`, local | `d8e6b62ba3e5dac15407533b1cf5ac0b34ff49270e7b701f079b1e0257c9eae6` |
+| `outputs/onnx/raft_small_r12.onnx` | `raft_small_onnx`, local | `23d2500b220d9bb713c855eab7648aaa1ace25226a35a51132bea7153eb164be` |
+
+**The points of the curve.** Fifteen, and three references beside them:
+- RAFT large and RAFT small, pretrained and fine-tuned, at 4, 8 and 12
+  refinements: twelve float points, each under ONNX Runtime and under PyTorch
+  (entry of 2026-10-09);
+- the static int8 copies of fine-tuned RAFT large at 4, 8 and 12 refinements,
+  under ONNX Runtime (entry of 2026-10-11);
+- phase correlation, SIFT + RANSAC and AROSICS.
+
+No point is named here as the one kept. The entries of 2026-10-09 and
+2026-10-11 left that to this ticket; a point picked after the read would be a
+choice made on the held-out cost figures, which the rule of 2026-10-02 rules
+out. The curve is published whole, and what it shows is described, not
+chosen from.
+
+**The configs.** As of the commit above:
+
+| config | what it runs | where | SHA-256 |
+|---|---|---|---|
+| `configs/n3.toml` | the four classic methods on the 5,400 simulated pairs of the six sites; the real triplets of the six sites; false change on simulated pairs, 20 a cell | M1, CPU | `ee872b45505fd18e47222f0c4615d3f8d83ee4d7f2ef11441de802d234ce6b9b` |
+| `configs/n3-gpu.toml` | the eight deep-learning methods on the same 5,400 pairs: `raft`, `raft_small`, `raft_ft`, `raft_small_ft`, both LightGlue, both RoMa | Kaggle, T4 | `c4d23c7940721f1302165ac3d0a30e0efa3ba4d55c0c07b2d2f8f2247e4d746e` |
+| `configs/n3-bands.toml` | the four RAFT models on the 600 inter-band pairs of N2, Beauce and Toulouse | M1, CPU | `6211bc32faa8da74648111c75a4eff704d61f02c3c9fdc8b91bd878122938d7d` |
+| `configs/n3-curve.toml` | the fifteen points under ONNX Runtime and the three references on the 1,800 held-out pairs; the twelve float points again under PyTorch | M1, CPU | `613968685984e718afeaa262d6a0bc0a749ce5b7c4c1c92f3c295abe8a5fa39a` |
+| `configs/n3-curve-gpu.toml` | the twelve float points under PyTorch on the same 1,800 pairs | Kaggle, T4 | `b2df577fbe4376b5f4bfd7e82cc75037e0bc4abbb5b64a93a0be4bcbc214e999` |
+
+`make n3` runs the M1 parts and joins the two Kaggle tables to them
+(`satreg merge`, `satreg curve --benchmark`). `--allow-held-out` is on its
+command lines and in the two Kaggle sessions (`docs/kaggle.md`), and nowhere
+else.
+
+**The criterion, restated from 2026-10-02.** Over the 1,800 held-out pairs
+(`alps` and `libya4`; translation, affine, dense; clean, mild, hard; 100
+pairs a cell; 256 px, seed 0, N2's motion ranges, a failure above 1 px of
+mean error), both models at 12 refinements, in float32, in PyTorch:
+`raft_ft` fails at most as many pairs as `raft`, and over the pairs neither
+fails its mean EPE is lower. Yes only if both hold; no margin. The closure of
+the real triplets of the six sites is read next to it, `raft_ft` against
+`raft`: better, equal or worse, worse being more failed triplets, or as many
+and a higher mean closure over the triplets neither fails.
+
+**How it is read.** By `satreg final`, on the merged table `outputs/n3` and
+on `outputs/n3-cycle`: the rows of the two models are those of the T4. It
+writes the answer in one sentence, the closure reading in the same paragraph,
+then the same figures per site, per cell and for the small model. Fixed here,
+before the read, because the entry of 2026-10-02 left them open:
+- the 95 % interval is a percentile interval over 10,000 resamplings of the
+  pairs, seed 0. A second one resamples the 200 draws (a site and a pair
+  number: the nine pairs of a draw are one window and one seed, under every
+  scenario and preset) and is printed beside it. The first is the one the
+  criterion registered;
+- a yes is written as a weak yes if the difference in mean EPE is under
+  0.005 px in absolute value, or if either interval reaches zero. 0.005 px
+  puts a number on the "few thousandths of a pixel" of the entry of
+  2026-10-02; it is a wording rule, and it does not change the answer.
+
+**Three choices of this run.**
+- *The curve is timed on every held-out pair, once a call.* The entry of
+  2026-10-09 timed the validation curve on the light set, three times a call.
+  Here the error and the failure rate of a point must be those of the 1,800
+  pairs the criterion is read on, so each point runs them all; three timed
+  calls a pair would take the ONNX Runtime run from 3 h 30 to about 10 h on a
+  machine without a fan. A time is the median over the 1,800 pairs, in a
+  sustained run, as on 2026-10-09. The two curves are therefore not timed
+  the same way, and their times are not set side by side.
+- *The closure runs without RoMa.* The reading compares `raft_ft` with
+  `raft`. RoMa's closure on the four N2 sites is in `outputs/n2-cycle` and is
+  not run again; it has none on the two held-out sites.
+- *The inter-band rows are run on the M1's CPU, the pretrained models
+  included,* so that the four RAFT models are read on one machine, one timed
+  call a pair. Their errors and failure rates stand next to N2's rows; their
+  times do not.
+
+**The rehearsal.** `make n3-dry` on 2026-10-11, on the M1: the ten commands
+of `make n3` and the two GPU configs, these on MPS, on the four seen sites,
+two pairs a cell, without `--allow-held-out`. It ended without error in 55 minutes. Every
+`context.json` it wrote has an empty `held_out_sites`. It ran the working tree
+that became commit `1f80a5a`: no source file or config changed between its
+start and that commit. Its numbers are not results and nothing was chosen on
+them.
+
+**What has been seen of the held-out sites.** The check of 2026-09-28: the
+failure column of 20 clean translation pairs a site. Their chips and their
+date series have been on disk since that day, for the run; no method has been
+run on them since, and no directory `outputs/n3*` exists but the rehearsal's.
+
+**Limits.**
+- The Kaggle notebook was not rehearsed with the two GPU configs: the
+  rehearsal ran them on MPS. A session that stops for a plumbing reason is
+  started again from the same commit, and said here.
+- The M1 parts and the T4 parts are two runs of the same seeded pairs on two
+  machines. The criterion reads both models on the T4; the curve reads the
+  error of each point where it is timed.
+- The weights of LightGlue and RoMa are those their libraries download, as in
+  N2, and are not pinned here. They are not part of the criterion.
+- The six pretrained ONNX files exist on the M1 only. Another machine
+  exports them again from the torchvision weights above, and nothing says it
+  gets the same bytes.
+- One training per model, one seed: the intervals cover the draw of the
+  pairs and not that.
+- The whole of `make n3` is about 7 hours on the M1, in a sustained run on
+  mains power with nothing else running; the T4 sessions are about 3 h 30 and
+  30 minutes. These are estimates from the rehearsal.
+
+**Rejected.** Naming the kept point now, from the validation curve: it would
+be a choice made on other chips than the ones it is shown on, and the curve
+needs none to be read. Timing the held-out curve on a tenth of its pairs, as
+on 2026-10-09: too few pairs to compare failure rates, and an error that
+would not be the one the criterion is read on.
+Reading the criterion on the M1's rows: the deep-learning rows of every table
+since N2 are the T4's.

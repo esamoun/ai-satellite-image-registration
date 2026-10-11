@@ -371,6 +371,9 @@ def quantize_args(tmp_path, cached, *more):  # noqa: F811
 
 
 def test_quantize_refuses_what_it_cannot_write(tmp_path, monkeypatch, cached):  # noqa: F811
+    # What is refused below is refused before onnx is imported: the same with
+    # and without the onnx extra.
+    monkeypatch.setattr(quantize, "missing_modules", lambda: [])
     with pytest.raises(SystemExit, match="quantize needs --static or --dynamic files"):
         main(quantize_args(tmp_path, cached))
     missing = tmp_path / "onnx" / "nothing.onnx"

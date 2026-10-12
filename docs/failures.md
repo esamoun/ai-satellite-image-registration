@@ -338,3 +338,27 @@ data is collected" when `CalibMaxIntermediateOutputs`, the number of pairs it
 holds before folding them into ranges, divides the number of calibration
 pairs, as it then ends on an empty batch. `quantize._chunk` picks a size that
 does not divide it.
+
+## 2026-10-12: The first draft of the N3 write-up chose a deployment point on the held-out rows
+
+**Attempted.** The N3 write-up was to say which point of the cost curve one
+would deploy, as its plan asked.
+
+**What happened.** The draft named two points, chosen on the held-out rows
+after they were read, and presented the freeze as silent on the matter. It
+was not committed.
+
+**Why.** The plan's line is older than the freeze, and the freeze was not
+reread against it. The rule of 2026-10-02 allows no choice on the rows of the
+held-out sites, cost figures included, and the freeze says that a point picked
+after the read is such a choice. The options I chose from had been laid out
+without that sentence.
+
+**What was done instead.** A review of the draft against `decisions.md` and
+the glossary caught it. The write-up names no point: it says what the curve
+shows for each constraint, and leaves the choice to the use and to the
+validation set ([`decisions.md`](decisions.md), same date). The same review
+corrected figures of the draft before the commit: a rounding in the int8
+table, a 5 ms time given to phase correlation with a Hann window when it is
+the time of the plain variant, and a gain "about twice as large on `hard`
+pairs" that holds for two scenarios of three.

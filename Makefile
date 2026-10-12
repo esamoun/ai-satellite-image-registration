@@ -225,7 +225,7 @@ int8:
 # The GPU runs (configs/n3-gpu.toml, configs/n3-curve-gpu.toml) are made on
 # Kaggle and downloaded to outputs/kaggle/ before `make n3` (docs/kaggle.md).
 # --allow-held-out is given here, on each command that reads a held-out site,
-# and nowhere else. Needs `make onnx` for the pretrained ONNX files. About 7
+# and nowhere else. Needs `make onnx` for the pretrained ONNX files. About 9
 # hours on the M1, the cost curve being most of it: on mains with the lid open
 # and nothing else running, as the times and the memory are read on it.
 N3_GPU = outputs/kaggle/outputs/n3-gpu
@@ -265,7 +265,7 @@ n3-curve:
 # without --allow-held-out, so that no command can read a held-out site. The
 # GPU configs run here on $(N3_DRY_DEVICE). It checks that the commands run
 # and read each other's tables: its numbers are not results, and nothing is
-# chosen on them. About 40 minutes on the M1.
+# chosen on them. About 55 minutes on the M1.
 N3_DRY = outputs/n3-dry
 N3_DRY_DEVICE = mps
 N3_SEEN = beauce toulouse vosges marseille

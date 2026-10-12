@@ -1,10 +1,504 @@
 # Evaluation
 
-Two results tables. **N2**, the current one, sets the classic methods against
-pretrained deep-learning methods on four sites, on simulated pairs, inter-band
-pairs, real triplets and through a change detector. **N1**, further down, is the
+Three results, one per level. **N3**, the current one, is the final
+evaluation: RAFT fine-tuned on this project's simulated pairs against the
+pretrained model, on two held-out sites read once, with the real triplets and
+the cost curve. **N2**, below it, sets the classic methods against pretrained
+deep-learning methods on four sites, on simulated pairs, inter-band pairs,
+real triplets and through a change detector. **N1**, further down, is the
 classic baseline it started from, on two sites. Every number comes from seeded
 runs that the commands below reproduce.
+
+## N3: fine-tuned RAFT, the final evaluation
+
+**The verdict.** Yes: on the 1,800 simulated pairs of the two held-out sites
+(`alps`, `libya4`), fine-tuned RAFT large (`raft_ft`) beats the pretrained
+model (`raft`): it fails 0 pairs where `raft` fails 3, and over the 1,797
+pairs neither fails its mean EPE is 0.0692 px where `raft`'s is 0.0953 px, a
+difference of -0.0261 px (95 % interval -0.0275 to -0.0248 px by resampling
+the pairs, -0.0285 to -0.0238 px by resampling the 200 draws). On the real
+triplets of the six sites its closure is better: it fails 0 of 384 triplets
+where `raft` fails 89, and over the 295 neither fails its mean closure is
+0.0721 px where `raft`'s is 0.1441 px.
+
+The question, the criterion and the way to read it were written on
+2026-10-02, before any training. What is evaluated was frozen on 2026-10-11
+(commit, weights and configs by SHA-256), before the two held-out sites were
+run. They were run once, and read on 2026-10-12
+([`decisions.md`](decisions.md), entries of those three dates).
+
+### What was run
+
+- **Sites.** The four sites of N2, whose landscapes the training saw on other
+  pixels, and the two held-out sites, a mountain (`alps`) and a desert
+  (`libya4`), whose landscapes it did not see. Training and validation used
+  twelve other chips, eight to train on and four to validate (see the
+  README); no network was trained on a benchmark chip.
+- **Methods.** The ten methods of N2, plus `raft_ft` and `raft_small_ft`:
+  torchvision's RAFT large and RAFT small, fine-tuned on this project's
+  simulated pairs. Twelve in all.
+- **Simulated pairs.** As in N2, same seeded windows and displacements, B04:
+  6 sites × 3 scenarios × 3 presets × 100 = 5,400 pairs, 1,800 of them on the
+  held-out sites.
+- **Real triplets.** 64 per site as in N2, 384 in all, plus 5 simulated
+  triplets per site, scenario and preset. Eight methods: the six of N2
+  without RoMa, plus the two fine-tuned models and `raft_small`.
+- **Cost curve.** RAFT large and small, pretrained and fine-tuned, with 4, 8
+  and 12 refinements, on the 1,800 held-out pairs: under ONNX Runtime and
+  under PyTorch on the M1's CPU, and under PyTorch on a T4. Three int8 copies
+  of fine-tuned RAFT large and three classic methods beside them.
+- **Inter-band pairs.** The 600 pairs of N2 (Beauce and Toulouse), for the
+  four RAFT models. Not a target of the training: reported as is.
+- **False change.** On simulated pairs only, 20 per cell on the six sites,
+  for the four RAFT models.
+
+A method fails a pair, and a triplet, as in N2.
+
+### How to reproduce it
+
+The two GPU runs are made first, with the Kaggle notebook
+([`kaggle.md`](kaggle.md)); `make n3` then runs the M1 part and reads the
+whole:
+
+```bash
+# Kaggle, one T4
+satreg benchmark --config configs/n3-gpu.toml --allow-held-out
+satreg benchmark --config configs/n3-curve-gpu.toml --allow-held-out
+
+# M1, CPU: the recipe of `make n3`
+satreg benchmark --config configs/n3.toml --allow-held-out
+satreg merge outputs/n3-m1 outputs/kaggle/outputs/n3-gpu --out outputs/n3
+satreg cycle --config configs/n3.toml --allow-held-out
+satreg final --table outputs/n3 --closure outputs/n3-cycle --out outputs/n3-final
+satreg benchmark --config configs/n3-bands.toml
+satreg false-change --config configs/n3.toml --allow-held-out
+satreg benchmark --config configs/n3-curve.toml --allow-held-out
+satreg benchmark --config configs/n3-curve.toml --allow-held-out \
+    --methods $TORCH --out outputs/n3-curve/torch
+satreg footprint --methods $ONNX $INT8 $TORCH $CLASSIC \
+    --out outputs/n3-curve/footprint
+satreg curve --benchmark --gpu outputs/kaggle/outputs/n3-curve-gpu \
+    --out outputs/n3-curve
+```
+
+The four method lists, as the [`Makefile`](../Makefile) has them:
+
+```bash
+TORCH="raft_r4 raft_r8 raft raft_ft_r4 raft_ft_r8 raft_ft \
+  raft_small_r4 raft_small_r8 raft_small \
+  raft_small_ft_r4 raft_small_ft_r8 raft_small_ft"
+ONNX="raft_r4_onnx raft_r8_onnx raft_onnx \
+  raft_ft_r4_onnx raft_ft_r8_onnx raft_ft_onnx \
+  raft_small_r4_onnx raft_small_r8_onnx raft_small_onnx \
+  raft_small_ft_r4_onnx raft_small_ft_r8_onnx raft_small_ft_onnx"
+INT8="raft_ft_r4_onnx_int8 raft_ft_r8_onnx_int8 raft_ft_onnx_int8"
+CLASSIC="phase_correlation sift_ransac arosics"
+```
+
+A command that reads a held-out site stops without `--allow-held-out`. These
+are the commands as they ran, once: the two sites are read, and they are not
+to be run again to change anything. The M1 part needs the `[dl]`
+and `[onnx]` extras, AROSICS, RoMa, the pretrained ONNX files (`make onnx`)
+and the fine-tuned weights, which `satreg` downloads and checks against their
+pinned SHA-256 (see the README).
+
+| run | config | device | pairs | duration |
+|---|---|---|---:|---:|
+| simulated, classic | [`n3.toml`](../configs/n3.toml) `[benchmark]` | M1 CPU | 5,400 × 4 methods | 23 min |
+| simulated, deep learning | [`n3-gpu.toml`](../configs/n3-gpu.toml) | Kaggle T4 | 5,400 × 8 methods | 3 h 35 |
+| cycle consistency | [`n3.toml`](../configs/n3.toml) `[cycle]` | M1 CPU | 384 real + 270 simulated triplets × 8 methods | 74 min |
+| inter-band | [`n3-bands.toml`](../configs/n3-bands.toml) | M1 CPU | 600 × 4 methods | 23 min |
+| false change | [`n3.toml`](../configs/n3.toml) `[false_change]` | M1 CPU | 720 simulated pairs × 4 methods | 29 min |
+| curve, ONNX Runtime | [`n3-curve.toml`](../configs/n3-curve.toml) | M1 CPU | 1,800 × 18 methods | 3 h 33 |
+| curve, PyTorch | [`n3-curve.toml`](../configs/n3-curve.toml) | M1 CPU | 1,800 × 12 methods | 2 h 46 |
+| curve, memory | [`n3-curve.toml`](../configs/n3-curve.toml) | M1 CPU | 30 methods, 3 processes each | 7 min |
+| curve, PyTorch | [`n3-curve-gpu.toml`](../configs/n3-curve-gpu.toml) | Kaggle T4 | 1,800 × 12 methods | 28 min |
+
+8 h 56 on the M1, in one run, and about 4 h on a T4. The Kaggle sessions ran
+commit `1f80a5a` and the M1 ran `32d5d3f`, which adds the freeze entry to
+`decisions.md` and changes nothing else. All seeds are 0. The M1 is a
+MacBook Air with 8 GB and no fan, used on its CPU; the GPU is one Tesla T4 of
+a Kaggle session. Their library versions are those of the
+[N2 hardware table](#hardware) below, with onnx 1.23.0 and onnxruntime 1.30.0
+on the M1; each run's `context.json` has them.
+
+The run's own files are in [`results/n3/final/`](results/n3/final/), copied
+as they were written: `verdict.md` (the output of `satreg final`),
+`simulated.md`, `cycle.md`, `curve.md`, `bands.md`, `false-change.md`, the
+two figures and each run's `context.json`. `SHA256SUMS` lists the SHA-256 of
+every file of the run, the per-pair tables included, which are too large for
+the repository. The held-out sites are read: these files are not regenerated,
+and nothing can be tuned on them anymore.
+
+### Results: the criterion
+
+Failed pairs, and mean EPE in pixels over the pairs neither model fails. The
+interval is a 95 % percentile interval over 10,000 resamplings of the pairs.
+
+| sites | pairs | `raft` failed | `raft_ft` failed | `raft` EPE | `raft_ft` EPE | difference | 95 % interval |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **held-out sites** | 1,800 | 3 | 0 | 0.0953 | 0.0692 | -0.0261 | -0.0275 to -0.0248 |
+| alps | 900 | 0 | 0 | 0.1042 | 0.0739 | -0.0303 | -0.0326 to -0.0281 |
+| libya4 | 900 | 3 | 0 | 0.0864 | 0.0645 | -0.0220 | -0.0235 to -0.0204 |
+| seen sites | 3,600 | 30 | 0 | 0.1228 | 0.0787 | -0.0440 | -0.0467 to -0.0415 |
+
+By cell on the held-out sites, 200 pairs a cell:
+
+| scenario | preset | `raft` failed | `raft_ft` failed | `raft` EPE | `raft_ft` EPE | difference |
+|---|---|---:|---:|---:|---:|---:|
+| translation | clean | 0 | 0 | 0.0482 | 0.0305 | -0.0177 |
+| translation | mild | 0 | 0 | 0.0520 | 0.0337 | -0.0183 |
+| translation | hard | 1 | 0 | 0.1167 | 0.0818 | -0.0349 |
+| affine | clean | 0 | 0 | 0.0551 | 0.0362 | -0.0189 |
+| affine | mild | 0 | 0 | 0.0609 | 0.0408 | -0.0201 |
+| affine | hard | 1 | 0 | 0.1420 | 0.1043 | -0.0377 |
+| dense | clean | 0 | 0 | 0.0929 | 0.0682 | -0.0248 |
+| dense | mild | 0 | 0 | 0.1025 | 0.0766 | -0.0259 |
+| dense | hard | 1 | 0 | 0.1885 | 0.1514 | -0.0371 |
+
+There is no cell where the fine-tuned model loses, on either site. The small
+model is read the same way and is not the criterion: `raft_small_ft` fails 0
+of the 1,800 held-out pairs where `raft_small` fails 39, at 0.1249 px against
+0.2116 px over the 1,761 pairs neither fails (-0.0868 px, interval -0.0916 to
+-0.0822 px).
+
+The same two models were also run on the same 1,800 pairs on the M1's CPU,
+under PyTorch and under ONNX Runtime, for the cost curve. Both runs give the
+same counts and the same means to the fourth decimal.
+
+### Results: simulated pairs, held-out sites
+
+Mean end-point error in pixels over the pairs a method did not fail, failure
+rate in brackets when it is not zero. 200 pairs per cell, pooled over the two
+held-out sites; the last row is the 1,800 pairs. In bold, the lowest error
+among the methods that fail at most 5 % of the pairs.
+
+| scenario | preset | phase corr. | + Hann | SIFT | AROSICS | RAFT | **RAFT ft** | RAFT small | **RAFT small ft** | LightGlue | LG DISK | RoMa | RoMa dense |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| translation | clean | 0.011 | **0.005** | 0.007 | 0.021 | 0.048 | 0.030 | 0.136 | 0.069 | 0.026 | 0.114 | 0.038 | 0.049 |
+| translation | mild | 0.013 | **0.006** | 0.012 | 0.033 | 0.052 | 0.034 | 0.148 (0.5 %) | 0.071 | 0.055 | 0.133 | 0.037 | 0.059 |
+| translation | hard | 0.154 | 0.225 (2 %) | 0.308 (10.5 %) | 0.308 (31 %) | 0.117 (0.5 %) | **0.082** | 0.320 (7 %) | 0.147 | 0.375 (3 %) | 0.426 (9.5 %) | 0.248 (49.5 %) | 0.634 (81 %) |
+| affine | clean | 0.228 | 0.225 | **0.007** | 0.227 (1.5 %) | 0.055 | 0.036 | 0.138 | 0.081 | 0.027 | 0.134 | 0.033 | 0.050 |
+| affine | mild | 0.228 | 0.225 | **0.012** | 0.228 (2 %) | 0.061 | 0.041 | 0.150 (0.5 %) | 0.087 | 0.056 | 0.153 | 0.033 | 0.060 |
+| affine | hard | 0.289 | 0.333 (2.5 %) | 0.285 (12 %) | 0.377 (30.5 %) | 0.142 (0.5 %) | **0.104** | 0.332 (6 %) | 0.185 | 0.356 (2 %) | 0.432 (7 %) | 0.239 (50 %) | 0.601 (82 %) |
+| dense | clean | 0.283 | 0.289 | 0.122 | 0.289 (5.5 %) | 0.093 | 0.068 | 0.171 | 0.132 | 0.127 | 0.206 | 0.130 | **0.050** |
+| dense | mild | 0.282 | 0.289 | 0.124 | 0.289 (6 %) | 0.103 | 0.077 | 0.182 | 0.140 | 0.142 | 0.216 | 0.130 | **0.057** |
+| dense | hard | 0.337 | 0.387 (3 %) | 0.337 (13 %) | 0.426 (32 %) | 0.189 (0.5 %) | **0.151** | 0.350 (5.5 %) | 0.228 | 0.399 (2 %) | 0.481 (7.5 %) | 0.324 (51 %) | 0.472 (73 %) |
+| all | all | 0.203 | 0.220 (0.8 %) | 0.128 (3.9 %) | 0.229 (12.1 %) | 0.095 (0.2 %) | **0.069** | 0.212 (2.2 %) | 0.127 | 0.172 (0.8 %) | 0.250 (2.7 %) | 0.107 (16.7 %) | 0.103 (26.2 %) |
+
+On the four seen sites, the four RAFT models, averaged over the sites as in
+the N2 table below, where the other eight methods are (400 pairs per cell):
+
+| scenario | preset | RAFT | RAFT ft | RAFT small | RAFT small ft |
+|---|---|---:|---:|---:|---:|
+| translation | clean | 0.047 | 0.031 | 0.131 | 0.066 |
+| translation | mild | 0.061 (0.5 %) | 0.036 | 0.158 (0.75 %) | 0.072 |
+| translation | hard | 0.192 (2.25 %) | 0.102 | 0.428 (21.75 %) | 0.165 |
+| affine | clean | 0.054 | 0.037 | 0.135 | 0.079 |
+| affine | mild | 0.070 (0.5 %) | 0.044 | 0.164 (0.75 %) | 0.089 |
+| affine | hard | 0.221 (2 %) | 0.130 | 0.437 (21.75 %) | 0.214 |
+| dense | clean | 0.095 | 0.071 | 0.169 | 0.134 |
+| dense | mild | 0.114 (0.25 %) | 0.084 | 0.197 (0.25 %) | 0.146 |
+| dense | hard | 0.257 (2 %) | 0.179 | 0.447 (20.5 %) | 0.256 |
+
+The two pretrained columns are those of N2, run again. Per site, scenario and
+preset, the twelve methods are in
+[`results/n3/final/simulated.md`](results/n3/final/simulated.md).
+
+### Results: cycle consistency on real triplets
+
+Mean closure in pixels over the triplets a method did not fail, failure rate
+in brackets. 64 triplets per site. RoMa was not run again; its closure on the
+four N2 sites is in the N2 table.
+
+| site | phase corr. | SIFT | AROSICS | RAFT | **RAFT ft** | RAFT small | **RAFT small ft** | LightGlue |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Beauce (64) | 0.087 | 0.562 (67 %) | 0.252 | 0.678 (95 %) | 0.196 | n/a (100 %) | 0.340 (5 %) | 0.551 (62 %) |
+| Toulouse (64) | 0.084 | 0.125 | 0.217 | 0.088 (3 %) | 0.046 | 0.190 (3 %) | 0.074 | 0.185 |
+| Vosges (64) | 0.091 | 0.147 (73 %) | 0.276 | 0.327 (12 %) | 0.145 | 0.218 (72 %) | 0.208 | 0.282 (61 %) |
+| Marseille (64) | 0.058 | 0.120 (12 %) | 0.175 | 0.040 (25 %) | 0.052 | 0.097 (25 %) | 0.099 (3 %) | 0.200 (11 %) |
+| alps (64) | 0.064 | 0.190 (39 %) | 0.229 | 0.145 (3 %) | 0.101 | 0.379 (23 %) | 0.129 (3 %) | 0.381 (12 %) |
+| libya4 (64) | 0.042 | 0.243 | 0.359 | 0.091 | 0.065 | 0.106 | 0.066 | 0.302 |
+| held-out (128) | 0.053 | 0.223 (20 %) | 0.294 | 0.118 (2 %) | 0.083 | 0.225 (12 %) | 0.097 (2 %) | 0.339 (6 %) |
+| all (384) | 0.071 | 0.199 (32 %) | 0.251 | 0.144 (23 %) | 0.101 | 0.190 (37 %) | 0.152 (2 %) | 0.290 (24 %) |
+
+Each mean is over a method's own triplets, so two columns do not average the
+same triplets. The reading of the verdict compares `raft_ft` and `raft` on
+the triplets neither fails: 0.0721 px against 0.1441 px over 295 triplets,
+and better on each of the six sites
+([`results/n3/final/verdict.md`](results/n3/final/verdict.md)).
+
+On the simulated triplets, where the truth is known, mean closure / mean true
+error of the legs, in pixels, over the triplets a method did not fail (at
+most 30 a cell on the held-out sites: orders of magnitude):
+
+| held-out sites | phase corr. | SIFT | RAFT | RAFT ft | RAFT small | RAFT small ft |
+|---|---:|---:|---:|---:|---:|---:|
+| translation | 0.15 / 0.08 | 0.17 / 0.08 | 0.13 / 0.07 | 0.06 / 0.05 | 0.35 / 0.19 | 0.14 / 0.11 |
+| affine | 0.13 / 0.29 | 0.09 / 0.06 | 0.14 / 0.08 | 0.07 / 0.06 | 0.31 / 0.18 | 0.15 / 0.14 |
+| dense | 0.16 / 0.36 | 0.16 / 0.21 | 0.15 / 0.13 | 0.11 / 0.12 | 0.30 / 0.21 | 0.16 / 0.21 |
+
+### Results: the cost curve on the held-out pairs
+
+Mean EPE over non-failed pairs, failure rate, and the median time of a call
+on a 256 × 256 px pair, over the 1,800 held-out pairs. Memory is the
+footprint: what the method adds to a process that does nothing else, here
+under ONNX Runtime.
+
+| model | weights | refinements | EPE (px) | failures | M1, ONNX Runtime | memory added | M1, PyTorch | T4, PyTorch |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| RAFT large | pretrained | 4 | 0.1299 | 0.2 % | 436 ms | 82 MiB | 232 ms | 21.6 ms |
+| RAFT large | pretrained | 8 | 0.0987 | 0.2 % | 680 ms | 84 MiB | 295 ms | 34.6 ms |
+| RAFT large | pretrained | 12 | 0.0953 | 0.2 % | 912 ms | 86 MiB | 356 ms | 46.2 ms |
+| RAFT large | fine-tuned | 4 | 0.0806 | 0 % | 458 ms | 82 MiB | 233 ms | 22.9 ms |
+| RAFT large | fine-tuned | 8 | 0.0712 | 0 % | 686 ms | 84 MiB | 294 ms | 34.4 ms |
+| RAFT large | fine-tuned | 12 | 0.0692 | 0 % | 916 ms | 86 MiB | 356 ms | 46.0 ms |
+| RAFT small | pretrained | 4 | 0.2681 | 23.2 % | 145 ms | 45 MiB | 50 ms | 15.8 ms |
+| RAFT small | pretrained | 8 | 0.2356 | 4.5 % | 257 ms | 47 MiB | 75 ms | 22.4 ms |
+| RAFT small | pretrained | 12 | 0.2116 | 2.2 % | 368 ms | 50 MiB | 100 ms | 29.0 ms |
+| RAFT small | fine-tuned | 4 | 0.1509 | 0 % | 144 ms | 45 MiB | 50 ms | 15.7 ms |
+| RAFT small | fine-tuned | 8 | 0.1317 | 0 % | 256 ms | 47 MiB | 75 ms | 22.4 ms |
+| RAFT small | fine-tuned | 12 | 0.1266 | 0 % | 367 ms | 50 MiB | 100 ms | 29.0 ms |
+| RAFT large, int8 | fine-tuned | 4 | 0.0831 | 0 % | 232 ms | 78 MiB | n/a | n/a |
+| RAFT large, int8 | fine-tuned | 8 | 0.0733 | 0 % | 399 ms | 83 MiB | n/a | n/a |
+| RAFT large, int8 | fine-tuned | 12 | 0.0712 | 0 % | 564 ms | 100 MiB | n/a | n/a |
+| phase correlation | | | 0.2026 | 0 % | 5.0 ms | 0 MiB | n/a | n/a |
+| SIFT + RANSAC | | | 0.1278 | 3.9 % | 28 ms | 12 MiB | n/a | n/a |
+| AROSICS | | | 0.2286 | 12.1 % | 22 ms | 8 MiB | n/a | n/a |
+
+![Error and failures against time, error against memory, on the held-out pairs](results/n3/final/curve.png)
+
+The error is the one read under ONNX Runtime; under PyTorch it is the same to
+the fourth decimal for the fine-tuned models, and within 0.007 px on a pair
+for the pretrained ones. The classic rows are timed in their own libraries,
+on the same CPU, and the memory of SIFT and AROSICS had not settled when it
+was read. No point is named as the one to keep: the rule of 2026-10-02
+allows no choice on these rows, and the freeze named none before they were
+read. Whole-process memory, PyTorch's memory (295 to 297 MiB added for the
+large model, 80 to 84 for the small one) and the effect of fewer refinements
+by preset are in [`results/n3/final/curve.md`](results/n3/final/curve.md).
+
+### Results: across spectral bands
+
+As in N2: translation pairs whose two images are different bands, mean of
+Beauce and Toulouse, 50 pairs per site and cell. The four RAFT models were
+run on the M1's CPU, and the two pretrained columns give N2's figures within
+0.001 px; the RoMa column is N2's, for comparison.
+
+| bands | preset | RAFT | **RAFT ft** | RAFT small | **RAFT small ft** | RoMa (N2) |
+|---|---|---:|---:|---:|---:|---:|
+| B04/B03 | clean | 0.094 | 0.070 | 0.203 | 0.108 | 0.053 |
+| B04/B03 | mild | 0.104 (3 %) | 0.074 | 0.232 (1 %) | 0.113 | 0.055 |
+| B04/B03 | hard | 0.211 (4 %) | 0.129 | 0.533 (17 %) | 0.199 | 0.455 (76 %) |
+| B04/B08 | clean | 0.634 (80 %) | 0.310 (7 %) | 0.953 (99 %) | 0.452 (25 %) | 0.115 (15 %) |
+| B04/B08 | mild | 0.642 (85 %) | 0.335 (6 %) | 0.866 (97 %) | 0.480 (27 %) | 0.159 (20 %) |
+| B04/B08 | hard | 0.785 (86 %) | 0.381 (26 %) | 0.875 (98 %) | 0.542 (56 %) | n/a (100 %) |
+
+### Results: false change
+
+The detector of N2, on simulated pairs: share of unchanged pixels flagged
+after each model's correction. 20 pairs per site and cell; failed pairs are
+left out of a model's mean. The floor is what blur, noise and radiometry
+leave with a perfect registration.
+
+| sites | scenario | preset | no correction | floor | RAFT | **RAFT ft** | RAFT small | **RAFT small ft** |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| held-out (2) | translation | clean | 39.44 % | 0.00 % | 0.00 % | 0.00 % | 0.28 % | 0.03 % |
+| held-out (2) | translation | mild | 41.44 % | 0.07 % | 0.09 % | 0.08 % | 0.52 % | 0.14 % |
+| held-out (2) | translation | hard | 12.84 % | 1.46 % | 1.50 % | 1.48 % | 1.75 % | 1.50 % |
+| held-out (2) | affine | clean | 39.39 % | 0.00 % | 0.01 % | 0.00 % | 0.29 % | 0.05 % |
+| held-out (2) | affine | mild | 41.43 % | 0.07 % | 0.10 % | 0.09 % | 0.52 % | 0.19 % |
+| held-out (2) | affine | hard | 12.80 % | 1.46 % | 1.50 % | 1.48 % | 1.76 % | 1.52 % |
+| seen (4) | translation | clean | 34.02 % | 0.01 % | 0.02 % | 0.01 % | 0.42 % | 0.08 % |
+| seen (4) | translation | mild | 33.76 % | 0.30 % | 0.36 % | 0.34 % | 0.79 % | 0.41 % |
+| seen (4) | translation | hard | 7.94 % | 1.53 % | 1.60 % | 1.54 % | 1.92 % | 1.58 % |
+| seen (4) | affine | clean | 34.00 % | 0.01 % | 0.04 % | 0.02 % | 0.43 % | 0.17 % |
+| seen (4) | affine | mild | 33.75 % | 0.30 % | 0.39 % | 0.35 % | 0.80 % | 0.50 % |
+| seen (4) | affine | hard | 7.97 % | 1.53 % | 1.61 % | 1.56 % | 1.93 % | 1.62 % |
+
+Per site, with each model's residual:
+[`results/n3/final/false-change.md`](results/n3/final/false-change.md).
+
+### Reading the tables
+
+**What the training bought.** The same architecture, trained on this
+project's simulated pairs, is more accurate in every cell of every site and
+stops failing: no failed pair in 5,400 for either fine-tuned model, where the
+pretrained large one fails 33 and the small one 302. On the held-out pairs
+the large model goes from 0.095 to 0.069 px. By scenario the gain is of the
+same order: 0.024 px on translations, 0.026 px on affine motions and 0.029 px
+on dense fields, mean of the three presets. By preset it is largest on `hard`
+pairs, where the pretrained model was weakest: about twice the gain of
+`clean` and `mild` pairs on translations and affine motions (0.117 to
+0.082 px on `hard` translations), and one and a half times on dense fields. The
+small model gains more than the large one (0.212 to 0.125 px over the pairs
+neither small model fails) and still does not reach the pretrained large one
+on accuracy: 0.127 px against 0.095 px, with no failed pair against 3.
+
+**It carries to landscapes that were not trained on, at about 60 %.** The
+difference is -0.026 px on the mountain and the desert, against -0.044 px on
+the four sites whose landscapes were in the training chips. Two held-out
+sites are two landscapes: the direction is clear, the ratio is not a law.
+
+**What it did not change.** On clean global motion the classic methods keep
+the lead by a wide margin: 0.005 px for phase correlation with a Hann window
+on clean translations and 0.007 px for SIFT on clean affine pairs, against
+0.030 and 0.036 px for fine-tuned RAFT. On clean dense fields RoMa's dense
+output is still ahead, 0.050 px against 0.068 px. The fine-tuned model is the
+best of the twelve where conditions are degraded, in the three `hard` cells,
+and it is the most accurate of the three methods that fail no held-out pair.
+
+**Real pairs: the failures are gone, the closure is not an accuracy.** The
+pretrained model failed 95 % of the real Beauce triplets; the fine-tuned one
+fails none of the 384 triplets, and over the triplets neither model fails it
+closes tighter than the pretrained one on each site. Plain phase correlation
+still closes lower on four sites of six (0.071 px against 0.101 px over all
+triplets). A closure says three estimates agree, not that they are right; on
+the simulated triplets, where the truth is known, the true error of the
+fine-tuned model falls together with its closure.
+
+**What the ablation showed.** Before the model above was kept, two trainings
+of RAFT large were compared, alike but for one setting: every training pair
+cut from one date, or half of them from two dates of the same place
+(cross-date), so that the ground really changes between the two images. On
+the 3,600 simulated pairs of the validation set the same-date variant was the
+more accurate, 0.071 px against 0.084 px, in all nine cells. On the 241 real
+triplets of the validation chips the cross-date variant closed lower, 0.106 px
+against 0.122 px, neither failing any. The rule written before the two
+trainings put the closure first once both variants passed the validation
+set, so the cross-date variant is the `raft_ft` of this page. The criterion
+was therefore read on a model that is not the one the simulated pairs prefer,
+and it passed all the same. What the other variant would have done on the
+held-out sites is not known: it was never run there. One seed each and a gap
+of 0.016 px: the rule chose, the gap is not a law
+([`decisions.md`](decisions.md), 2026-10-06;
+[`results/n3/ablation.md`](results/n3/ablation.md)).
+
+**Two things it was not trained for.** Red against near infrared, the
+fine-tuned model fails 7 % of the clean pairs where the pretrained one fails
+80 %, at 0.31 px: far better than before, and still behind RoMa's 0.115 px
+(15 % failed). Through the change detector, the pretrained large model was
+already within 0.04 point of the floor a perfect registration leaves on the
+held-out sites, and 0.09 point on the seen ones; the fine-tuned one is within
+0.02 and 0.05 point. The small model comes down towards it
+(0.28 % to 0.03 % on clean translations of the held-out sites).
+
+**What a residual still costs a change detector.** N2's sentence on this
+needs its scope. On `clean` and `mild` pairs the false-change rate follows
+the residual: uncorrected pairs flag 39 to 41 % of the unchanged pixels of
+the held-out sites, and the pretrained small model, at 0.13 px, still flags
+0.28 % where the floor is 0.00 %. There registration is what the detector
+sees, and a more accurate model is worth having. On `hard` pairs only, the
+floor left by noise, blur and radiometry is already about 1.5 %, and every
+RAFT model lands between 1.5 and 1.9 %: there registration error stops
+limiting change detection. That holds for the `hard` preset and not for the
+other two, and for one fixed detector on simulated translations and affine
+motions.
+
+**What fewer refinements and int8 cost, for what they save.** RAFT corrects
+its flow several times in a call, 12 refinements as trained; a model run with
+fewer is not retrained.
+
+| fine-tuned RAFT large, ONNX Runtime on the M1 | EPE (px) | against float, 12 | time | against float, 12 |
+|---|---:|---:|---:|---:|
+| float, 12 refinements | 0.0692 | | 916 ms | |
+| float, 8 | 0.0712 | +0.0020 | 686 ms | -25 % |
+| float, 4 | 0.0806 | +0.0114 | 458 ms | -50 % |
+| int8, 12 | 0.0712 | +0.0020 | 564 ms | -38 % |
+| int8, 8 | 0.0733 | +0.0041 | 399 ms | -56 % |
+| int8, 4 | 0.0831 | +0.0138 | 232 ms | -75 % |
+
+Going from 12 to 8 refinements costs 0.002 px and saves a quarter of the
+time; going to 4 costs 0.011 px and saves half. The small model pays more:
+0.005 px at 8 refinements and 0.024 px at 4, for 30 % and 61 % of its time.
+The int8 copy, whose convolutions compute on 8-bit integers, takes 38 to 49 %
+off the time of the float file with the same refinements for 0.0020 to
+0.0025 px, and fails no pair: at 8 refinements it is faster and more accurate
+than the float file at 4. Its file is three times smaller; the memory it adds
+to a process is not (78 to 100 MiB against 82 to 86). The fine-tuning itself
+moved the curve more than any of these: the fine-tuned large model with 4
+refinements (0.081 px) is more accurate than the pretrained one with 12
+(0.095 px) in half the time, and the pretrained small model with 4 fails 23 %
+of the pairs where the fine-tuned one fails none. Each of these costs had
+been measured on the validation set before the read (under 0.005 px for 8
+refinements, 0.003 to 0.004 px for int8), and the held-out pairs give about
+the same.
+
+**ONNX Runtime is not the faster runtime here.** On the M1's CPU it takes
+1.9 to 3.7 times PyTorch's time on the same model, and adds 32 to 213 MiB
+less to a process: what the export brings is a model that runs without
+PyTorch and in less memory. The fine-tuned large model under PyTorch, at 12
+refinements, answers in 356 ms, sooner than its int8 copy at 8 refinements
+under ONNX Runtime. On a T4 every point is under 50 ms. Phase correlation
+answers in 5 ms.
+
+**No point is named as the one to deploy.** The rule of 2026-10-02 allows
+no choice on the rows of the held-out sites, their cost figures included, and
+the freeze named no point before they were read: picking one now would be a
+choice made on these rows. The curve is published whole. What it shows, one
+constraint at a time, without ranking them:
+
+- *Accuracy first.* The lowest error is the fine-tuned large model, float, 12
+  refinements: 0.069 px and no failed pair. Under PyTorch it answers in
+  356 ms on the M1's CPU and in 46 ms on a T4, and adds about 297 MiB to the
+  process.
+- *No PyTorch, or less memory.* Under ONNX Runtime the same model adds 86 MiB
+  and answers in 916 ms. Its int8 copy at 8 refinements is at 0.073 px, with
+  no failed pair, in 399 ms and 83 MiB, from a file a third of the size.
+- *Time or memory first.* The fine-tuned small model at 12 refinements is at
+  0.127 px, with no failed pair: 100 ms and 84 MiB under PyTorch, 367 ms and
+  50 MiB under ONNX Runtime.
+- *A clean global shift.* None of these: phase correlation with a Hann window
+  is at 0.005 px on clean translations, in about 6 ms.
+
+Which of them to run depends on the use, and that choice belongs on the
+validation set, where the same curve was measured before the read
+([`results/n3/curve.md`](results/n3/curve.md),
+[`results/n3/int8.md`](results/n3/int8.md)). The times are those of one
+laptop CPU on 256 × 256 px pairs.
+
+### Limits
+
+- **One training per model, one seed.** The intervals cover the draw of the
+  pairs, not the training. The ablation's choice between two variants rests
+  on one training each.
+- **Simulated motion.** The truth is exact because the displacement is
+  simulated, on real images; the dense field is the one family of N2. Real
+  pairs have no truth, and the closure stands in for it.
+- **One band.** The training pairs and the criterion are B04 against B04.
+  The inter-band table says what the fine-tuned models do on other pairs; no
+  model was trained for them.
+- **Four landscapes trained on.** The eight training chips are open fields,
+  urban, forest and coast, all in western Europe. The mountain and the desert
+  say the gain carries to two landscapes outside them, not to any landscape.
+- **Two held-out sites, one chip each**, read once. Nothing was tuned on
+  them, and nothing can be anymore.
+- **The bar is pretrained RAFT.** The criterion asks what training buys the
+  same architecture, not whether a network beats the classic methods.
+- **The quantization is partial.** ONNX Runtime has no int8 `GridSample`, the
+  operator RAFT reads its correlation pyramid with, and 25 convolutions are
+  left in float on purpose: an int8 copy computes 165 of its 190 convolutions
+  on integers. Only RAFT large has int8 points; on RAFT small int8 did not
+  pay on the validation set.
+- **What was chosen before the read rests on validation pairs.** The retained
+  variant, the word on RAFT small and the cost of fewer refinements come from
+  3,600 simulated pairs and 241 real triplets of four validation chips; the
+  int8 copies were calibrated on 36 pairs and scored on 360.
+- **Small cells outside the main table**, as in N2: 50 pairs across bands, 20
+  for false change, at most 30 simulated triplets.
+- **Two machines.** The deep-learning rows of the simulated table come from a
+  T4, the classic rows, the closure, the bands and the false change from the
+  M1. The two RAFT models of the criterion were read on both, with the same
+  result.
+- **Times are those of one sustained run on one laptop.** Under ONNX Runtime
+  a time depends on what the machine did before
+  ([`decisions.md`](decisions.md), 2026-10-09); differences under 10 %
+  between two points are not to be read.
+- **Some means of this page are not printed by the run.** The pooled
+  twelve-method table, the closure of the other methods and the means across
+  bands and of the false change were computed from the run's saved tables for
+  this page; the criterion's figures are computed and tested in
+  `satreg final`.
 
 ## N2: classic against pretrained methods
 
@@ -13,9 +507,9 @@ runs that the commands below reproduce.
 - **Sites.** Beauce (open fields), Toulouse (urban), Vosges (forest) and
   Marseille (coast): one clear Sentinel-2 L2A chip each, 1024 × 1024 px at 10 m
   ([`configs/sites.toml`](../configs/sites.toml)). **The two held-out sites,
-  `alps` and `libya4`, are in no table of this page**: they are kept for the
-  final evaluation, and every run's `context.json` lists the held-out sites it
-  read: none.
+  `alps` and `libya4`, are in no N2 table**: they were kept for the final
+  evaluation (N3, above), and every N2 run's `context.json` lists the held-out
+  sites it read: none.
 - **Methods.** Four classic ones on the M1's CPU: `phase_correlation`,
   `phase_correlation_hann`, `sift_ransac`, `arosics`. Six pretrained ones, used
   as published, with no training on this data: `raft` and `raft_small`
@@ -352,7 +846,7 @@ What remains:
 
 - **Pretrained means untrained here.** No network saw Sentinel-2 data from this
   project. The table says what published weights do out of the box, not what
-  the architectures can do; fine-tuning is N3.
+  the architectures can do; fine-tuning is N3, above.
 - **The dense field is one family.** A smooth random field of at most 0.8 px
   with a 64 px correlation length: no terrain parallax, no discontinuity.
 - **No ground truth on real pairs.** Closure and false change on stable ground
@@ -374,7 +868,7 @@ What remains:
   ([`failures.md`](failures.md), 2026-10-01), but the two devices were not
   compared pair by pair on this table.
 - **Four sites, all in France.** The held-out sites (a mountain and a desert)
-  are not in these tables, by design.
+  are not in these tables, by design: N3, above, reads them.
 - **Uncertainty and cost on one laptop**, as in N1 below.
 
 ## N1: the classic baseline

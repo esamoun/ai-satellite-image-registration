@@ -9,16 +9,47 @@ classic and deep-learning methods recover the displacement between two Sentinel-
 images, on accuracy and on compute cost. Displacements are simulated on real
 imagery, so the ground truth is exact down to a fraction of a pixel.
 
-**Status: in progress, level N2 done** (classic methods against pretrained
-deep-learning methods). The pipeline runs four classic methods (phase correlation,
-with and without a Hann window, SIFT + RANSAC and AROSICS) and three pretrained
-networks used as published (RAFT, LightGlue and RoMa), on four Sentinel-2 sites,
-for translations, small affine motions and dense fields, under increasingly
-degraded conditions. Next is N3: fine-tuning a network on this data.
+**Status: the three levels are done** (N1, classic methods; N2, classic against
+pretrained deep-learning methods; N3, a network fine-tuned on this data). The
+pipeline runs four classic methods (phase correlation, with and without a Hann
+window, SIFT + RANSAC and AROSICS) and three pretrained networks used as
+published (RAFT, LightGlue and RoMa), on Sentinel-2 sites, for translations,
+small affine motions and dense fields, under increasingly degraded conditions.
+N3 fine-tunes RAFT on simulated Sentinel-2 pairs and evaluates it once, on two
+landscapes it never saw.
 
-**Results so far:** [the N2 tables](docs/evaluation.md), 3,600 simulated pairs on
-four sites, plus inter-band pairs, real multi-temporal triplets and a false-change
-count. In short:
+**N3, the fine-tuned model:**
+[the final evaluation](docs/evaluation.md#n3-fine-tuned-raft-the-final-evaluation).
+The question and the criterion were written before any training, and the two
+held-out sites, a mountain and a desert, were read once. In short:
+
+- **Fine-tuning pays on landscapes the training never saw.** On the 1,800
+  held-out pairs, fine-tuned RAFT is at 0.069 px where the pretrained model is
+  at 0.095 px, and it fails no pair. The gain is about 60 % of the one on the
+  landscapes it was trained on.
+- **It holds on real pairs.** The fine-tuned model fails none of the 384 real
+  triplets where the pretrained one fails 89, and on the triplets neither
+  fails it closes tighter on each of the six sites. Closure says three
+  estimates agree, not that they are right: real pairs have no ground truth.
+- **It does not take clean global motion from the classic methods.** Phase
+  correlation with a Hann window stays at 0.005 px on clean translations, against
+  0.030 px. The fine-tuned model is the best of the twelve methods on the
+  hardest pairs.
+- **The cost curve.** The fine-tuned model with 4 refinements is more accurate
+  than the pretrained one with 12, in half to two thirds of the time on a laptop
+  CPU, and an int8 copy takes 38 to 49 % off the time for about 0.002 px. A
+  call of the large model takes 0.2 to 0.9 s on that CPU and under 50 ms on a T4,
+  against 5 ms for phase correlation.
+
+This rests on two held-out sites, one training per model with one seed, and
+simulated motion on real images; the limits are listed with the results. The
+two fine-tuned models are release assets that `satreg` downloads and checks by
+itself: see [Fine-tuned weights](#fine-tuned-weights).
+
+**N2, classic against pretrained:**
+[the N2 tables](docs/evaluation.md#n2-classic-against-pretrained-methods), 3,600
+simulated pairs on four sites, plus inter-band pairs, real multi-temporal
+triplets and a false-change count. In short:
 
 - **AI wins where no global model describes the motion, and where the two images
   do not look alike.** On clean dense fields RoMa's dense output is at 0.053 px
@@ -563,8 +594,9 @@ was 2.2 times the large model's before training and is 1.6 times now. Next to
 RAFT large as it was, it fails far fewer pairs and closes better, is ahead
 under `hard` and behind under `clean` and `mild`, and its mean error is
 0.006 px higher, so by the criterion it does not beat it. It runs in 0.4 of the
-time; training it took the same 9 h. That is one seed, on the validation set:
-the benchmark's held-out sites have not been read. The tables are in
+time; training it took the same 9 h. That is one seed, on the validation set;
+the held-out sites were read afterwards, once, in
+[the final evaluation](docs/evaluation.md). The tables are in
 [`docs/results/n3/small.md`](docs/results/n3/small.md), and the limits in
 [`docs/decisions.md`](docs/decisions.md), 2026-10-07.
 
@@ -721,7 +753,9 @@ Kaggle GPU ([`docs/kaggle.md`](docs/kaggle.md),
 [`docs/results/n3/curve-gpu-light.md`](docs/results/n3/curve-gpu-light.md)),
 from which only the time is read. Against PyTorch on the M1's CPU the T4 is 8
 to 10 times faster for the large model and about 3 times for the small one.
-The held-out sites are not read by any of this.
+The held-out sites are not read by any of this: the same curve on the
+held-out pairs, with the int8 copies, is in
+[the N3 results](docs/evaluation.md#results-the-cost-curve-on-the-held-out-pairs).
 
 ### Int8 copies
 
@@ -840,8 +874,8 @@ The procedure, where the weights go and how long a run takes are in
 ```bash
 make install-dl install-arosics install-roma install-onnx
 make onnx      # the pretrained ONNX files, once
-make n3-dry    # the rehearsal: every command on the four seen sites, about 40 min
-make n3        # the final evaluation, about 7 hours on the M1
+make n3-dry    # the rehearsal: every command on the four seen sites, about 55 min
+make n3        # the final evaluation, 8 h 56 on the M1 when it ran
 ```
 
 `make n3` is the final evaluation of N3: the one read of the two held-out
@@ -874,6 +908,12 @@ which only the recipe of `make n3` does. `make n3-dry` never does: it runs the
 same commands on seen sites, two pairs a cell, to check that they run and read
 each other's tables, and its reading is headed as a rehearsal.
 
+`make n3` ran once, on 2026-10-12. Its tables and their reading are in
+[`docs/evaluation.md`](docs/evaluation.md), and the files as the run wrote them
+in [`docs/results/n3/final/`](docs/results/n3/final/). The held-out sites are
+now read: the command stays as the record of what ran, the published files are
+not regenerated, and nothing may be tuned on these sites.
+
 ### The N2 run
 
 ```bash
@@ -904,8 +944,8 @@ reading are in [`docs/evaluation.md`](docs/evaluation.md).
 
 ## Where the reasoning is
 
-- [`docs/evaluation.md`](docs/evaluation.md): the N2 and N1 results tables, how
-  to reproduce them, and what they show.
+- [`docs/evaluation.md`](docs/evaluation.md): the N3, N2 and N1 results, how to
+  reproduce them, and what they show.
 - [`docs/decisions.md`](docs/decisions.md): each choice and why it was made.
 - [`docs/failures.md`](docs/failures.md): what did not work, and what it taught.
 - [`docs/kaggle.md`](docs/kaggle.md): running the benchmark and the trainings on

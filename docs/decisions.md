@@ -5163,3 +5163,34 @@ these figures stay.
   seeded pairs, from two commits that differ by `docs/decisions.md` only; the
   weights of LightGlue and RoMa are not pinned; the pretrained ONNX files
   exist on the M1 only.
+
+## 2026-10-12: The N3 write-up names no point of the cost curve to deploy
+
+The plan of the N3 write-up asked which point of the curve one would deploy,
+and why. That line is older than the freeze. The rule of 2026-10-02 allows no
+choice on the rows of the held-out sites, their cost figures included, and the
+freeze of 2026-10-11 says it for this very case: a point picked after the read
+would be a choice made on the held-out cost figures. It named none.
+
+**Decision.** `docs/evaluation.md` names no point to deploy. It says what the
+curve shows for one constraint at a time (accuracy first; no PyTorch, or less
+memory; time or memory first; a clean global shift), without ranking them,
+and that the choice depends on the use and belongs on the validation set,
+where the same curve was measured before the read (entries of 2026-10-09 and
+2026-10-11).
+
+*My call* (2026-10-12, on review, the options laid out): describe and name no
+point, rather than name two points as a stated departure from the rule of
+2026-10-02, or name them on the validation figures alone, which would still
+have been done after the read.
+
+**What came before it.** A first draft named two points, the float model
+under PyTorch and its int8 copy at 8 refinements under ONNX Runtime. I had
+picked them among options laid out without the freeze's sentence, and the
+draft said only that the freeze named none. A review of the draft against
+this log caught it before any commit ([`failures.md`](failures.md), same
+date).
+
+**Limits.** Describing by constraint still reads the held-out rows, as the
+rest of the write-up does; it selects nothing, and no model, calibration or
+curve point changes after it.

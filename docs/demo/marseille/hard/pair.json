@@ -1,0 +1,116 @@
+{
+ "cloud_fraction": 0.3,
+ "detector": {
+  "border_px": 8,
+  "gain": 2.3334,
+  "k_sigma": 3.0,
+  "limit": 724.337,
+  "offset": -1047.0844
+ },
+ "display": {
+  "black": 1350.8688,
+  "white": 3380.8629
+ },
+ "images": {
+  "moving": "moving.png",
+  "reference": "reference.png"
+ },
+ "methods": {
+  "none": {
+   "changed": "changed-none.png",
+   "changed_px": 4463,
+   "changed_share": 0.1286,
+   "corrected": "moving.png",
+   "counted_px": 34696,
+   "error_px": 3.8562,
+   "estimate": {
+    "dx": 0.0,
+    "dy": 0.0,
+    "model": "translation"
+   },
+   "failure": false,
+   "reason": ""
+  },
+  "phase_correlation_hann": {
+   "changed": "changed-phase_correlation_hann.png",
+   "changed_px": 510,
+   "changed_share": 0.0147,
+   "corrected": "corrected-phase_correlation_hann.png",
+   "counted_px": 34696,
+   "error_px": 0.0815,
+   "estimate": {
+    "dx": 3.73,
+    "dy": -1.0,
+    "model": "translation"
+   },
+   "failure": false,
+   "reason": ""
+  },
+  "raft": {
+   "changed": "changed-raft.png",
+   "changed_px": 512,
+   "changed_share": 0.0148,
+   "corrected": "corrected-raft.png",
+   "counted_px": 34696,
+   "error_px": 0.1115,
+   "estimate": {
+    "max_px": 4.09,
+    "mean_dx": 3.7263,
+    "mean_dy": -0.9935,
+    "model": "dense"
+   },
+   "failure": false,
+   "reason": ""
+  },
+  "raft_ft": {
+   "changed": "changed-raft_ft.png",
+   "changed_px": 500,
+   "changed_share": 0.0144,
+   "corrected": "corrected-raft_ft.png",
+   "counted_px": 34696,
+   "error_px": 0.0236,
+   "estimate": {
+    "max_px": 3.9127,
+    "mean_dx": 3.6981,
+    "mean_dy": -1.0588,
+    "model": "dense"
+   },
+   "failure": false,
+   "reason": ""
+  },
+  "sift_ransac": {
+   "changed": "changed-sift_ransac.png",
+   "changed_px": 560,
+   "changed_share": 0.0161,
+   "corrected": "corrected-sift_ransac.png",
+   "counted_px": 34696,
+   "error_px": 0.3884,
+   "estimate": {
+    "matrix": [
+     [
+      0.9997,
+      0.001
+     ],
+     [
+      -0.002,
+      1.0028
+     ]
+    ],
+    "model": "affine",
+    "offset": [
+     -1.3947,
+     3.8044
+    ]
+   },
+   "failure": false,
+   "reason": ""
+  }
+ },
+ "scenario": "translation",
+ "truth": {
+  "dx": 3.7028,
+  "dy": -1.0768,
+  "model": "translation",
+  "shift_px": 3.8562
+ }
+}

@@ -5393,3 +5393,130 @@ estimate is the gap between the grids with the misregistration on top.
 The check compares grids, not content: two files on one grid that show
 different places pass. When only one file carries a grid, the pair takes it,
 on trust for the other; that case was not put to Eithan.
+
+## 2026-10-12: The demo pairs are picked by a rule on the ground truth
+
+The demo page shows one pair per seen site. Which pair is a choice a reader
+cannot check if it is made by eye, and a pair chosen because a method looks
+good on it is a result picked after the fact.
+
+**Decision.** For each of the four seen sites, with the benchmark's seed (0)
+and its own draw: the demo pair is the first pair whose true shift is over
+2 px. `demo.pick` is that rule and reads the simulator's draw alone; no method
+runs to pick a pair. No held-out site is shown: `satreg demo` has no
+`--allow-held-out` and refuses `alps` and `libya4` before any chip is read
+(entry of 2026-10-11).
+
+| site | pair | true shift (px) |
+|---|---:|---:|
+| Beauce | 0 | 4.07 |
+| Toulouse | 0 | 3.12 |
+| Vosges | 1 | 2.18 |
+| Marseille | 0 | 3.86 |
+
+*My call* (2026-10-12, when N4 was planned): a rule on the ground truth
+rather than pairs picked by hand, and the 2 px threshold.
+
+**Why.** The rule is a sentence a reader can run: `satreg demo` prints the
+pair it picks for each site. A shift is a property of the pair, known before
+any method is called, so the rule cannot favour one of them.
+
+**The threshold, and when it was written.** The rule was first "pair 0". The
+true shifts of pairs 0 to 3 were then computed, and pair 0 of Vosges moves by
+0.08 px, which a slider cannot show. The 2 px threshold was added on
+2026-10-12, after those shifts were seen. It reads the ground truth only, and
+no method's result on these pairs was looked at to write it. It is still a
+threshold chosen with the shifts in view, and this entry says so.
+
+**A demo pair is also a pair of the tables.** Drawn with seed 0, it is one of
+the twenty pairs per site of the published N2 and N3 tables. The page shows
+it and adds no figure to any table. The errors `satreg demo` writes are those
+of the benchmark on the same pair: equal for the classic methods, and within
+0.0001 px for RAFT, whose published figures are from the T4 run and these from
+the M1.
+
+**Rejected.**
+
+- Pairs picked by hand: no reader could tell what the picking looked at.
+- "The first pair", with no threshold: Vosges would show 0.08 px.
+
+**Choices made in the writing.**
+
+- Each pair is drawn as the benchmark draws it, under `clean` and `hard`, as
+  a translation (the slider) and as a dense field (the arrows). The two share
+  the window, the degradation and the shift at the centre. The size, the seed
+  and the number of pairs are the benchmark's and the command has no option
+  for them.
+- Five methods: no registration, `phase_correlation_hann`, `sift_ransac`,
+  `raft` and `raft_ft`, the last two under PyTorch on the M1's CPU. A failure
+  is kept: the method has no corrected image, and its reason is in the JSON.
+  No registration is scored and is never a failure, as in the benchmark.
+- One `pair.json` and one `arrows.json` per site and preset, each with a map
+  of the five methods, rather than one file per pair and method: the page
+  loads two files to show a pair. Neither holds a time or a memory figure.
+- The slider's images are what the detector of the false-change experiment
+  compares (entry of 2026-09-28): the moving image brought to the reference's
+  level, shown between the 2nd and 98th percentiles of the reference. Pixels
+  a correction reads from outside the image are black.
+- Changed pixels are a transparent picture laid over the image: changed in
+  magenta, a dark veil where the detector does not count (cloud, border,
+  pixels read from outside). `pair.json` gives the count, the number of
+  pixels counted and their ratio.
+- One arrow every 16 px, 256 per pair: the true field, each estimate and
+  their difference.
+- The three curve files are copied byte for byte from
+  `docs/results/n3/final/` to `docs/demo/curve/`. Nothing is recomputed.
+- `examples/` holds each pair as float32 GeoTIFF on its map grid, with the
+  true dense field and a manifest. GeoTIFFs are now written with the
+  floating-point predictor, those of `satreg register` included: the same
+  values in smaller files (6.86 MB to 5.29 MB here).
+- Figures are rounded to four decimals, and nothing written depends on the
+  date or the clock. A second run on the M1 wrote the same 134 files, byte
+  for byte.
+
+**Measured.** `docs/demo/` is 104 files and 2.59 MB (2.24 MB of PNG, 0.34 MB
+of JSON), where 4 MB had been estimated. `examples/` is 30 files and 5.29 MB.
+The run takes about 40 s on the M1.
+
+**Limits.**
+
+- One pair per site shows and measures nothing. What a method does on it is
+  not what it does on average: `sift_ransac` fails on the Beauce and Vosges
+  pairs under `hard` (5, 9 and 8 matches kept where 10 are needed) and holds
+  on the other two, and phase correlation is 0.006 px over the failure
+  threshold on one of the sixteen. The tables are where rates are read.
+- The changed pixels are counted on this one pair. The false-change
+  experiment draws its own pairs, and its figures are not these.
+- The four are seen sites: their pixels were not trained on, their landscape
+  types were. The page shows no held-out site, and the only held-out figures
+  on it are the curve's.
+- "Byte for byte" was checked on one machine. PNG and deflate output can
+  differ between library versions, and RAFT's last decimals between
+  processors.
+- With `--sites`, the manifests are rewritten for those sites alone.
+
+## 2026-10-12: The demo is computed ahead, not in the browser
+
+**Decision.** The page is static. `satreg demo` computes what it shows once,
+on the M1, and the files are committed under `docs/demo/`. The page runs no
+model and no registration.
+
+*My call* (2026-10-12, when N4 was planned): a precomputed demo first, rather
+than inference in the browser from the start. Inference in the browser is a
+trial of its own, ticket 10 of N4.
+
+**Why.** A precomputed page opens at once on any machine, and what it shows
+is what the repository's code wrote: the benchmark's figures, on pairs of the
+tables. Whether RAFT runs in a browser is not known: an int8 copy weighs
+over 6 MB, ONNX Runtime's browser build was never tried here, and the
+exported model uses `GridSample`, which the int8 copies keep in float. A
+result there could also differ from the published one by the runtime's
+arithmetic.
+
+**Rejected.** Inference in the browser as the first version: the page would
+wait on the one part of N4 whose outcome is not known.
+
+**Limits.** The reader cannot bring a pair to the page: that is the job of
+`satreg register`. The page shows four demo pairs, each under two presets and
+as two motions, out of the benchmark's. Their files add 2.59 MB to the
+repository, and git keeps a new copy of each file a later run changes.

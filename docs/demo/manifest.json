@@ -1,0 +1,97 @@
+{
+ "convention": "moving(p + d) = reference(p): the content at pixel p of the reference is found at p + d in the moving image; d = (dy, dx) in pixels, rows down",
+ "curve": [
+  "curve/curve-points.csv",
+  "curve/curve-references.csv",
+  "curve/curve-refinements.csv"
+ ],
+ "failure_threshold_px": 1.0,
+ "files": {
+  "arrows": "arrows.json",
+  "slider": "pair.json"
+ },
+ "methods": [
+  "none",
+  "phase_correlation_hann",
+  "sift_ransac",
+  "raft",
+  "raft_ft"
+ ],
+ "notice": "Contains modified Copernicus Sentinel data 2025",
+ "presets": [
+  "clean",
+  "hard"
+ ],
+ "rule": {
+  "min_shift_px": 2.0,
+  "seed": 0,
+  "text": "For each site, the first pair of the benchmark whose true shift is over 2 px. The rule reads the ground truth only."
+ },
+ "sites": [
+  {
+   "acquired": "2025-07-01T11:07:46.729000+00:00",
+   "name": "beauce",
+   "pair": 0,
+   "scene": "S2B_T31UCP_20250701T110241_L2A",
+   "shift": {
+    "dx": -1.9443,
+    "dy": -3.5713,
+    "px": 4.0663
+   },
+   "window": {
+    "col": 441,
+    "row": 53,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-06-28T10:59:01.198000+00:00",
+   "name": "toulouse",
+   "pair": 0,
+   "scene": "S2B_T31TCJ_20250628T105747_L2A",
+   "shift": {
+    "dx": -2.0984,
+    "dy": -2.3143,
+    "px": 3.124
+   },
+   "window": {
+    "col": 650,
+    "row": 128,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-08-11T10:47:45.597000+00:00",
+   "name": "vosges",
+   "pair": 1,
+   "scene": "S2A_T32ULU_20250811T103955_L2A",
+   "shift": {
+    "dx": 2.0782,
+    "dy": 0.6684,
+    "px": 2.1831
+   },
+   "window": {
+    "col": 624,
+    "row": 145,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-06-29T10:39:25.366000+00:00",
+   "name": "marseille",
+   "pair": 0,
+   "scene": "S2A_T31TFH_20250629T103535_L2A",
+   "shift": {
+    "dx": 3.7028,
+    "dy": -1.0768,
+    "px": 3.8562
+   },
+   "window": {
+    "col": 400,
+    "row": 350,
+    "size": 256
+   }
+  }
+ ],
+ "size_px": 256
+}

@@ -1,0 +1,331 @@
+{
+ "convention": "moving(p + d) = reference(p): the content at pixel p of the reference is found at p + d in the moving image; d = (dy, dx) in pixels, rows down",
+ "notice": "Contains modified Copernicus Sentinel data 2025",
+ "pairs": [
+  {
+   "acquired": "2025-07-01T11:07:46.729000+00:00",
+   "moving": "beauce/clean/moving_translation.tif",
+   "preset": "clean",
+   "reference": "beauce/clean/reference.tif",
+   "scenario": "translation",
+   "scene": "S2B_T31UCP_20250701T110241_L2A",
+   "site": "beauce",
+   "truth": {
+    "dx": -1.9443,
+    "dy": -3.5713,
+    "model": "translation"
+   },
+   "window": {
+    "col": 441,
+    "row": 53,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-07-01T11:07:46.729000+00:00",
+   "moving": "beauce/clean/moving_dense.tif",
+   "preset": "clean",
+   "reference": "beauce/clean/reference.tif",
+   "scenario": "dense",
+   "scene": "S2B_T31UCP_20250701T110241_L2A",
+   "site": "beauce",
+   "truth": {
+    "file": "beauce/truth_dense.tif",
+    "max_px": 4.601,
+    "mean_dx": -1.9611,
+    "mean_dy": -3.5837,
+    "model": "dense"
+   },
+   "window": {
+    "col": 441,
+    "row": 53,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-07-01T11:07:46.729000+00:00",
+   "moving": "beauce/hard/moving_translation.tif",
+   "preset": "hard",
+   "reference": "beauce/hard/reference.tif",
+   "scenario": "translation",
+   "scene": "S2B_T31UCP_20250701T110241_L2A",
+   "site": "beauce",
+   "truth": {
+    "dx": -1.9443,
+    "dy": -3.5713,
+    "model": "translation"
+   },
+   "window": {
+    "col": 441,
+    "row": 53,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-07-01T11:07:46.729000+00:00",
+   "moving": "beauce/hard/moving_dense.tif",
+   "preset": "hard",
+   "reference": "beauce/hard/reference.tif",
+   "scenario": "dense",
+   "scene": "S2B_T31UCP_20250701T110241_L2A",
+   "site": "beauce",
+   "truth": {
+    "file": "beauce/truth_dense.tif",
+    "max_px": 4.601,
+    "mean_dx": -1.9611,
+    "mean_dy": -3.5837,
+    "model": "dense"
+   },
+   "window": {
+    "col": 441,
+    "row": 53,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-06-28T10:59:01.198000+00:00",
+   "moving": "toulouse/clean/moving_translation.tif",
+   "preset": "clean",
+   "reference": "toulouse/clean/reference.tif",
+   "scenario": "translation",
+   "scene": "S2B_T31TCJ_20250628T105747_L2A",
+   "site": "toulouse",
+   "truth": {
+    "dx": -2.0984,
+    "dy": -2.3143,
+    "model": "translation"
+   },
+   "window": {
+    "col": 650,
+    "row": 128,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-06-28T10:59:01.198000+00:00",
+   "moving": "toulouse/clean/moving_dense.tif",
+   "preset": "clean",
+   "reference": "toulouse/clean/reference.tif",
+   "scenario": "dense",
+   "scene": "S2B_T31TCJ_20250628T105747_L2A",
+   "site": "toulouse",
+   "truth": {
+    "file": "toulouse/truth_dense.tif",
+    "max_px": 3.7044,
+    "mean_dx": -2.107,
+    "mean_dy": -2.3159,
+    "model": "dense"
+   },
+   "window": {
+    "col": 650,
+    "row": 128,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-06-28T10:59:01.198000+00:00",
+   "moving": "toulouse/hard/moving_translation.tif",
+   "preset": "hard",
+   "reference": "toulouse/hard/reference.tif",
+   "scenario": "translation",
+   "scene": "S2B_T31TCJ_20250628T105747_L2A",
+   "site": "toulouse",
+   "truth": {
+    "dx": -2.0984,
+    "dy": -2.3143,
+    "model": "translation"
+   },
+   "window": {
+    "col": 650,
+    "row": 128,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-06-28T10:59:01.198000+00:00",
+   "moving": "toulouse/hard/moving_dense.tif",
+   "preset": "hard",
+   "reference": "toulouse/hard/reference.tif",
+   "scenario": "dense",
+   "scene": "S2B_T31TCJ_20250628T105747_L2A",
+   "site": "toulouse",
+   "truth": {
+    "file": "toulouse/truth_dense.tif",
+    "max_px": 3.7044,
+    "mean_dx": -2.107,
+    "mean_dy": -2.3159,
+    "model": "dense"
+   },
+   "window": {
+    "col": 650,
+    "row": 128,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-08-11T10:47:45.597000+00:00",
+   "moving": "vosges/clean/moving_translation.tif",
+   "preset": "clean",
+   "reference": "vosges/clean/reference.tif",
+   "scenario": "translation",
+   "scene": "S2A_T32ULU_20250811T103955_L2A",
+   "site": "vosges",
+   "truth": {
+    "dx": 2.0782,
+    "dy": 0.6684,
+    "model": "translation"
+   },
+   "window": {
+    "col": 624,
+    "row": 145,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-08-11T10:47:45.597000+00:00",
+   "moving": "vosges/clean/moving_dense.tif",
+   "preset": "clean",
+   "reference": "vosges/clean/reference.tif",
+   "scenario": "dense",
+   "scene": "S2A_T32ULU_20250811T103955_L2A",
+   "site": "vosges",
+   "truth": {
+    "file": "vosges/truth_dense.tif",
+    "max_px": 2.6998,
+    "mean_dx": 2.0799,
+    "mean_dy": 0.6694,
+    "model": "dense"
+   },
+   "window": {
+    "col": 624,
+    "row": 145,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-08-11T10:47:45.597000+00:00",
+   "moving": "vosges/hard/moving_translation.tif",
+   "preset": "hard",
+   "reference": "vosges/hard/reference.tif",
+   "scenario": "translation",
+   "scene": "S2A_T32ULU_20250811T103955_L2A",
+   "site": "vosges",
+   "truth": {
+    "dx": 2.0782,
+    "dy": 0.6684,
+    "model": "translation"
+   },
+   "window": {
+    "col": 624,
+    "row": 145,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-08-11T10:47:45.597000+00:00",
+   "moving": "vosges/hard/moving_dense.tif",
+   "preset": "hard",
+   "reference": "vosges/hard/reference.tif",
+   "scenario": "dense",
+   "scene": "S2A_T32ULU_20250811T103955_L2A",
+   "site": "vosges",
+   "truth": {
+    "file": "vosges/truth_dense.tif",
+    "max_px": 2.6998,
+    "mean_dx": 2.0799,
+    "mean_dy": 0.6694,
+    "model": "dense"
+   },
+   "window": {
+    "col": 624,
+    "row": 145,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-06-29T10:39:25.366000+00:00",
+   "moving": "marseille/clean/moving_translation.tif",
+   "preset": "clean",
+   "reference": "marseille/clean/reference.tif",
+   "scenario": "translation",
+   "scene": "S2A_T31TFH_20250629T103535_L2A",
+   "site": "marseille",
+   "truth": {
+    "dx": 3.7028,
+    "dy": -1.0768,
+    "model": "translation"
+   },
+   "window": {
+    "col": 400,
+    "row": 350,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-06-29T10:39:25.366000+00:00",
+   "moving": "marseille/clean/moving_dense.tif",
+   "preset": "clean",
+   "reference": "marseille/clean/reference.tif",
+   "scenario": "dense",
+   "scene": "S2A_T31TFH_20250629T103535_L2A",
+   "site": "marseille",
+   "truth": {
+    "file": "marseille/truth_dense.tif",
+    "max_px": 4.1878,
+    "mean_dx": 3.6985,
+    "mean_dy": -1.0772,
+    "model": "dense"
+   },
+   "window": {
+    "col": 400,
+    "row": 350,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-06-29T10:39:25.366000+00:00",
+   "moving": "marseille/hard/moving_translation.tif",
+   "preset": "hard",
+   "reference": "marseille/hard/reference.tif",
+   "scenario": "translation",
+   "scene": "S2A_T31TFH_20250629T103535_L2A",
+   "site": "marseille",
+   "truth": {
+    "dx": 3.7028,
+    "dy": -1.0768,
+    "model": "translation"
+   },
+   "window": {
+    "col": 400,
+    "row": 350,
+    "size": 256
+   }
+  },
+  {
+   "acquired": "2025-06-29T10:39:25.366000+00:00",
+   "moving": "marseille/hard/moving_dense.tif",
+   "preset": "hard",
+   "reference": "marseille/hard/reference.tif",
+   "scenario": "dense",
+   "scene": "S2A_T31TFH_20250629T103535_L2A",
+   "site": "marseille",
+   "truth": {
+    "file": "marseille/truth_dense.tif",
+    "max_px": 4.1878,
+    "mean_dx": 3.6985,
+    "mean_dy": -1.0772,
+    "model": "dense"
+   },
+   "window": {
+    "col": 400,
+    "row": 350,
+    "size": 256
+   }
+  }
+ ],
+ "rule": {
+  "min_shift_px": 2.0,
+  "seed": 0,
+  "text": "For each site, the first pair of the benchmark whose true shift is over 2 px. The rule reads the ground truth only."
+ }
+}

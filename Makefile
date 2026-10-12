@@ -1,4 +1,4 @@
-.PHONY: install install-arosics install-dl install-roma install-onnx lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle ablation small onnx curve int8 n3 n3-m1 n3-merge n3-cycle n3-final n3-bands n3-false-change n3-curve n3-dry clean
+.PHONY: install install-arosics install-dl install-roma install-onnx lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle ablation small onnx curve int8 n3 n3-m1 n3-merge n3-cycle n3-final n3-bands n3-false-change n3-curve n3-dry demo clean
 
 install:
 	pip install -e ".[dev]"
@@ -286,6 +286,12 @@ n3-dry:
 	satreg benchmark --config configs/n3-curve-gpu.toml $(N3_DRY_CURVE_SITES) --pairs 2 --device $(N3_DRY_DEVICE) --out $(N3_DRY)/n3-curve-gpu
 	satreg footprint --methods $(N3_FOOTPRINT) --calls 2 --processes 1 --out $(N3_DRY)/n3-curve/footprint
 	satreg curve --benchmark --rehearsal --gpu $(N3_DRY)/n3-curve-gpu --out $(N3_DRY)/n3-curve
+
+# The data of the demo page (docs/demo/) and the demo pairs as GeoTIFF
+# (examples/), on the four seen sites: about 40 s on the M1. It needs the dl
+# extra and the released weights, and reads no held-out site.
+demo:
+	satreg demo
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

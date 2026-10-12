@@ -4,12 +4,13 @@ merge``, ``satreg real-pairs``, ``satreg check-presets``, ``satreg cycle``,
 ``satreg train``, ``satreg validate``, ``satreg validate-cycle``, ``satreg
 ablation``, ``satreg small``, ``satreg fetch-weights``, ``satreg
 export-weights``, ``satreg export``, ``satreg footprint``, ``satreg curve``,
-``satreg final`` and ``satreg register``."""
+``satreg final``, ``satreg register`` and ``satreg demo``."""
 
 import argparse
 import dataclasses
 import json
 import logging
+import math
 import tomllib
 from collections.abc import Sequence
 from pathlib import Path
@@ -21,6 +22,7 @@ from . import (
     ablation,
     curve,
     cycle,
+    demo,
     falsechange,
     final,
     footprint,
@@ -106,6 +108,10 @@ DEFAULT_DEGRADATIONS_CONFIG = Path("configs/degradations.toml")
 DEFAULT_METHODS_CONFIG = Path("configs/methods.toml")
 DEFAULT_DATA_DIR = Path("data")
 DEFAULT_SERIES_CONFIG = Path("configs/real.toml")
+DEFAULT_DEMO_OUT = Path("docs/demo")
+DEFAULT_EXAMPLES = Path("examples")
+# The published tables of the final evaluation, the cost curve's among them.
+DEFAULT_PUBLISHED_CURVE = Path("docs/results/n3/final")
 DEFAULT_TRAIN_CONFIG = Path("configs/train-sites.toml")
 DEFAULT_PAIRS_CONFIG = Path("configs/train-pairs.toml")
 DEFAULT_RUN_CONFIG = Path("configs/train-overfit.toml")
@@ -935,6 +941,46 @@ def _parser(
     )
     registering.add_argument(
         "--methods-config", type=Path, default=DEFAULT_METHODS_CONFIG
+    )
+    showing = commands.add_parser(
+        "demo",
+        help="write the data of the demo page: one pair per seen site, picked "
+        "by a rule on its ground truth, what five methods make of it, and the "
+        "same pairs as examples for satreg register",
+    )
+    showing.add_argument(
+        "--sites",
+        nargs="+",
+        metavar="SITE",
+        help="sites to show (default: every configured site that is not held "
+        f"out); a held-out site is refused. {SYNTHETIC_SITE!r} needs no data",
+    )
+    _add_data_arguments(showing)
+    showing.add_argument(
+        "--degradations-config", type=Path, default=DEFAULT_DEGRADATIONS_CONFIG
+    )
+    showing.add_argument("--methods-config", type=Path, default=DEFAULT_METHODS_CONFIG)
+    showing.add_argument(
+        "--curve",
+        type=Path,
+        default=DEFAULT_PUBLISHED_CURVE,
+        metavar="DIR",
+        help="directory of the published files of the cost curve, copied as they "
+        f"are: {', '.join(demo.CURVE_FILES)}",
+    )
+    showing.add_argument(
+        "--out",
+        type=Path,
+        default=DEFAULT_DEMO_OUT,
+        metavar="DIR",
+        help="where the page's data goes",
+    )
+    showing.add_argument(
+        "--examples",
+        type=Path,
+        default=DEFAULT_EXAMPLES,
+        metavar="DIR",
+        help="where the pairs go as GeoTIFF, with their manifest",
     )
     if run_config:
         {
@@ -3602,6 +3648,105 @@ def register_pair(args: argparse.Namespace) -> str:
     return "\n".join(lines) + "\n"
 
 
+def demo_sources(args: argparse.Namespace) -> list[demo.Source]:
+    """Load the sites of the demo, seen sites only.
+
+    Every site is checked before any is read. The configuration file is only
+    read when a configured site is shown, so the synthetic site runs anywhere.
+
+    Args:
+        args: Parsed ``demo`` arguments.
+
+    Returns:
+        The sites, in the order requested, or every site that is not held out,
+        in file order, when none is named.
+
+    Raises:
+        SystemExit: If a site is not configured, or is held out: the demo has
+            no way to show one.
+    """
+    names = args.sites
+    config = None
+    if names is None or any(name != SYNTHETIC_SITE for name in names):
+        config = load_sites(args.sites_config)
+    if names is None:
+        names = [name for name, site in config.sites.items() if not site.held_out]
+    for name in names:
+        if name == SYNTHETIC_SITE:
+            continue
+        _configured_site(config, name)
+        if config.sites[name].held_out:
+            raise SystemExit(
+                f"satreg: site {name!r} is held out for the final evaluation "
+                f"({args.sites_config}): satreg demo shows seen sites only"
+            )
+    sources = []
+    for name in names:
+        if name == SYNTHETIC_SITE:
+            image = fractal_texture(SYNTHETIC_SITE_PX, seed=BenchmarkConfig().seed)
+            sources.append(demo.Source(name, image, NOMINAL))
+            continue
+        chip = fetch_chip(config.sites[name], config.catalogue, args.data_dir)
+        scene, acquired = demo.scene_of(chip)
+        sources.append(
+            demo.Source(name, read_chip(chip), read_georef(chip), scene, acquired)
+        )
+    return sources
+
+
+def demo_data(args: argparse.Namespace) -> str:
+    """Write the data of the demo page, and the demo pairs as files.
+
+    The pairs are the benchmark's own: its seed, its size and its ranges, which
+    the command has no option to change.
+
+    Args:
+        args: Parsed ``demo`` arguments.
+
+    Returns:
+        The pair picked per site, each method's error on it, and what was
+        written, for the terminal.
+    """
+    sources = demo_sources(args)
+    presets = degradation_presets(
+        argparse.Namespace(
+            degradations=list(demo.PRESETS),
+            degradations_config=args.degradations_config,
+        )
+    )
+    methods = configured_methods(
+        argparse.Namespace(
+            methods=list(demo.METHODS), methods_config=args.methods_config, device=None
+        )
+    )
+    try:
+        rows = demo.build(
+            sources,
+            methods,
+            presets,
+            BenchmarkConfig(),
+            args.out,
+            args.examples,
+            args.curve,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+    picked = {row["site"]: row["pair"] for row in rows}
+    lines = [f"{site}: pair {index}" for site, index in picked.items()]
+    lines.append("site, preset, scenario, method: mean error in px")
+    for row in rows:
+        error = "none" if math.isnan(row["error_px"]) else f"{row['error_px']:.3f}"
+        failed = f" (failure: {row['reason']})" if row["failure"] else ""
+        lines.append(
+            f"{row['site']}, {row['preset']}, {row['scenario']}, {row['method']}: "
+            f"{error}{failed}"
+        )
+    for directory in (args.out, args.examples):
+        count, size = demo.size_of(directory)
+        lines.append(f"written to {directory}: {count} files, {size / 1e6:.2f} MB")
+    return "\n".join(lines) + "\n"
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Parse arguments and run the requested command."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -3659,3 +3804,5 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(read_final(args), end="")
     elif args.command == "register":
         print(register_pair(args), end="")
+    elif args.command == "demo":
+        print(demo_data(args), end="")

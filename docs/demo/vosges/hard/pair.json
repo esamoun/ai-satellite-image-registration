@@ -1,0 +1,100 @@
+{
+ "cloud_fraction": 0.3,
+ "detector": {
+  "border_px": 8,
+  "gain": 2.5073,
+  "k_sigma": 3.0,
+  "limit": 154.8025,
+  "offset": -1445.376
+ },
+ "display": {
+  "black": 1082.5287,
+  "white": 1531.1303
+ },
+ "images": {
+  "moving": "moving.png",
+  "reference": "reference.png"
+ },
+ "methods": {
+  "none": {
+   "changed": "changed-none.png",
+   "changed_px": 2317,
+   "changed_share": 0.0699,
+   "corrected": "moving.png",
+   "counted_px": 33154,
+   "error_px": 2.1831,
+   "estimate": {
+    "dx": 0.0,
+    "dy": 0.0,
+    "model": "translation"
+   },
+   "failure": false,
+   "reason": ""
+  },
+  "phase_correlation_hann": {
+   "changed": "changed-phase_correlation_hann.png",
+   "changed_px": 779,
+   "changed_share": 0.0235,
+   "corrected": "corrected-phase_correlation_hann.png",
+   "counted_px": 33154,
+   "error_px": 0.35,
+   "estimate": {
+    "dx": 1.94,
+    "dy": 0.99,
+    "model": "translation"
+   },
+   "failure": false,
+   "reason": ""
+  },
+  "raft": {
+   "changed": "changed-raft.png",
+   "changed_px": 742,
+   "changed_share": 0.0224,
+   "corrected": "corrected-raft.png",
+   "counted_px": 33154,
+   "error_px": 0.1681,
+   "estimate": {
+    "max_px": 2.3492,
+    "mean_dx": 1.9929,
+    "mean_dy": 0.7938,
+    "model": "dense"
+   },
+   "failure": false,
+   "reason": ""
+  },
+  "raft_ft": {
+   "changed": "changed-raft_ft.png",
+   "changed_px": 711,
+   "changed_share": 0.0214,
+   "corrected": "corrected-raft_ft.png",
+   "counted_px": 33154,
+   "error_px": 0.0806,
+   "estimate": {
+    "max_px": 2.325,
+    "mean_dx": 2.0694,
+    "mean_dy": 0.6276,
+    "model": "dense"
+   },
+   "failure": false,
+   "reason": ""
+  },
+  "sift_ransac": {
+   "changed": null,
+   "changed_px": null,
+   "changed_share": null,
+   "corrected": null,
+   "counted_px": null,
+   "error_px": null,
+   "estimate": null,
+   "failure": true,
+   "reason": "RegistrationFailure: 9 inliers, need 10"
+  }
+ },
+ "scenario": "translation",
+ "truth": {
+  "dx": 2.0782,
+  "dy": 0.6684,
+  "model": "translation",
+  "shift_px": 2.1831
+ }
+}

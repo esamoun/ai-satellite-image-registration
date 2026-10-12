@@ -419,18 +419,30 @@ def write(
     }
     result["notes"] = list(notes or [])
     out.mkdir(parents=True, exist_ok=True)
-    _write_tif(out / CORRECTED_FILE, corrected[None], pair.georef, ["corrected"])
+    write_tif(out / CORRECTED_FILE, corrected[None], pair.georef, ["corrected"])
     if result["displacement"]["model"] == "dense":
         flow = registration.displacement.field(shape)
-        _write_tif(out / FLOW_FILE, flow, pair.georef, ["dy", "dx"])
+        write_tif(out / FLOW_FILE, flow, pair.georef, ["dy", "dx"])
     (out / DISPLACEMENT_FILE).write_text(json.dumps(result, indent=2) + "\n")
     return result
 
 
-def _write_tif(
-    path: Path, layers: np.ndarray, georef: Georef | None, names: list[str]
+def write_tif(
+    path: Path,
+    layers: np.ndarray,
+    georef: Georef | None,
+    names: list[str],
+    tags: Mapping[str, str] | None = None,
 ) -> None:
-    """Write ``(bands, rows, cols)`` as a float GeoTIFF, NaN for no data."""
+    """Write ``(bands, rows, cols)`` as a float GeoTIFF, NaN for no data.
+
+    Args:
+        path: File to write.
+        layers: The bands.
+        georef: Their map grid, ``None`` for a file without one.
+        names: Description of each band.
+        tags: Tags of the file, if any.
+    """
     profile = {
         "driver": "GTiff",
         "count": layers.shape[0],
@@ -439,6 +451,8 @@ def _write_tif(
         "dtype": "float32",
         "nodata": float("nan"),
         "compress": "deflate",
+        # The floating-point predictor: the same values in a smaller file.
+        "predictor": 3,
     }
     if georef is not None:
         profile.update(crs=georef.crs, transform=georef.transform)
@@ -448,3 +462,5 @@ def _write_tif(
             dst.write(layers.astype("float32"))
             for index, name in enumerate(names, 1):
                 dst.set_band_description(index, name)
+            if tags:
+                dst.update_tags(**tags)

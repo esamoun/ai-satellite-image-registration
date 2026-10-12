@@ -130,6 +130,36 @@ writes nothing. No figure of this repository was measured on a supplied pair:
 the published ones are on 256 px windows of simulated and real Sentinel-2
 pairs.
 
+### The demo pairs
+
+```bash
+make demo        # docs/demo/ and examples/, about 40 s on the M1
+satreg register examples/beauce/clean/reference.tif \
+    examples/beauce/clean/moving_translation.tif \
+    --method phase_correlation --out out/
+```
+
+`satreg demo` writes what the demo page shows, so the page computes nothing.
+For each of the four seen sites it takes one pair of the benchmark, a demo
+pair, picked by a rule on its ground truth: the first pair of the site whose
+true shift is over 2 px. It draws that pair under `clean` and `hard`, as a
+translation and as a dense field, and runs no registration, phase correlation,
+SIFT + RANSAC, RAFT and fine-tuned RAFT on each (PyTorch, `make install-dl`).
+A method that fails is kept and shown as a failure. The command takes no
+held-out site and has no option to change the pairs.
+
+- [`docs/demo/`](docs/demo/): per site and preset, the images as PNG, the
+  pixels the fixed change detector flags before and after each correction,
+  `pair.json` and `arrows.json` (truth, estimate, error, failure and its
+  reason, with no time and no memory), and a copy of the three published
+  files of the cost curve;
+- [`examples/`](examples/): the same pairs as GeoTIFF on their map grid, with
+  `manifest.json` (site, scene, window, true displacement), for
+  `satreg register`. They contain modified Copernicus Sentinel data 2025.
+
+A demo pair is also a pair of the published tables. Showing it measures
+nothing and adds no figure to any table.
+
 ### Methods
 
 - `phase_correlation`: scikit-image's sub-pixel phase correlation, refined to

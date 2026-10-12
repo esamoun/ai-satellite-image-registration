@@ -362,3 +362,29 @@ corrected figures of the draft before the commit: a rounding in the int8
 table, a 5 ms time given to phase correlation with a Hann window when it is
 the time of the plain variant, and a gain "about twice as large on `hard`
 pairs" that holds for two scenarios of three.
+
+## 2026-10-12: The first size measurement read 2 GiB too little for RAFT at 1,024 px
+
+**Attempted.** Before `satreg register` got its size limit, a pair was
+registered at 256, 512 and 1,024 px on the M1, and the memory of each method
+read as `satreg footprint` reads it: the rise of the process's resident
+high-water mark.
+
+**What happened.** The table gave 3,231 to 3,682 MiB for a process running
+fine-tuned RAFT at 1,024 px. The same processes under `/usr/bin/time -l`
+showed a peak footprint of 5.5 to 5.95 GB. The first table was not committed.
+
+**Why.** Resident memory is what sits in RAM. On an 8 GB machine already
+swapping, the system compresses pages of a growing process as it goes, and
+those leave the resident count. The mark stops near what the machine can
+give, not at what the process asked for.
+
+**What was done instead.** `scripts/register_size_check.py` reads the highest
+physical footprint the system charges the process (`proc_pid_rusage`), which
+counts compressed and swapped pages, and keeps the resident mark beside it.
+The run was made again and the limit set from it
+([`decisions.md`](decisions.md), same date). The N3 footprints are not put in
+doubt by this: they were read at 256 px, on RAFT and the classic methods,
+where the two readings agree (85 and 88 MiB for the calls of `raft_ft_onnx`,
+86 in the N3 table). RoMa is not in that table, and its resident mark is 1.0
+to 1.3 GiB under its footprint at every size.

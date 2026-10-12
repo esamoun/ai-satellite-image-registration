@@ -5194,3 +5194,202 @@ date).
 **Limits.** Describing by constraint still reads the held-out rows, as the
 rest of the write-up does; it selects nothing, and no model, calibration or
 curve point changes after it.
+
+## 2026-10-12: N4 is shown with `satreg register`, which registers a supplied pair
+
+Until N4 no command registered two images someone gives: every command
+simulated its pairs or read a site's series.
+
+**Decision.** `satreg register REF MOVING --method NAME --out DIR` reads a
+supplied pair (`CONTEXT.md`), runs one method on it and writes
+`displacement.json` (the displacement, the method, the duration of the call,
+the method's diagnostics), `corrected.tif` (the moving image resampled onto
+the reference, with the georeferencing of the input when it has one) and, for
+a dense displacement, `flow.tif` (`dy` then `dx`, in pixels). It scores
+nothing: a supplied pair has no ground truth. The correction is
+`falsechange.correct`, the simulator's interpolation (entry of 2026-09-28), so
+the command brings no resampler of its own.
+
+*My call* (2026-10-12, when N4 was planned): `register` as what N4 is shown
+with, rather than only replaying a benchmark.
+
+**Why.** A replayed benchmark shows that the figures come back. It registers
+nothing a reader brings. The methods already take two arrays and answer with a
+displacement, so the command is a reader and a writer around them
+(`src/satreg/register.py`), and no method changed.
+
+**What it refuses.** Images of different shapes; a file with several bands
+when `--band` names none; a window that does not fit; an unknown method, or
+one whose packages or file are missing; a pixel that is not a number in the
+area read; a method that works in map coordinates on a pair with no map grid.
+Each message says what to do instead. A method that raises
+`RegistrationFailure` gives a non-zero exit code and its reason. The output
+directory is cleared of the three files before the method runs, so after a
+failure it holds nothing that looks like a result, not even that of an
+earlier call.
+
+**Choices made in the writing.**
+
+- A pixel of `corrected.tif` whose content lies outside the moving image holds
+  no data. `falsechange.correct` reads the mirror of the image there, which
+  suits a measure that masks those pixels and would show ground that is not
+  there in a file someone opens. The command says how many pixels that is.
+- A file with one band gives it whatever `--band` says, so a single-band
+  reference can be registered against one band of a stack.
+- The duration is that of the one call, the first of its process: a model's
+  loading is in it. It is not the time per pair of the cost tables.
+
+**Limits.** No figure of the repository was measured on a supplied pair. The
+published accuracy is on 256 px windows of Sentinel-2 pairs, simulated and
+real: nothing says it holds on another sensor, another resolution or a
+displacement outside the ranges simulated. The command does not check that the
+two images show the same place.
+
+## 2026-10-12: `satreg register` has no default method
+
+**Decision.** `--method` is always named. Without it the command lists the
+methods that can run in this environment, those whose optional packages are
+installed and whose own file is there, and exits with an error code. A method
+whose published file is not in the cache yet is listed apart, as one that
+first downloads it.
+
+*My call* (2026-10-12, when N4 was planned): no default, which keeps the
+entry of the same day on the N3 write-up.
+
+**Why.** A default method is a point of the cost curve named as the one to
+use. The N3 write-up names none, because a point picked now is picked after
+the held-out sites were read (entry of 2026-10-12, rule of 2026-10-02). The
+command's default would be that same choice, made in code.
+
+**Rejected.** Phase correlation as the default, being the cheapest: it would
+still answer "which one" for the reader, and it estimates a single
+translation. The method with the lowest validation error: chosen after the
+read all the same.
+
+**Limits.** The README shows one command per kind of method. An example is
+still a name a reader may copy, so the section says the four are examples and
+not a ranking. The list has 44 names on the M1 with every extra installed,
+variants included.
+
+## 2026-10-12: A supplied pair is at most 512 px a side, from a measurement on the M1
+
+Every published figure is on 256 px windows and nothing had been measured
+above. RAFT correlates every position of its 1/8 feature map with every
+other: that volume grows with the square of the number of pixels, and is over
+1 GB at 1,024 px by arithmetic alone. So the limit was measured before it was
+written.
+
+**Measurement.** `scripts/register_size_check.py` registers one pair at 256,
+512 and 1,024 px a side: the top-left window of the Beauce benchmark chip, a
+seen site, and the same window shifted by (1.37, -2.61) px by the simulator.
+Ten methods, each in a new process at each size: three calls, then the
+correction. M1, 8 GB, CPU. The thirty lines are in
+[`results/n4/register-size.md`](results/n4/register-size.md), the readings and
+the machine in `register-size.json` beside it.
+
+| whole process (MiB) | 256 px | 512 px | 1,024 px |
+|---|---:|---:|---:|
+| fine-tuned RAFT under ONNX Runtime, four files | 203 to 253 | 630 to 675 | 5,289 to 5,675 |
+| fine-tuned RAFT large under PyTorch | 617 | 1,509 | 5,432 |
+| phase correlation, SIFT + RANSAC, AROSICS | 148 to 239 | 261 to 356 | 670 to 829 |
+| LightGlue | 540 | 1,166 | 3,411 |
+| RoMa | 4,013 | 4,029 | 4,062 |
+
+A call of fine-tuned RAFT under ONNX Runtime, after the first, takes 0.25 to
+0.71 s at 256 px, 0.77 to 2.36 s at 512 px and 4.5 to 12.4 s at 1,024 px. The
+correction alone takes 0.04 s, 0.14 s and 0.7 to 1.2 s. At 1,024 px it adds
+410 to 480 MiB, except after the three PyTorch models, whose peak during the
+calls already covers it. From 512 to 1,024 px, four times the pixels, the
+process of RAFT under ONNX Runtime is 8.4 to 8.5 times larger. Every method
+still answers at 1,024 px on this pair (0.026 px for RAFT large), RoMa less
+well (0.175 px against 0.023 at 256 px).
+
+**Decision.** `register.MAX_SIDE_PX = 512`, for every method. A larger pair
+is refused, and the message names `--window ROW COL SIZE`, which cuts the
+same window from both images. Nothing is tiled.
+
+*My call* (2026-10-12, the three options laid out with these figures): 512 px
+for every method, rather than 1,024 px for every method, or 1,024 px with
+512 px for RAFT.
+
+**Why.** At 512 px fine-tuned RAFT under ONNX Runtime holds in 0.7 GiB and
+answers in one to three seconds. At 1,024 px it asks for 5.2 to 5.5 GiB on a
+machine of 8: the system compresses and swaps, and in a container given less
+memory the process is killed without a message. One limit for every method is
+one rule to state and to test.
+
+**Rejected.**
+
+- 1,024 px for every method: see above.
+- 1,024 px, and 512 px for RAFT: each method would go as far as the
+  measurement allows, for a rule per family of methods. LightGlue at 3.3 GiB
+  would have asked for a third.
+- Tiling. A dense displacement stitched from tiles has seams, a global model
+  needs one fit across them, and neither was measured. The entry of
+  2026-09-23 on RAFT left tiling to be judged at larger sizes: it is judged
+  here as not built.
+- A limit above 1,024 px: nothing was measured there.
+
+**Price.** A benchmark chip is 1,024 px a side. It is not taken whole, even
+by phase correlation, which would need 0.7 GiB and a second for it.
+
+**Limits.**
+
+- One pair per size, three calls, one process per reading: no spread is
+  known. The errors are those of one clean pair, a check that the method
+  still answers, not an accuracy.
+- The run was on battery (38 to 35 %, low power mode off) while other
+  programs held 5.6 to 6.4 GB of swap. The times at 1,024 px include the
+  system compressing memory and would be shorter on a machine with memory to
+  spare. The footprints would not.
+- Memory here is the highest physical footprint macOS charges the process,
+  compressed and swapped pages included, not the resident high-water mark
+  `satreg footprint` reads (entry of 2026-10-08). A first run read the
+  resident mark and gave 3,231 to 3,682 MiB for RAFT at 1,024 px, 2 GiB short
+  ([`failures.md`](failures.md), same date). At 256 px, where the N3
+  footprints were read, the two agree: the calls of `raft_ft_onnx` add 85 MiB
+  on the footprint, 88 on the resident mark of the first run, and 86 in the
+  N3 table; those of `raft_ft` under PyTorch add 292 MiB here and 297 there.
+- These are figures of macOS on the M1. The same files in a Linux container
+  were not measured.
+- The limit is on the side of the pair, not on a method's memory: RoMa takes
+  4 GiB at every size and is not refused.
+- Under 128 px a side RAFT pads the pair, which costs accuracy (entry of
+  2026-09-23 on RAFT). The command registers it and says so, in the terminal
+  and in `displacement.json`.
+
+## 2026-10-12: Two files on different map grids are refused
+
+The ticket left this open, to be settled and not assumed.
+
+**Decision.** When both files of a supplied pair carry a georeferencing and
+the two differ, in reference system or in transform (compared to a millionth
+of a pixel), `satreg register` stops and says to put them on one grid first.
+When they agree, the pair is on that grid: `corrected.tif` and `flow.tif` are
+written with it, moved by `--window`, and a `GeoreferencedMethod` (AROSICS)
+is called with it. A method that works in map coordinates is refused on a
+pair with no grid.
+
+*My call* (2026-10-12, the three options laid out): refuse, rather than
+register on pixels with a warning, or reproject the moving image onto the
+reference's grid.
+
+**Why.** A displacement is content moving on one grid (entry of 2026-09-23 on
+the grid of simulated pairs). On two grids, pixel `p` of one file and pixel
+`p` of the other are two places on the ground, and what a method would
+estimate is the gap between the grids with the misregistration on top.
+
+**Rejected.**
+
+- Registering on pixels with a warning. The displacement would mix the two;
+  with another pixel size or reference system it means nothing; and AROSICS
+  would be handed a grid that is wrong for the moving image.
+- Reprojecting the moving image. It is a second resampler beside the
+  simulator's (entry of 2026-09-28), and a reprojection moves content by
+  fractions of a pixel, the size of what is estimated (entry of 2026-09-23 on
+  chips).
+
+**Limits.** The message names `gdalwarp` and the command does not run it.
+The check compares grids, not content: two files on one grid that show
+different places pass. When only one file carries a grid, the pair takes it,
+on trust for the other; that case was not put to Eithan.

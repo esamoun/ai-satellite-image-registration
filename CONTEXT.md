@@ -62,6 +62,18 @@ motion)
 **Real pair**:
 Two dates of the same window with no displacement applied and no ground truth.
 
+**Supplied pair**:
+Two images of the same place that someone gives to be registered. It belongs to
+no site and has no ground truth.
+_Avoid_: User pair, custom pair, input pair
+
+**Demo pair**:
+A simulated pair cut from a seen site's benchmark chip and shown on the demo
+page. It is picked by a rule that reads its ground truth only, never what a
+method made of it. Showing it measures nothing: the page adds no figure to any
+table.
+_Avoid_: Example, sample, showcase pair
+
 ### Sites and evaluation
 
 **Seen site**:
@@ -211,3 +223,10 @@ _Avoid_: Improvement, regression
 A short training on a few pairs seen over and over, which checks that the
 training loop learns. Its checkpoint is not a model to report.
 _Avoid_: Smoke training, toy training
+
+### Delivery
+
+**Container image**:
+The program packaged with everything it needs to run, the same on any machine.
+Always both words: an image, alone, is a satellite image.
+_Avoid_: Image (alone), build, container

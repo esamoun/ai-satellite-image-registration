@@ -85,6 +85,51 @@ prints the results table and writes it to `outputs/benchmark/` as `summary.md` a
 ran on in `context.json`. `satreg benchmark --help` lists the options (number of
 pairs, image size, motion ranges, seed, failure threshold, timing repeats).
 
+### Register a pair of your own
+
+```bash
+satreg register reference.tif moving.tif --method phase_correlation --out out/   # classic
+satreg register reference.tif moving.tif --method arosics --out out/             # map coordinates
+satreg register reference.tif moving.tif --method raft_ft_onnx --out out/        # fine-tuned RAFT, ONNX Runtime
+satreg register reference.tif moving.tif --method raft_ft --out out/             # the same weights, PyTorch
+```
+
+`satreg register REF MOVING --method NAME --out DIR` runs one method on two
+images you give, a supplied pair. These four lines are examples, one per kind
+of method, not a ranking. The method is always named: there is no default, and
+`satreg register` without `--method` lists the methods that can run in your
+environment (those whose optional packages are installed and whose file is
+there) and stops.
+
+It takes two single-band images of the same shape, GeoTIFF or PNG.
+`--band N` names the band of a file that has several, and
+`--window ROW COL SIZE` cuts the same square window from both. A pair is at
+most 512 px a side: a larger one is refused, with `--window` to cut a part of
+it, and nothing is tiled. That limit comes from a measurement on the M1
+([`docs/results/n4/register-size.md`](docs/results/n4/register-size.md)):
+fine-tuned RAFT under ONNX Runtime holds in 0.7 GiB at 512 px and takes over
+5 GiB at 1,024 px. Under 128 px a side RAFT pads the pair, which costs
+accuracy, and the command says so. Two files that carry different map grids
+are refused: put them on one grid first, the command resamples nothing it is
+given. AROSICS works in map coordinates and needs GeoTIFFs with their
+reference system.
+
+It writes to `DIR`:
+
+- `displacement.json`: the displacement (`moving(p + d) = reference(p)`, in
+  pixels), the method, the duration of the call, which includes loading the
+  model, and the method's diagnostics;
+- `corrected.tif`: the moving image resampled onto the reference, with the
+  georeferencing of the input when it has one. Pixels whose content lies
+  outside the moving image hold no data;
+- `flow.tif`: the displacement of every pixel (`dy`, then `dx`), when the
+  method gives a dense one.
+
+A method that declines the pair exits with an error code and its reason, and
+writes nothing. No figure of this repository was measured on a supplied pair:
+the published ones are on 256 px windows of simulated and real Sentinel-2
+pairs.
+
 ### Methods
 
 - `phase_correlation`: scikit-image's sub-pixel phase correlation, refined to

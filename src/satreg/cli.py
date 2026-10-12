@@ -3,8 +3,8 @@ merge``, ``satreg real-pairs``, ``satreg check-presets``, ``satreg cycle``,
 ``satreg false-change``, ``satreg fetch-train``, ``satreg train-pairs``,
 ``satreg train``, ``satreg validate``, ``satreg validate-cycle``, ``satreg
 ablation``, ``satreg small``, ``satreg fetch-weights``, ``satreg
-export-weights``, ``satreg export``, ``satreg footprint``, ``satreg curve``
-and ``satreg final``."""
+export-weights``, ``satreg export``, ``satreg footprint``, ``satreg curve``,
+``satreg final`` and ``satreg register``."""
 
 import argparse
 import dataclasses
@@ -26,6 +26,7 @@ from . import (
     footprint,
     onnxexport,
     quantize,
+    register,
     small,
     trainchips,
     trainpairs,
@@ -66,6 +67,7 @@ from .methods import (
     METHODS,
     OPT_IN,
     Method,
+    RegistrationFailure,
     cost_meter,
     default_methods,
     load_methods,
@@ -887,6 +889,53 @@ def _parser(
         "--seed", type=int, default=final.SEED, help="seed of the resamples"
     )
     reading_final.add_argument("--out", type=Path, default=DEFAULT_FINAL_OUT)
+    registering = commands.add_parser(
+        "register",
+        help="register a pair of images you supply with the method you name, "
+        "and write the displacement and the corrected moving image",
+    )
+    registering.add_argument(
+        "reference", nargs="?", type=Path, metavar="REF", help="reference image"
+    )
+    registering.add_argument(
+        "moving",
+        nargs="?",
+        type=Path,
+        metavar="MOVING",
+        help="moving image, of the same shape: both are GeoTIFF or PNG, and "
+        f"at most {register.MAX_SIDE_PX} px a side",
+    )
+    registering.add_argument(
+        "--method",
+        metavar="NAME",
+        help="method to run; there is no default, and without it the command "
+        "lists the methods that can run here and stops",
+    )
+    registering.add_argument(
+        "--out",
+        type=Path,
+        metavar="DIR",
+        help=f"directory to write {register.DISPLACEMENT_FILE}, "
+        f"{register.CORRECTED_FILE} and, for a dense displacement, "
+        f"{register.FLOW_FILE} to; an earlier result there is replaced",
+    )
+    registering.add_argument(
+        "--band",
+        type=int,
+        metavar="N",
+        help="band to register in a file that has several, counted from 1",
+    )
+    registering.add_argument(
+        "--window",
+        nargs=3,
+        type=int,
+        metavar=("ROW", "COL", "SIZE"),
+        help="register one square window cut from both images: its top-left "
+        "pixel and its side, in px",
+    )
+    registering.add_argument(
+        "--methods-config", type=Path, default=DEFAULT_METHODS_CONFIG
+    )
     if run_config:
         {
             "benchmark": bench,
@@ -3458,6 +3507,101 @@ def read_final(args: argparse.Namespace) -> str:
     return report
 
 
+def _no_method(args: argparse.Namespace) -> str:
+    """What ``register`` says when no method is named: those that can run here."""
+    try:
+        methods = load_methods(args.methods_config)
+    except FileNotFoundError:
+        raise SystemExit(
+            f"satreg: no method parameters at {args.methods_config} "
+            "(run from the repository root or pass --methods-config)"
+        ) from None
+    here, after_download = register.available(methods)
+    lines = [
+        "satreg: register runs the method named with --method NAME and has no default.",
+        "Methods that can run here: " + (", ".join(here) or "none"),
+    ]
+    if after_download:
+        lines.append(
+            "Methods that first download their published file: "
+            + ", ".join(after_download)
+        )
+    return "\n".join(lines)
+
+
+def register_pair(args: argparse.Namespace) -> str:
+    """Register a supplied pair with one method and write the result.
+
+    Args:
+        args: Parsed ``register`` arguments.
+
+    Returns:
+        What was estimated and written, for the terminal.
+    """
+    if args.method is None:
+        raise SystemExit(_no_method(args))
+    if args.reference is None or args.moving is None or args.out is None:
+        raise SystemExit(
+            "satreg: register takes two images and a directory to write to: "
+            "satreg register REF MOVING --method NAME --out DIR"
+        )
+    try:
+        pair = register.read_pair(
+            args.reference,
+            args.moving,
+            band=args.band,
+            window=tuple(args.window) if args.window else None,
+        )
+    except register.Refused as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+    chosen = argparse.Namespace(
+        methods=[args.method], methods_config=args.methods_config, device=None
+    )
+    method = configured_methods(chosen)[args.method]
+    notes = []
+    if note := register.padding_note(method, pair.reference.shape):
+        notes.append(note)
+        logging.warning(note)
+    # From here on the directory holds the result of this call or nothing.
+    register.clear(args.out)
+    try:
+        registration = register.register(args.method, method, pair)
+    except register.Refused as exc:
+        raise SystemExit(f"satreg: {exc}") from None
+    except RegistrationFailure as exc:
+        seen = ", ".join(f"{key} = {value:g}" for key, value in exc.diagnostics.items())
+        raise SystemExit(
+            f"satreg: {args.method} could not register this pair: {exc}"
+            + (f" ({seen})" if seen else "")
+            + ". Nothing was written"
+        ) from None
+    result = register.write(args.out, pair, registration, notes)
+    found = result["displacement"]
+    if found["model"] == "translation":
+        summary = f"dx = {found['dx']:+.3f} px, dy = {found['dy']:+.3f} px"
+    elif found["model"] == "affine":
+        summary = f"matrix {found['matrix']}, offset {found['offset']} (rows, columns)"
+    else:
+        summary = (
+            f"mean dx = {found['mean_dx']:+.3f} px, mean dy = "
+            f"{found['mean_dy']:+.3f} px, up to {found['max_px']:.3f} px"
+        )
+    written = [register.DISPLACEMENT_FILE, register.CORRECTED_FILE]
+    if found["model"] == "dense":
+        written.append(register.FLOW_FILE)
+    lines = [
+        f"{args.method}: {found['model']} displacement, {summary}",
+        f"call: {registration.duration_s:.2f} s, the method's loading included",
+        f"written to {args.out}: {', '.join(written)}",
+    ]
+    if left_out := result["corrected"]["no_data_px"]:
+        lines.append(
+            f"{left_out} px of the corrected image lie outside the moving image "
+            "and hold no data"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Parse arguments and run the requested command."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -3513,3 +3657,5 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(read_curve(args), end="")
     elif args.command == "final":
         print(read_final(args), end="")
+    elif args.command == "register":
+        print(register_pair(args), end="")

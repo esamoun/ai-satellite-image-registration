@@ -1,0 +1,83 @@
+{
+  "code": {
+    "commit": "32d5d3fdf57aaf0262d6fd8400d494ca58f145ac",
+    "dirty": false
+  },
+  "run": {
+    "closure": "outputs/n3-cycle",
+    "out": "outputs/n3-final",
+    "rehearsal": null,
+    "resamples": 10000,
+    "seed": 0,
+    "table": "outputs/n3"
+  },
+  "checkpoints": {
+    "raft_ft": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft-44bcc668.pth",
+      "sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13"
+    },
+    "raft_small_ft": {
+      "release": "weights-n3",
+      "asset": "raft_small_ft-b666aaad.pth",
+      "sha256": "b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137"
+    }
+  },
+  "held_out_sites": [
+    "alps",
+    "libya4"
+  ],
+  "rehearsal": false,
+  "answer": true,
+  "read": {
+    "outputs/n3-m1": {
+      "code": {
+        "commit": "32d5d3fdf57aaf0262d6fd8400d494ca58f145ac",
+        "dirty": false
+      },
+      "recorded_at": "2026-10-11T23:05:27+00:00",
+      "machine": {
+        "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+        "architecture": "arm64",
+        "cpu": "Apple M1",
+        "memory_gib": 8.0
+      },
+      "gpu": null
+    },
+    "outputs/kaggle/outputs/n3-gpu": {
+      "code": {
+        "commit": "1f80a5abcf85b5cbcef9cd24daefd27f7daa9db7",
+        "dirty": false
+      },
+      "recorded_at": "2026-10-11T19:19:41+00:00",
+      "machine": {
+        "system": "Linux-6.18.48+-x86_64-with-glibc2.35",
+        "architecture": "x86_64",
+        "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+        "memory_gib": 31.346752166748047
+      },
+      "gpu": {
+        "name": "Tesla T4",
+        "memory_gib": 14.56219482421875,
+        "count": 2,
+        "capability": "7.5",
+        "cuda": "12.8",
+        "cudnn": 91002
+      }
+    },
+    "outputs/n3-cycle": {
+      "code": {
+        "commit": "32d5d3fdf57aaf0262d6fd8400d494ca58f145ac",
+        "dirty": false
+      },
+      "recorded_at": "2026-10-12T00:19:38+00:00",
+      "machine": {
+        "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+        "architecture": "arm64",
+        "cpu": "Apple M1",
+        "memory_gib": 8.0
+      },
+      "gpu": null
+    }
+  }
+}

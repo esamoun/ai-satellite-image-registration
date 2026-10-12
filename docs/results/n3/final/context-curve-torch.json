@@ -1,0 +1,159 @@
+{
+  "recorded_at": "2026-10-12T07:31:48+00:00",
+  "code": {
+    "commit": "32d5d3fdf57aaf0262d6fd8400d494ca58f145ac",
+    "dirty": false
+  },
+  "machine": {
+    "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "cpu": "Apple M1",
+    "memory_gib": 8.0
+  },
+  "gpu": null,
+  "threads": {
+    "cpu_count": 8,
+    "usable_cpus": 8,
+    "opencv": 8,
+    "torch": 4,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+  },
+  "python": "3.13.7",
+  "libraries": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "scikit-image": "0.26.0",
+    "opencv-python-headless": "5.0.0.93",
+    "rasterio": "1.5.1",
+    "arosics": "1.13.2",
+    "GDAL": "3.13.3",
+    "torch": "2.14.0",
+    "torchvision": "0.29.0",
+    "onnx": "1.23.0",
+    "onnxruntime": "1.30.0"
+  },
+  "cost": {
+    "warmup": 1,
+    "repeats": 1,
+    "process_peak_rss_mib": 907.5,
+    "memory": {
+      "raft_r4": "torch-cpu",
+      "raft_r8": "torch-cpu",
+      "raft": "torch-cpu",
+      "raft_ft_r4": "torch-cpu",
+      "raft_ft_r8": "torch-cpu",
+      "raft_ft": "torch-cpu",
+      "raft_small_r4": "torch-cpu",
+      "raft_small_r8": "torch-cpu",
+      "raft_small": "torch-cpu",
+      "raft_small_ft_r4": "torch-cpu",
+      "raft_small_ft_r8": "torch-cpu",
+      "raft_small_ft": "torch-cpu"
+    },
+    "run_seconds": 9953.009291665861
+  },
+  "devices": {
+    "raft_r4": "cpu",
+    "raft_r8": "cpu",
+    "raft": "cpu",
+    "raft_ft_r4": "cpu",
+    "raft_ft_r8": "cpu",
+    "raft_ft": "cpu",
+    "raft_small_r4": "cpu",
+    "raft_small_r8": "cpu",
+    "raft_small": "cpu",
+    "raft_small_ft_r4": "cpu",
+    "raft_small_ft_r8": "cpu",
+    "raft_small_ft": "cpu"
+  },
+  "checkpoints": {
+    "raft_ft_r4": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft-44bcc668.pth",
+      "sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13"
+    },
+    "raft_ft_r8": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft-44bcc668.pth",
+      "sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13"
+    },
+    "raft_ft": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft-44bcc668.pth",
+      "sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13"
+    },
+    "raft_small_ft_r4": {
+      "release": "weights-n3",
+      "asset": "raft_small_ft-b666aaad.pth",
+      "sha256": "b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137"
+    },
+    "raft_small_ft_r8": {
+      "release": "weights-n3",
+      "asset": "raft_small_ft-b666aaad.pth",
+      "sha256": "b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137"
+    },
+    "raft_small_ft": {
+      "release": "weights-n3",
+      "asset": "raft_small_ft-b666aaad.pth",
+      "sha256": "b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137"
+    }
+  },
+  "held_out_sites": [
+    "alps",
+    "libya4"
+  ],
+  "run": {
+    "allow_held_out": true,
+    "band_pairs": null,
+    "config": "configs/n3-curve.toml",
+    "data_dir": "data",
+    "degradations": [
+      "clean",
+      "mild",
+      "hard"
+    ],
+    "degradations_config": "configs/degradations.toml",
+    "device": "cpu",
+    "failure_threshold": 1.0,
+    "local_length": 64.0,
+    "max_local_shift": 0.8,
+    "max_rotation": 0.2,
+    "max_scale_change": 0.002,
+    "max_shear": 0.002,
+    "max_shift": 4.0,
+    "methods": [
+      "raft_r4",
+      "raft_r8",
+      "raft",
+      "raft_ft_r4",
+      "raft_ft_r8",
+      "raft_ft",
+      "raft_small_r4",
+      "raft_small_r8",
+      "raft_small",
+      "raft_small_ft_r4",
+      "raft_small_ft_r8",
+      "raft_small_ft"
+    ],
+    "methods_config": "configs/methods.toml",
+    "out": "outputs/n3-curve/torch",
+    "pairs": 100,
+    "repeats": 1,
+    "scenarios": [
+      "translation",
+      "affine",
+      "dense"
+    ],
+    "seed": 0,
+    "sites": [
+      "alps",
+      "libya4"
+    ],
+    "sites_config": "configs/sites.toml",
+    "size": 256,
+    "warmup": 1
+  }
+}

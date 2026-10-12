@@ -1,0 +1,108 @@
+{
+  "recorded_at": "2026-10-11T23:05:27+00:00",
+  "code": {
+    "commit": "32d5d3fdf57aaf0262d6fd8400d494ca58f145ac",
+    "dirty": false
+  },
+  "machine": {
+    "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "cpu": "Apple M1",
+    "memory_gib": 8.0
+  },
+  "gpu": null,
+  "threads": {
+    "cpu_count": 8,
+    "usable_cpus": 8,
+    "opencv": 8,
+    "torch": null,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+  },
+  "python": "3.13.7",
+  "libraries": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "scikit-image": "0.26.0",
+    "opencv-python-headless": "5.0.0.93",
+    "rasterio": "1.5.1",
+    "arosics": "1.13.2",
+    "GDAL": "3.13.3",
+    "torch": "2.14.0",
+    "torchvision": "0.29.0",
+    "onnx": "1.23.0",
+    "onnxruntime": "1.30.0"
+  },
+  "cost": {
+    "warmup": 1,
+    "repeats": 3,
+    "process_peak_rss_mib": 480.015625,
+    "memory": {
+      "phase_correlation": "tracemalloc",
+      "phase_correlation_hann": "tracemalloc",
+      "sift_ransac": "tracemalloc",
+      "arosics": "tracemalloc"
+    },
+    "run_seconds": 1381.422486125026
+  },
+  "devices": {
+    "phase_correlation": "cpu",
+    "phase_correlation_hann": "cpu",
+    "sift_ransac": "cpu",
+    "arosics": "cpu"
+  },
+  "checkpoints": {},
+  "held_out_sites": [
+    "alps",
+    "libya4"
+  ],
+  "run": {
+    "allow_held_out": true,
+    "band_pairs": null,
+    "config": "configs/n3.toml",
+    "data_dir": "data",
+    "degradations": [
+      "clean",
+      "mild",
+      "hard"
+    ],
+    "degradations_config": "configs/degradations.toml",
+    "device": "cpu",
+    "failure_threshold": 1.0,
+    "local_length": 64.0,
+    "max_local_shift": 0.8,
+    "max_rotation": 0.2,
+    "max_scale_change": 0.002,
+    "max_shear": 0.002,
+    "max_shift": 4.0,
+    "methods": [
+      "phase_correlation",
+      "phase_correlation_hann",
+      "sift_ransac",
+      "arosics"
+    ],
+    "methods_config": "configs/methods.toml",
+    "out": "outputs/n3-m1",
+    "pairs": 100,
+    "repeats": 3,
+    "scenarios": [
+      "translation",
+      "affine",
+      "dense"
+    ],
+    "seed": 0,
+    "sites": [
+      "beauce",
+      "toulouse",
+      "vosges",
+      "marseille",
+      "alps",
+      "libya4"
+    ],
+    "sites_config": "configs/sites.toml",
+    "size": 256,
+    "warmup": 1
+  }
+}

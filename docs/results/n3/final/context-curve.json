@@ -1,0 +1,334 @@
+{
+  "code": {
+    "commit": "32d5d3fdf57aaf0262d6fd8400d494ca58f145ac",
+    "dirty": false
+  },
+  "run": {
+    "benchmark": true,
+    "gpu": "outputs/kaggle/outputs/n3-curve-gpu",
+    "methods_config": "configs/methods.toml",
+    "out": "outputs/n3-curve",
+    "rehearsal": false
+  },
+  "checkpoints": {
+    "raft_ft_r4": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft-44bcc668.pth",
+      "sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13"
+    },
+    "raft_ft_r8": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft-44bcc668.pth",
+      "sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13"
+    },
+    "raft_ft": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft-44bcc668.pth",
+      "sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13"
+    },
+    "raft_small_ft_r4": {
+      "release": "weights-n3",
+      "asset": "raft_small_ft-b666aaad.pth",
+      "sha256": "b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137"
+    },
+    "raft_small_ft_r8": {
+      "release": "weights-n3",
+      "asset": "raft_small_ft-b666aaad.pth",
+      "sha256": "b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137"
+    },
+    "raft_small_ft": {
+      "release": "weights-n3",
+      "asset": "raft_small_ft-b666aaad.pth",
+      "sha256": "b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137"
+    },
+    "raft_r4_onnx": {
+      "path": "outputs/onnx/raft_large_r4.onnx",
+      "sha256": "9423fb88287f9cac25e81e3e2a8c66a1648bedaffb216f77db3aafd1bb137a89",
+      "holds": {
+        "weights_sha256": "ff5fadd56d26b40647388883af1547351ea17868b765c05b27231e72dd16a322",
+        "model": "large",
+        "iterations": "4",
+        "fine_tuned": "false",
+        "weights": "raft_large_C_T_SKHT_V2-ff5fadd5.pth"
+      }
+    },
+    "raft_r8_onnx": {
+      "path": "outputs/onnx/raft_large_r8.onnx",
+      "sha256": "4f676bd522d6fbdad0888f241fb621740cf48cbd0dbd674e3a0ab2bacab5a85a",
+      "holds": {
+        "weights_sha256": "ff5fadd56d26b40647388883af1547351ea17868b765c05b27231e72dd16a322",
+        "model": "large",
+        "iterations": "8",
+        "fine_tuned": "false",
+        "weights": "raft_large_C_T_SKHT_V2-ff5fadd5.pth"
+      }
+    },
+    "raft_onnx": {
+      "path": "outputs/onnx/raft_large_r12.onnx",
+      "sha256": "9b94acd758745fa7498d44988e3e94a5e911fd88edb28a509bfead804d065d4f",
+      "holds": {
+        "weights_sha256": "ff5fadd56d26b40647388883af1547351ea17868b765c05b27231e72dd16a322",
+        "model": "large",
+        "iterations": "12",
+        "fine_tuned": "false",
+        "weights": "raft_large_C_T_SKHT_V2-ff5fadd5.pth"
+      }
+    },
+    "raft_ft_r4_onnx": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft_r4-c8ee13ca.onnx",
+      "sha256": "c8ee13ca706020957af22b3f0b1a686e6bc562e010cfbc83c8ebbb6fa39b1ede",
+      "holds": {
+        "weights_sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13",
+        "model": "large",
+        "iterations": "4",
+        "fine_tuned": "true",
+        "weights": "raft_large_ft-44bcc668.pth"
+      }
+    },
+    "raft_ft_r8_onnx": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft_r8-81366280.onnx",
+      "sha256": "813662803b0cca223bcde6a9c1be0f7d6c1e7e515301961624c2ebf8213afe2c",
+      "holds": {
+        "weights_sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13",
+        "model": "large",
+        "iterations": "8",
+        "fine_tuned": "true",
+        "weights": "raft_large_ft-44bcc668.pth"
+      }
+    },
+    "raft_ft_onnx": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft_r12-da410478.onnx",
+      "sha256": "da410478e79cb32343b6f8c2c0f88e53d0b93d192a1152d8b3e088aef242fcfe",
+      "holds": {
+        "weights_sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13",
+        "model": "large",
+        "iterations": "12",
+        "fine_tuned": "true",
+        "weights": "raft_large_ft-44bcc668.pth"
+      }
+    },
+    "raft_ft_r4_onnx_int8": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft_r4_int8-51b27700.onnx",
+      "sha256": "51b27700729010b0d2ecd67f8ebdb22619c8bcb3de1fbfd3ef81ecca63e05dd0",
+      "holds": {
+        "model": "large",
+        "iterations": "4",
+        "weights_sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13",
+        "calibration_pairs": "36",
+        "fine_tuned": "true",
+        "calibration_pair_index": "10",
+        "calibration_method": "minmax",
+        "weights": "raft_large_ft-44bcc668.pth",
+        "quantization": "static",
+        "quantized_from_sha256": "c8ee13ca706020957af22b3f0b1a686e6bc562e010cfbc83c8ebbb6fa39b1ede"
+      }
+    },
+    "raft_ft_r8_onnx_int8": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft_r8_int8-3d91f7b9.onnx",
+      "sha256": "3d91f7b91ca04418de0f119c2d7738ed2272ace7b5548b290aa367dbb72e4dd3",
+      "holds": {
+        "model": "large",
+        "iterations": "8",
+        "weights_sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13",
+        "calibration_pairs": "36",
+        "fine_tuned": "true",
+        "calibration_pair_index": "10",
+        "calibration_method": "minmax",
+        "weights": "raft_large_ft-44bcc668.pth",
+        "quantization": "static",
+        "quantized_from_sha256": "813662803b0cca223bcde6a9c1be0f7d6c1e7e515301961624c2ebf8213afe2c"
+      }
+    },
+    "raft_ft_onnx_int8": {
+      "release": "weights-n3",
+      "asset": "raft_large_ft_r12_int8-97b6a8c7.onnx",
+      "sha256": "97b6a8c7e0e66f008de4ffcc61030c03bc18a9587e236af8ef5173b12ccff609",
+      "holds": {
+        "model": "large",
+        "iterations": "12",
+        "weights_sha256": "44bcc668d20a633410259e43de2c56a4712c4e23860fb8f456cc5bb6a8589d13",
+        "calibration_pairs": "36",
+        "fine_tuned": "true",
+        "calibration_pair_index": "10",
+        "calibration_method": "minmax",
+        "weights": "raft_large_ft-44bcc668.pth",
+        "quantization": "static",
+        "quantized_from_sha256": "da410478e79cb32343b6f8c2c0f88e53d0b93d192a1152d8b3e088aef242fcfe"
+      }
+    },
+    "raft_small_r4_onnx": {
+      "path": "outputs/onnx/raft_small_r4.onnx",
+      "sha256": "631803dddd730f657a91a551af8dedfd5204714946676042a2c6e562525381c8",
+      "holds": {
+        "weights_sha256": "01064c6dba73b0fc9fc8edf772248560a00a3acfd62ac6677e9eeebad9680e27",
+        "model": "small",
+        "iterations": "4",
+        "fine_tuned": "false",
+        "weights": "raft_small_C_T_V2-01064c6d.pth"
+      }
+    },
+    "raft_small_r8_onnx": {
+      "path": "outputs/onnx/raft_small_r8.onnx",
+      "sha256": "d8e6b62ba3e5dac15407533b1cf5ac0b34ff49270e7b701f079b1e0257c9eae6",
+      "holds": {
+        "weights_sha256": "01064c6dba73b0fc9fc8edf772248560a00a3acfd62ac6677e9eeebad9680e27",
+        "model": "small",
+        "iterations": "8",
+        "fine_tuned": "false",
+        "weights": "raft_small_C_T_V2-01064c6d.pth"
+      }
+    },
+    "raft_small_onnx": {
+      "path": "outputs/onnx/raft_small_r12.onnx",
+      "sha256": "23d2500b220d9bb713c855eab7648aaa1ace25226a35a51132bea7153eb164be",
+      "holds": {
+        "weights_sha256": "01064c6dba73b0fc9fc8edf772248560a00a3acfd62ac6677e9eeebad9680e27",
+        "model": "small",
+        "iterations": "12",
+        "fine_tuned": "false",
+        "weights": "raft_small_C_T_V2-01064c6d.pth"
+      }
+    },
+    "raft_small_ft_r4_onnx": {
+      "release": "weights-n3",
+      "asset": "raft_small_ft_r4-72fa35ab.onnx",
+      "sha256": "72fa35ab2a2c537a6f3dda9aacc057498cbd69a7ac676c6eee0352b189f17361",
+      "holds": {
+        "weights_sha256": "b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137",
+        "model": "small",
+        "iterations": "4",
+        "fine_tuned": "true",
+        "weights": "raft_small_ft-b666aaad.pth"
+      }
+    },
+    "raft_small_ft_r8_onnx": {
+      "release": "weights-n3",
+      "asset": "raft_small_ft_r8-7cac1561.onnx",
+      "sha256": "7cac15615efd9ec3771421f6eab8daa3b19da78f21e86b2aba6a238fcbec6359",
+      "holds": {
+        "weights_sha256": "b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137",
+        "model": "small",
+        "iterations": "8",
+        "fine_tuned": "true",
+        "weights": "raft_small_ft-b666aaad.pth"
+      }
+    },
+    "raft_small_ft_onnx": {
+      "release": "weights-n3",
+      "asset": "raft_small_ft_r12-c7671f01.onnx",
+      "sha256": "c7671f015621fa28434bd9f39b61632ebec45650791fd6611ce2cecbddf4ed76",
+      "holds": {
+        "weights_sha256": "b666aaadf41886411bc53665aa6c3e30ab699d211cbe4ae97025c41e0a10e137",
+        "model": "small",
+        "iterations": "12",
+        "fine_tuned": "true",
+        "weights": "raft_small_ft-b666aaad.pth"
+      }
+    }
+  },
+  "held_out_sites": [
+    "alps",
+    "libya4"
+  ],
+  "machine": {
+    "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "cpu": "Apple M1",
+    "memory_gib": 8.0
+  },
+  "threads": {
+    "cpu_count": 8,
+    "usable_cpus": 8,
+    "opencv": 8,
+    "torch": null,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+  },
+  "libraries": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "scikit-image": "0.26.0",
+    "opencv-python-headless": "5.0.0.93",
+    "rasterio": "1.5.1",
+    "arosics": "1.13.2",
+    "GDAL": "3.13.3",
+    "torch": "2.14.0",
+    "torchvision": "0.29.0",
+    "onnx": "1.23.0",
+    "onnxruntime": "1.30.0"
+  },
+  "cost": {
+    "warmup": 1,
+    "repeats": 1,
+    "process_peak_rss_mib": 1089.359375,
+    "memory": {
+      "raft_r4_onnx": "onnxruntime",
+      "raft_r8_onnx": "onnxruntime",
+      "raft_onnx": "onnxruntime",
+      "raft_ft_r4_onnx": "onnxruntime",
+      "raft_ft_r8_onnx": "onnxruntime",
+      "raft_ft_onnx": "onnxruntime",
+      "raft_ft_r4_onnx_int8": "onnxruntime",
+      "raft_ft_r8_onnx_int8": "onnxruntime",
+      "raft_ft_onnx_int8": "onnxruntime",
+      "raft_small_r4_onnx": "onnxruntime",
+      "raft_small_r8_onnx": "onnxruntime",
+      "raft_small_onnx": "onnxruntime",
+      "raft_small_ft_r4_onnx": "onnxruntime",
+      "raft_small_ft_r8_onnx": "onnxruntime",
+      "raft_small_ft_onnx": "onnxruntime",
+      "phase_correlation": "tracemalloc",
+      "sift_ransac": "tracemalloc",
+      "arosics": "tracemalloc"
+    },
+    "run_seconds": 12799.809537417023
+  },
+  "read": {
+    "torch": {
+      "code": {
+        "commit": "32d5d3fdf57aaf0262d6fd8400d494ca58f145ac",
+        "dirty": false
+      },
+      "recorded_at": "2026-10-12T07:31:48+00:00",
+      "machine": {
+        "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+        "architecture": "arm64",
+        "cpu": "Apple M1",
+        "memory_gib": 8.0
+      }
+    },
+    "onnx": {
+      "code": {
+        "commit": "32d5d3fdf57aaf0262d6fd8400d494ca58f145ac",
+        "dirty": false
+      },
+      "recorded_at": "2026-10-12T04:45:51+00:00",
+      "machine": {
+        "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+        "architecture": "arm64",
+        "cpu": "Apple M1",
+        "memory_gib": 8.0
+      }
+    },
+    "n3-curve-gpu": {
+      "code": {
+        "commit": "1f80a5abcf85b5cbcef9cd24daefd27f7daa9db7",
+        "dirty": false
+      },
+      "recorded_at": "2026-10-11T20:07:31+00:00",
+      "machine": {
+        "system": "Linux-6.18.48+-x86_64-with-glibc2.35",
+        "architecture": "x86_64",
+        "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+        "memory_gib": 31.346752166748047
+      }
+    }
+  }
+}

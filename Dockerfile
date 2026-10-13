@@ -17,8 +17,10 @@ FROM python:3.13-slim
 # Where the fine-tuned files are cached and read: `satreg` works out PyTorch's
 # cache directory from TORCH_HOME without importing PyTorch. matplotlib wants a
 # directory it can write to, whichever user the container image runs as.
+# ONNX Runtime 1.31 carries telemetry, which is on unless this variable is set.
 ENV TORCH_HOME=/opt/satreg/cache \
     MPLCONFIGDIR=/tmp/matplotlib \
+    ORT_DISABLE_TELEMETRY=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONDONTWRITEBYTECODE=1 \

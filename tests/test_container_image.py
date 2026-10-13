@@ -136,3 +136,15 @@ def test_the_token_is_a_build_secret_and_never_an_argument_or_a_variable():
     assert not any(
         "TOKEN" in line for line in instructions if line.startswith(("ARG", "ENV"))
     )
+
+
+def test_onnx_runtime_telemetry_is_turned_off_in_the_container_image():
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    # One line per instruction, as above.
+    instructions = dockerfile.replace("\\\n", " ").splitlines()
+
+    assert any(
+        "ORT_DISABLE_TELEMETRY=1" in line.split()
+        for line in instructions
+        if line.startswith("ENV")
+    )

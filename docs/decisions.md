@@ -5578,8 +5578,12 @@ use. The full tables stay reproducible outside the container image, with
   decimals.
 - It runs as root unless `--user` is given. The cache of the nine files is
   read-only to other users, which is all a run needs.
-- Its size is not measured yet: there is no Docker on the M1. CI prints it on
-  every run, and the first figure will be written here.
+- It is light next to one with PyTorch, not small: 942 MB on amd64 and 908 MB
+  on arm64, as `docker image inspect` gave it on the CI machines on 2026-10-13
+  (commit `d65211b`). CI prints the figure on every run. The ten packages with
+  compiled code are about 580 MB of it on amd64 and 530 MB on arm64, measured
+  on their unpacked wheels (OpenCV, rasterio and SciPy are over 100 MB each on
+  amd64), and the nine ONNX files 97 MB.
 
 ## 2026-10-13: The nine ONNX files are put in the container image when it is built
 
@@ -5739,6 +5743,56 @@ the figures of 2 pairs are not read as results.
 - None of this ran in a container before the first push: the M1 has no
   Docker. What was rehearsed is the Python side, with the same packages and
   no PyTorch, and the script against a stand-in for `docker`.
+  The first run (commit `16b0369`) built both container images and failed at
+  the first command, a system library missing (first entry of this date). The
+  second (`d65211b`) passed on both machines: about a minute to build, a
+  minute to try, two minutes a job.
+- The int8 rows are not the same on the two machines: `raft_ft_onnx_int8` on
+  `clean` has a mean EPE of 0.0269 px on amd64 and 0.0227 px on arm64, on the
+  same two pairs. The float rows and the classic ones agree to the four
+  decimals shown.
 - The checks are on one demo pair and on the shape of a table. A method that
   ran and gave poor figures on the benchmark would pass.
 - Each run installs the packages and downloads the nine files again.
+
+## 2026-10-13: ONNX Runtime's telemetry is turned off in the container image
+
+**Decision.** The `Dockerfile` sets `ORT_DISABLE_TELEMETRY=1`. The try script
+fails when a command that loads a model prints a telemetry message, and a
+test checks the variable is set.
+
+*My call* (2026-10-13, the three options laid out): the variable in the
+`Dockerfile`, rather than ONNX Runtime pinned to 1.30.0, or nothing changed
+and a line in the limits.
+
+**Why.** The container image takes the newest ONNX Runtime, 1.31.0 on the day
+of the first build. The first CI run that passed showed a warning at each
+model load: "Failed to persist telemetry device ID; using an in-memory
+identifier". Its Linux wheels, amd64 and arm64, were then read: they hold
+telemetry code (`telemetry_1ds.cc`), the address
+`https://mobile.events.data.microsoft.com/OneCollector/1.0` and the name
+`ORT_DISABLE_TELEMETRY`. The 1.30.0 of the development machine, which the
+published tables were made with, has none of the three. On the M1 with
+1.31.0 and a home directory that cannot be written to, the warning appears,
+and is gone with the variable set to 1. A container image said to need no
+network when it runs should not carry a library that tries to report its
+use, and one line turns that off.
+
+**Rejected.** Pinning ONNX Runtime to 1.30.0: it is the version of the
+published tables and has no telemetry, but it goes back on one package only
+on a limit already written (library versions are not pinned), and the
+question comes back at the next upgrade. Nothing changed: every command CI
+runs has no network, so nothing leaves there, but a user who runs the
+container image with a network would not know.
+
+**Limits.**
+
+- What ONNX Runtime 1.31.0 sends, and whether it sends anything by default,
+  was not looked at: no run was watched with a network. What is known is
+  what the wheels hold and that the warning goes with the variable.
+- That the variable turns the telemetry off is read from its name and from
+  the warning, on macOS. In the container image the check is that no
+  telemetry message is printed, with no network in any case.
+- Outside the container image nothing is changed: `pip install ".[onnx]"`
+  takes 1.31.0 as it comes, and the package sets nothing. Whether the package
+  should turn it off itself is not decided.

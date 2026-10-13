@@ -15,6 +15,9 @@ user who calls this script, and writes to a directory of the host:
 3. `satreg benchmark --config configs/container-image.toml`, whose table must
    have one row per preset and method.
 
+A command that loads a model must not print a telemetry message: ONNX Runtime's
+telemetry is turned off in the container image, and says so when it is not.
+
 The script needs Python 3.11 and Docker, and nothing of the package: it reads
 the repository's files and what the containers wrote. It stops at the first
 check that fails, with a non-zero exit code.
@@ -48,6 +51,9 @@ LISTED = "Methods that can run here: "
 # Where the host directory is mounted in the container.
 MOUNT = "/out"
 
+# What ONNX Runtime's messages about its telemetry have in common.
+TELEMETRY = "telemetry"
+
 
 class Failed(Exception):
     """A check of the container image did not hold."""
@@ -78,6 +84,12 @@ def satreg(tag: str, out: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
     print(done.stdout + done.stderr, end="", flush=True)
     return done
+
+
+def check_no_telemetry(done: subprocess.CompletedProcess[str], command: str) -> None:
+    """A command printed nothing about telemetry, which is turned off."""
+    if TELEMETRY in (done.stdout + done.stderr).lower():
+        raise Failed(f"{command} printed a telemetry message")
 
 
 def check_listing(tag: str, out: Path, methods: list[str]) -> None:
@@ -121,6 +133,7 @@ def check_register(tag: str, out: Path, method: str, threshold: float) -> None:
     )
     if done.returncode != 0:
         raise Failed(f"register --method {method} exited with {done.returncode}")
+    check_no_telemetry(done, f"register --method {method}")
     written = out / f"register-{method}"
     for name in ("displacement.json", "corrected.tif"):
         if not (written / name).is_file():
@@ -148,6 +161,7 @@ def check_benchmark(tag: str, out: Path, config: dict, flags: list[str]) -> None
     )
     if done.returncode != 0:
         raise Failed(f"benchmark exited with {done.returncode}")
+    check_no_telemetry(done, "benchmark")
     summary = out / "benchmark" / "summary.csv"
     if not summary.is_file():
         raise Failed("benchmark wrote no summary.csv")

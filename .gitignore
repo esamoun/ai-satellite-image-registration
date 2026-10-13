@@ -12,6 +12,8 @@ __pycache__/
 .ruff_cache/
 .DS_Store
 
-# Downloaded imagery and benchmark runs are regenerated, never committed.
+# Downloaded imagery and benchmark runs are regenerated, never committed. The
+# one benchmark chip the container image carries is committed apart, in
+# docker/data/ (docs/decisions.md, entry of 2026-10-13).
 /data/
 /outputs/

@@ -1,9 +1,10 @@
-# Lint and the test suite, on every push and every pull request, so that a regression is caught
-# by the repository rather than by the next person to read the code.
+# Lint, the test suite and the container image, on every push and every pull request, so that a
+# regression is caught by the repository rather than by the next person to read the code.
 #
 # Why pip, why the two make targets, and why AROSICS is left out: docs/decisions.md, "CI runs
-# the same two make targets as a laptop, without AROSICS". The rationale lives there and is not
-# repeated here, so the two cannot drift apart.
+# the same two make targets as a laptop, without AROSICS". Why the container image is built on
+# two machines and tried with a shorter benchmark: the entries of 2026-10-13. The rationale
+# lives there and is not repeated here, so the two cannot drift apart.
 
 name: CI
 
@@ -69,3 +70,41 @@ jobs:
 
       - name: Test
         run: make test
+
+  container-image:
+    name: container image (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # Report both architectures. If arm64 breaks, the amd64 result is still worth having.
+      fail-fast: false
+      matrix:
+        # One machine per architecture, each building for itself: nothing is emulated.
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      # The script that tries the container image runs on the machine, not in a container. It
+      # needs Python and nothing of the package, so nothing is installed.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      # The nine ONNX files are assets of a release of this repository, private for now: the
+      # job's own token reads them, as a build secret that no layer keeps. Nothing is pushed to
+      # a registry.
+      - name: Build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: make container-image
+
+      # With no network: the methods listed, `satreg register` with a classic method and a
+      # fine-tuned one, and the small benchmark on 2 pairs a cell instead of 20.
+      - name: Try
+        run: make container-image-try CONTAINER_TRY="--pairs 2 --repeats 1"
+
+      - name: Show the benchmark's table
+        run: cat outputs/container-image/benchmark/summary.md >> "$GITHUB_STEP_SUMMARY"

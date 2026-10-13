@@ -1,0 +1,16 @@
+# Everything is left out of the build context, then what the Dockerfile copies
+# is let back in. A new directory at the root, a cache of chips or a run's
+# outputs, then never reaches the container image by accident.
+*
+
+!pyproject.toml
+!README.md
+!LICENSE
+!src/
+!configs/
+!examples/
+!docker/data/
+
+**/__pycache__/
+**/*.egg-info/
+**/.DS_Store

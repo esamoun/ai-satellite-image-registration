@@ -5520,3 +5520,220 @@ wait on the one part of N4 whose outcome is not known.
 `satreg register`. The page shows four demo pairs, each under two presets and
 as two motions, out of the benchmark's. Their files add 2.59 MB to the
 repository, and git keeps a new copy of each file a later run changes.
+
+## 2026-10-13: The container image is light: no PyTorch, the classic methods and fine-tuned RAFT under ONNX Runtime
+
+**Decision.** The `Dockerfile` builds one container image, for amd64 and
+arm64, on `python:3.13-slim`. It holds the package, ONNX Runtime, the
+configs, the demo pairs of `examples/`, the nine fine-tuned RAFT files of the
+release and the Beauce benchmark chip. `satreg` is its entry point. It runs
+twelve methods: phase correlation with and without a Hann window, SIFT +
+RANSAC, and fine-tuned RAFT under ONNX Runtime (large, small and the int8
+copies of large, each with 12, 8 and 4 refinements). `satreg register` with no
+method lists those twelve there and no other.
+
+*My call* (2026-10-12, when N4 was planned): a light container image without
+PyTorch, rather than a full one or both.
+
+**Why.** PyTorch is the heaviest thing the project installs, 583 MB for
+`torch` alone in the development machine's environment, and the container
+image is there to register a pair and run a small benchmark, which N3's
+exports do without it. Every dependency left has a Linux wheel for Python
+3.13 on amd64 and arm64 (checked on PyPI, 2026-10-12), so nothing is compiled
+and no system package is installed. ONNX Runtime is installed alone and not
+through the `onnx` extra: that extra also brings `onnx`, which only
+`satreg export` needs, and export needs PyTorch.
+
+**What is not in it, and why.**
+
+- **PyTorch**, so every method that runs under it: RAFT pretrained and
+  fine-tuned, LightGlue and RoMa.
+- **AROSICS**, which needs a system GDAL matching pip's bindings (entry of
+  2026-09-23).
+- **Pretrained RAFT under ONNX Runtime.** Its exports are not published:
+  `satreg export` writes them to `outputs/onnx` from torchvision's weights,
+  with PyTorch. The container image therefore compares the classic methods
+  with fine-tuned RAFT, and has no pretrained deep-learning method to set
+  next to them.
+
+**Rejected.** A full container image with PyTorch, AROSICS and RoMa: PyTorch
+alone would about double what is installed, AROSICS needs a system GDAL to
+match, and the deep-learning tables were made on a Kaggle GPU that a laptop's
+container does not have. Both: two things to build, try and explain for one
+use. The full tables stay reproducible outside the container image, with
+`make`.
+
+**Limits.**
+
+- Library versions are not pinned. `pip` takes the newest wheels on the day
+  of the build: installed that way on the M1 on 2026-10-13, numpy was 2.5.4,
+  ONNX Runtime 1.31.0 and rasterio 1.5.2, where the environment the published
+  tables were made in has 2.5.3, 1.30.0 and 1.5.1. Two builds a month apart
+  are not the same container image, and a figure can move in its last
+  decimals.
+- It runs as root unless `--user` is given. The cache of the nine files is
+  read-only to other users, which is all a run needs.
+- Its size is not measured yet: there is no Docker on the M1. CI prints it on
+  every run, and the first figure will be written here.
+
+## 2026-10-13: The nine ONNX files are put in the container image when it is built
+
+**Decision.** One step of the `Dockerfile` calls `weights.fetch` for each of
+the nine files of `RELEASED_ONNX`, into the cache the methods read
+(`TORCH_HOME` is `/opt/satreg/cache` in the container image). Each file is
+checked against the SHA-256 pinned in `src/satreg/weights.py`, as on a
+laptop, so a file with another hash fails the build. While the repository is
+private the download needs a token. It is a build secret
+(`--secret id=github_token,env=GITHUB_TOKEN`): mounted for that step alone
+and written to no layer.
+
+*My call* (2026-10-12, when N4 was planned): the files put in at build time,
+rather than downloaded at first use.
+
+**Why.** A container image that downloads at first use needs the network on
+its first run, and a token for as long as the repository is private: the
+reader would have to hand a secret to a container to see a demo. With the
+files inside, every run works with `--network none`, which is how CI tries
+it, and what was checked at build is what runs. The nine files are 97 MB.
+Fetched that way on the M1, outside a container, they took 16 s and all
+passed their hash.
+
+**Why a build secret.** A build argument (`ARG`) stays readable in the
+history of the container image, and an environment variable (`ENV`) in every
+container run from it. A secret mount is in neither. A test reads the
+`Dockerfile` and fails if an `ARG` or an `ENV` names a token. With no secret
+given, `weights.fetch` reads the release's public address, which will answer
+once the repository is public: the same `Dockerfile` then builds with no
+token.
+
+**Rejected.** Download at first use: above. Copying the files from the
+machine's cache into the build: CI has no such cache, so the files would
+have to be committed, and the weights stay out of the history (entry of
+2026-10-07).
+
+**Limits.** Whoever has the container image has the nine files, without a
+token. It is published nowhere before ticket 09, after the licence check of
+ticket 08. The build downloads them again on every CI run: nothing is cached
+between runs.
+
+## 2026-10-13: The Beauce benchmark chip is committed, and copied into the container image
+
+**Decision.** `docker/data/chips/beauce/B04_84ca7aa954b2.tif` (1.55 MB) is
+the Beauce benchmark chip `satreg fetch` wrote on the M1: band B04, 1,024 px
+a side, scene `S2B_T31UCP_20250701T110241_L2A`, the one the published
+figures of Beauce were made on. The `Dockerfile` copies `docker/data/` to
+`data/`, where `satreg benchmark` looks for it, so the small benchmark runs
+with no network. It contains modified Copernicus Sentinel data 2025, and
+`docker/data/README.md` says so.
+
+*My call* (2026-10-12, when N4 was planned): the chip in the container image,
+rather than fetched when the benchmark runs.
+
+*My call* (2026-10-13, the three options laid out): the chip committed in the
+repository, rather than fetched from the catalogue when the container image
+is built with a check of the scene, or published as a release asset with a
+pinned hash.
+
+**Why in the container image.** `satreg fetch` asks the catalogue for the
+least cloudy scene of a date range and pins none. Run later, it can return
+another scene, and the benchmark's figures would then be those of other
+pixels. It also needs the network, which the container image is tried
+without.
+
+**Why committed.** CI builds the container image from a clone, and a clone
+has no `data/`. A committed file needs no network, no token and no catalogue
+at build time, and it is the same bytes in every build: a test pins its
+SHA-256 and its scene. It is one file of 1.55 MB that has no reason to
+change.
+
+**The rule it rubs against.** `.gitignore` said "Downloaded imagery and
+benchmark runs are regenerated, never committed", and `/data/` is ignored.
+This chip is downloaded imagery, committed. The option was laid out with
+that conflict named. Two files already made the same exception, under the
+same Copernicus notice: the 320 px test fixture cut from this chip (entry of
+2026-09-23) and the demo pairs of `examples/` (entry of 2026-10-12). The
+comment in `.gitignore` now names this one too. `data/` itself stays ignored:
+the chip is in `docker/data/`, apart from the cache a laptop fills.
+
+**Why not in `examples/`.** `satreg demo` rewrites that directory's manifest
+and README, and a benchmark chip is not a demo pair.
+
+**Rejected.** A fetch at build time that fails when the scene is not the
+expected one: the build would depend on the catalogue answering, and the
+day it prefers another scene every build fails until the code changes. A
+release asset: one more file to publish and pin for 1.55 MB, and a token at
+build time for it while the repository is private.
+
+**Limits.**
+
+- The chip's file name ends with a hash of Beauce's entry in
+  `configs/sites.toml` and of the catalogue's parameters. If either changes,
+  the benchmark looks for another file and would ask the catalogue. A test
+  fails first, naming the file.
+- The file is a copy of the M1's cache, and nothing downloads it again to
+  compare. The catalogue could reprocess the scene, and a later
+  `satreg fetch` on a laptop would then give other bytes than the committed
+  ones.
+- Git keeps 1.55 MB for good, and another copy if the chip is ever replaced.
+
+## 2026-10-13: CI builds the container image on an amd64 machine and an arm64 one, and tries it with no network
+
+**Decision.** The workflow has a third job, `container-image`, run twice on
+every push: on `ubuntu-latest` (amd64) and on `ubuntu-24.04-arm` (arm64). It
+calls two `make` targets. `make container-image` is the `docker build`.
+`make container-image-try` runs `scripts/try_container_image.py`, which
+starts containers with `--network none`, as the calling user, with one host
+directory mounted, and checks three things:
+
+1. `satreg register` with no method lists the twelve methods of
+   `configs/container-image.toml` and no other. A method that needs PyTorch,
+   AROSICS or a file that is not there is one more or one fewer, and fails
+   the job.
+2. `satreg register` on the Beauce demo pair, with `phase_correlation` and
+   with `raft_ft_onnx`, gives a displacement within 1 px, the benchmark's
+   failure threshold, of the true shift written in `examples/manifest.json`.
+3. `satreg benchmark --config configs/container-image.toml` ends with one
+   row per preset and method.
+
+In CI the benchmark draws 2 pairs a cell and times one call a pair
+(`--pairs 2 --repeats 1`), not the config's 20 and 3. The table goes to the
+run's summary. Nothing is pushed to a registry. The `lint` and `test` jobs
+are unchanged.
+
+**Why two machines.** GitHub's arm64 Linux runners are open to private
+repositories since January 2026 (checked 2026-10-13), so each architecture
+is built and run on a processor of its own. Under emulation the arm64 build
+would run several times slower, and RAFT under an emulated processor would
+be tried in conditions no reader has.
+
+**Why make targets and a script.** CI runs what a laptop runs (entry of
+2026-09-23). The script uses the standard library alone: it reads the
+repository's files and what the containers wrote, so it needs Docker and
+Python, not the package.
+
+**Why 2 pairs.** The config's benchmark, 40 pairs each registered by twelve
+methods, took 7 min 10 s on the M1 with its four performance cores, outside a
+container. A CI machine has 2 virtual cores, and the job runs twice on every
+push. The job is there to tell that the container image builds and runs, and
+the figures of 2 pairs are not read as results.
+
+**Rejected.**
+
+- QEMU emulation on the amd64 runner: above.
+- The `docker/*` actions (`setup-buildx-action`, `build-push-action`): they
+  earn their place when a container image is pushed for several
+  architectures at once. Here nothing is pushed, and they would be a second
+  definition of the build next to the Makefile's.
+- The 20 pairs on every push: above.
+
+**Limits.**
+
+- The 20-pair benchmark is never run in the container image by CI. It was
+  run on the M1 in an environment without PyTorch, outside a container.
+  Running it in the container image on a Mac is ticket 04.
+- None of this ran in a container before the first push: the M1 has no
+  Docker. What was rehearsed is the Python side, with the same packages and
+  no PyTorch, and the script against a stand-in for `docker`.
+- The checks are on one demo pair and on the shape of a table. A method that
+  ran and gave poor figures on the benchmark would pass.
+- Each run installs the packages and downloads the nine files again.

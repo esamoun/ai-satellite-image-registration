@@ -1,4 +1,4 @@
-.PHONY: install install-arosics install-dl install-roma install-onnx lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle ablation small onnx curve int8 n3 n3-m1 n3-merge n3-cycle n3-final n3-bands n3-false-change n3-curve n3-dry demo clean
+.PHONY: install install-arosics install-dl install-roma install-onnx lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle ablation small onnx curve int8 n3 n3-m1 n3-merge n3-cycle n3-final n3-bands n3-false-change n3-curve n3-dry demo container-image container-image-try clean
 
 install:
 	pip install -e ".[dev]"
@@ -292,6 +292,27 @@ n3-dry:
 # extra and the released weights, and reads no held-out site.
 demo:
 	satreg demo
+
+# The container image: the package, ONNX Runtime and the nine fine-tuned ONNX
+# files, without PyTorch (Dockerfile). While the repository is private the
+# build downloads the files with a token, passed as a build secret and written
+# to no layer:
+#
+#   GITHUB_TOKEN=$(gh auth token) make container-image
+#
+# `container-image-try` then runs it with no network: the methods it lists,
+# `satreg register` on a demo pair with a classic method and a fine-tuned one,
+# and the small benchmark of configs/container-image.toml (7 minutes on the M1
+# outside a container; CONTAINER_TRY="--pairs 2 --repeats 1" is CI's short run).
+# Both need Docker, and CI runs the same two targets on every push.
+CONTAINER_IMAGE = satreg:local
+CONTAINER_TRY =
+
+container-image:
+	docker build --secret id=github_token,env=GITHUB_TOKEN --tag $(CONTAINER_IMAGE) .
+
+container-image-try:
+	python scripts/try_container_image.py --tag $(CONTAINER_IMAGE) $(CONTAINER_TRY)
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

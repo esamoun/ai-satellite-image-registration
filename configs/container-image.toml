@@ -1,0 +1,57 @@
+# The small benchmark of the container image: Beauce, translations, the `clean`
+# and `hard` presets, 20 pairs a cell, with the methods the container image
+# runs. In the container image:
+#
+#   docker run --rm --network none satreg:local benchmark \
+#       --config configs/container-image.toml
+#
+# It needs no network: the Beauce benchmark chip is in the container image
+# (docker/data/), and so are the nine ONNX files. A pair depends on the seed,
+# the site and its index alone, so these are the first 20 of the 100 Beauce
+# pairs of the published tables: a row here is a fifth of a published row, and
+# is not expected to give its figure.
+#
+# Keys are the options of `satreg benchmark`, with underscores; an option given
+# on the command line overrides its key here. Paths are relative to the working
+# directory, /app in the container image and the repository root on a laptop,
+# where `satreg fetch --sites beauce` first downloads a chip. The reasoning is
+# in docs/decisions.md, entries of 2026-10-13.
+
+[benchmark]
+sites = ["beauce"]
+scenarios = ["translation"]
+degradations = ["clean", "hard"]
+# The classic methods that need no system library, then the fine-tuned RAFT
+# models under ONNX Runtime: large, small and the int8 copies of large, with
+# 12, 8 and 4 refinements. None needs PyTorch.
+methods = [
+    "phase_correlation",
+    "phase_correlation_hann",
+    "sift_ransac",
+    "raft_ft_onnx",
+    "raft_ft_r8_onnx",
+    "raft_ft_r4_onnx",
+    "raft_small_ft_onnx",
+    "raft_small_ft_r8_onnx",
+    "raft_small_ft_r4_onnx",
+    "raft_ft_onnx_int8",
+    "raft_ft_r8_onnx_int8",
+    "raft_ft_r4_onnx_int8",
+]
+
+pairs = 20
+size = 256
+seed = 0
+
+# Shift per component (px), as in N1, N2 and N3.
+max_shift = 4.0
+
+failure_threshold = 1.0
+warmup = 1
+repeats = 3
+
+sites_config = "configs/sites.toml"
+degradations_config = "configs/degradations.toml"
+methods_config = "configs/methods.toml"
+data_dir = "data"
+out = "outputs/container-image"

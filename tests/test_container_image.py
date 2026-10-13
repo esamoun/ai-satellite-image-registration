@@ -1,0 +1,138 @@
+"""What the container image is made of: the benchmark chip it carries, the
+small benchmark it runs and what the Dockerfile copies. Building it and running
+it are CI's job (`make container-image`, `make container-image-try`)."""
+
+import hashlib
+import json
+from pathlib import Path
+
+import rasterio
+
+from satreg.cli import load_run_config, main
+from satreg.ingest import cache_path
+from satreg.methods import load_methods
+from satreg.methods.arosics import Arosics
+from satreg.methods.lightglue import LightGlue
+from satreg.methods.raft import Raft
+from satreg.methods.raft_onnx import RaftOnnx
+from satreg.methods.roma import Roma
+from satreg.sites import load_sites
+from satreg.weights import RELEASED_ONNX
+
+ROOT = Path(__file__).parents[1]
+CONFIGS = ROOT / "configs"
+CONFIG = CONFIGS / "container-image.toml"
+
+# What the Dockerfile copies to `data/` in the container image.
+DATA = ROOT / "docker" / "data"
+
+# The scene the published figures of Beauce were made on, and the chip
+# `satreg fetch` cut from it on the M1.
+SCENE = "S2B_T31UCP_20250701T110241_L2A"
+CHIP_SHA256 = "acce2a314f97121f2590245bf6e4159e88a24d8d83af23f0df0753fa61e7a283"
+
+
+def committed_chip() -> Path:
+    """Where `satreg benchmark` looks for Beauce's chip in the container image."""
+    config = load_sites(CONFIGS / "sites.toml")
+    return cache_path(config.sites["beauce"], config.catalogue, DATA)
+
+
+def test_the_committed_chip_is_the_file_the_benchmark_looks_for():
+    chip = committed_chip()
+
+    assert chip.is_file(), (
+        f"{chip.relative_to(ROOT)} is not committed: Beauce's entry in "
+        "configs/sites.toml changed, and the container image would ask the "
+        "catalogue for a chip with no network"
+    )
+    assert [path.name for path in DATA.rglob("*.tif")] == [chip.name]
+
+
+def test_the_committed_chip_is_the_scene_of_the_published_figures():
+    chip = committed_chip()
+    manifest = json.loads((ROOT / "examples" / "manifest.json").read_text())
+    shown = {pair["scene"] for pair in manifest["pairs"] if pair["site"] == "beauce"}
+
+    assert hashlib.sha256(chip.read_bytes()).hexdigest() == CHIP_SHA256
+    with rasterio.open(chip) as src:
+        assert src.tags()["item_id"] == SCENE
+        assert src.shape == (1024, 1024)
+    assert shown == {SCENE}
+    assert "Copernicus Sentinel data 2025" in (DATA / "README.md").read_text()
+
+
+def test_the_small_benchmark_is_beauce_translations_clean_and_hard_on_20_pairs():
+    options = load_run_config(CONFIG)
+
+    assert options["sites"] == ["beauce"]
+    assert options["scenarios"] == ["translation"]
+    assert options["degradations"] == ["clean", "hard"]
+    assert (options["pairs"], options["size"], options["seed"]) == (20, 256, 0)
+    assert "allow_held_out" not in options
+
+
+def test_no_method_of_the_small_benchmark_needs_pytorch_or_arosics():
+    methods = load_methods(CONFIGS / "methods.toml")
+
+    for name in load_run_config(CONFIG)["methods"]:
+        assert not isinstance(methods[name], (Arosics, LightGlue, Raft, Roma)), name
+
+
+def test_the_small_benchmark_runs_every_released_onnx_file_and_no_other():
+    methods = load_methods(CONFIGS / "methods.toml")
+    exported = [
+        methods[name]
+        for name in load_run_config(CONFIG)["methods"]
+        if isinstance(methods[name], RaftOnnx)
+    ]
+
+    # A method with a `file` instead would read a path that is not there.
+    assert sorted(method.release for method in exported) == sorted(RELEASED_ONNX)
+
+
+def test_the_small_benchmark_runs_on_the_committed_chip_with_no_network(
+    tmp_path, capsys
+):
+    main(
+        ["benchmark", "--config", str(CONFIG)]
+        + ["--methods", "phase_correlation", "--pairs", "2", "--repeats", "1"]
+        + ["--sites-config", str(CONFIGS / "sites.toml")]
+        + ["--degradations-config", str(CONFIGS / "degradations.toml")]
+        + ["--methods-config", str(CONFIGS / "methods.toml")]
+        + ["--data-dir", str(DATA), "--out", str(tmp_path / "out")]
+    )
+
+    printed = capsys.readouterr().out
+    assert "| beauce | translation | clean | phase_correlation | cpu | 2 |" in printed
+    assert "| beauce | translation | hard | phase_correlation | cpu | 2 |" in printed
+
+
+def test_the_build_context_lets_in_what_the_dockerfile_copies():
+    dockerfile = (ROOT / "Dockerfile").read_text().splitlines()
+    let_in = {
+        line.removeprefix("!").rstrip("/")
+        for line in (ROOT / ".dockerignore").read_text().splitlines()
+        if line.startswith("!")
+    }
+    # Every argument of a COPY but the last, which is where it goes.
+    copied = {
+        source.rstrip("/")
+        for line in dockerfile
+        if line.startswith("COPY ")
+        for source in line.split()[1:-1]
+    }
+
+    assert copied == let_in
+    assert all((ROOT / source).exists() for source in copied)
+
+
+def test_the_token_is_a_build_secret_and_never_an_argument_or_a_variable():
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    # One line per instruction: an ENV or a RUN may continue over several.
+    instructions = dockerfile.replace("\\\n", " ").splitlines()
+
+    assert "--mount=type=secret,id=github_token,env=GITHUB_TOKEN" in dockerfile
+    assert not any(
+        "TOKEN" in line for line in instructions if line.startswith(("ARG", "ENV"))
+    )

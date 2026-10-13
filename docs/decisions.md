@@ -5539,8 +5539,13 @@ PyTorch, rather than a full one or both.
 `torch` alone in the development machine's environment, and the container
 image is there to register a pair and run a small benchmark, which N3's
 exports do without it. Every dependency left has a Linux wheel for Python
-3.13 on amd64 and arm64 (checked on PyPI, 2026-10-12), so nothing is compiled
-and no system package is installed. ONNX Runtime is installed alone and not
+3.13 on amd64 and arm64 (checked on PyPI, 2026-10-12), so nothing is compiled.
+One system package is installed, `libexpat1`: rasterio's wheel loads
+`libexpat.so.1` without carrying it, and `python:3.13-slim` does not have it.
+The first CI run found it, when `satreg` failed to start in both container
+images; the ten wheels with compiled code were then read for both
+architectures, and it is the one library they ask for beyond the C and C++
+runtimes and zlib. ONNX Runtime is installed alone and not
 through the `onnx` extra: that extra also brings `onnx`, which only
 `satreg export` needs, and export needs PyTorch.
 

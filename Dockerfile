@@ -11,8 +11,7 @@
 # 2026-10-13. The rationale lives there and is not repeated here.
 
 # The Python the development machine runs. Built for amd64 and arm64: every
-# dependency has a wheel for both, so nothing is compiled and no system
-# package is installed.
+# dependency has a wheel for both, so nothing is compiled.
 FROM python:3.13-slim
 
 # Where the fine-tuned files are cached and read: `satreg` works out PyTorch's
@@ -28,6 +27,12 @@ ENV TORCH_HOME=/opt/satreg/cache \
 # Paths in the configs are relative to the working directory, as they are to
 # the repository root on a laptop.
 WORKDIR /app
+
+# The one system library a wheel asks for and does not carry: rasterio's wheel
+# loads libexpat.so.1, which the slim base does not have.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends libexpat1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # The package, then ONNX Runtime alone: the `onnx` extra also brings `onnx`,
 # which only `satreg export` needs, with PyTorch. The install leaves a copy of

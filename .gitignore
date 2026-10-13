@@ -11,6 +11,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .DS_Store
+# Statistics a viewer such as QGIS writes next to a GeoTIFF it opens.
+*.aux.xml
 
 # Downloaded imagery and benchmark runs are regenerated, never committed. The
 # one benchmark chip the container image carries is committed apart, in

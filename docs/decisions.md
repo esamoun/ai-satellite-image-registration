@@ -5975,3 +5975,139 @@ eighteen small charts, unreadable at the width of a README.
   demo page's address and the `ghcr.io` command answer only once the
   repository is public and the container image published.
 - The two method names and the wording were drafted with Claude Code.
+
+---
+
+## 2026-10-15: The weights are published with a note on their terms, and the repository is checked before it goes public
+
+**Decision.** The code is MIT; the fine-tuned weights are published with a
+note that says what their sources allow, and no more. The note is one text,
+`WEIGHTS_TERMS` in `src/satreg/weights.py`: the release's notes end with it
+(`weights.notes`, which `satreg export-weights` writes), and the README's
+Licence section carries it word for word, which puts it in the container
+image too, since the image copies the README and `LICENSE`. A test keeps the
+README and the constant the same. The README's Licence section also names the
+folders that hold Sentinel-2 pixels and gives the Copernicus notice.
+
+*My call* (2026-10-15, the three options laid out): publish the weights with
+this note, rather than say nothing about their terms or withdraw them from the
+release.
+
+**What was read, on 2026-10-15.**
+
+- torchvision 0.29.0. The two starting weights, `Raft_Large_Weights.C_T_SKHT_V2`
+  and `Raft_Small_Weights.C_T_V2`, carry no licence field. Their recipe
+  (`references/optical_flow` in pytorch/vision) trains the small model on
+  FlyingChairs and FlyingThings3D, and the large one on those, then on Sintel,
+  KITTI, HD1K and FlyingThings3D. The README of torchvision
+  (github.com/pytorch/vision, tag v0.29.0, "Pre-trained Model License") says a
+  pretrained model may carry terms from its training dataset and that it is
+  the user's responsibility to determine whether they have permission; its
+  "Disclaimer on Datasets" says it does not host them or vouch for a licence.
+  torchvision's code is under BSD 3-Clause.
+- FlyingChairs
+  (lmb.informatik.uni-freiburg.de/resources/datasets/FlyingChairs.en.html) and
+  FlyingThings3D (…/SceneFlowDatasets.en.html): for research purposes only,
+  without warranty, "Any commercial use is prohibited"; the FAQ of the second
+  says a commercial licence is not possible.
+- KITTI (cvlibs.net/datasets/kitti/): Creative Commons
+  Attribution-NonCommercial-ShareAlike 3.0, for academic use only.
+- Sintel (sintel.is.tue.mpg.de): no licence on its pages. The `README.txt` of
+  `MPI-Sintel-complete.zip`, read with HTTP range requests rather than a
+  download of 5.3 GB, holds a copyright line of 2012 and asks for a citation;
+  it states no terms.
+- HD1K (hci-benchmark.iwr.uni-heidelberg.de): the site did not answer. The
+  Wayback Machine's copy of 2024-01-20 states no licence, only a request to
+  cite. The data is sent after a form, and whatever terms come with it were
+  not read.
+- The Copernicus Sentinel data licence (rev. 1, as hosted at
+  ads.atmosphere.copernicus.eu/licences/ec-sentinel): reproduction,
+  distribution, communication to the public and modification are allowed;
+  modified data takes the notice "Contains modified Copernicus Sentinel data
+  [year]". This is the source the entry of 2026-09-23 did not give for "free to
+  redistribute with that attribution". ESA WorldCover pixels are not shipped:
+  WorldCover only chose the chips.
+
+**Why.** The weights are derived from weights whose training data is, for two
+datasets of five, for research only, and for a third non-commercial. Saying
+nothing would let a reader take the MIT of the code for the weights. A note
+that claims more than was read (that the weights are free, or that they are
+bound) would be wrong either way: whether a dataset's terms reach a model
+trained on it is not settled, and the note says so. Withdrawing them would leave
+the fine-tuned rows of `docs/evaluation.md` with nothing to reproduce them, and
+the container image, which downloads the nine ONNX files when it is built, with
+nothing to build from.
+
+**The check before going public.** Done on the history of `main` and of every
+branch on `origin`, on 2026-10-15:
+
+- No secret: no token, key or private key in any version of any file. Every
+  mention of a token is code that reads `GITHUB_TOKEN` from the environment,
+  its tests and its docs.
+- Every commit up to `087a50b`, 64 of them, is by "Eithan Samoun" with a
+  GitHub noreply address. The handle `esamoun` is in the repository's URLs.
+  It was also the Kaggle user name in every version of
+  `kaggle/kernel-metadata.json` until today, and in one version of
+  `kaggle/dataset-metadata.json`, until 2026-10-02: see the next entry.
+- The two notebooks have no saved output, and never had.
+- `/.scratch/`, `/data/` and `/outputs/` are ignored, and nothing under them
+  was ever committed; nor any `.env`, `kaggle.json`, `.pth`, `.onnx` or
+  `.npz`. The largest file is the container's chip, 1.55 MB, meant to be
+  there. The objects weigh 19.7 MiB.
+- The six figures of `docs/results/` are plots, with no imagery.
+- `origin` held one branch besides `main`, `n4-03-container-image`, with no
+  commit outside `main`. Eithan deleted it on 2026-10-15. The one tag is
+  `weights-n3`.
+- The Copernicus notice is in `examples/`, `docs/demo/` and the demo page's
+  footer, `docker/data/`, the fixture's test, and now the README.
+- The README's figures agree with `docs/evaluation.md` and the verdicts. Two
+  lines answer only after ticket 09: the `ghcr.io` command and the demo
+  page's address.
+
+**Rejected.** A licence file for the weights, such as CC BY-NC: it would grant
+terms the sources may not let me grant, and claim more than was read. The
+note in the README only, without the release: the weights are fetched from
+the release page, where the README is not read.
+
+**Limits.**
+
+- This is a reading of public pages, not legal advice.
+- HD1K's terms were read from a 2024 archive, and the terms sent with its
+  data were not read.
+- The ONNX files hold RAFT's architecture as torchvision writes it, under BSD
+  3-Clause. Whether an exported graph is a "binary form" that must carry
+  BSD's notice is not settled here, and the notice is not shipped with them.
+- The release's notes on GitHub are edited by hand: `notes.md` gains the note
+  only at the next `satreg export-weights`.
+- The note, this entry and the check were drafted with Claude Code, from the
+  pages it read. Eithan asked it to place the *My call*.
+
+---
+
+## 2026-10-15: The Kaggle notebook's id leaves the account to whoever pushes it
+
+**Decision.** The `id` of `kaggle/kernel-metadata.json` is now
+`<user>/satreg-gpu-benchmark`, as the chips dataset's has been since the N3
+review (2026-10-02), and as `docs/kaggle.md` already wrote it. The step of
+`docs/kaggle.md` that pushes the notebook says to put the account's user name
+in its place, and a test keeps the placeholder.
+
+*My call* (2026-10-15, the three options laid out): the placeholder in the
+file, and the history left as it is, rather than keeping `esamoun/` or
+rewriting the history.
+
+**Why.** The repository is about to be public: whoever runs the notebook
+pushes it to their own account, and the file then names none. The name stays
+in the old versions of both files. It is the GitHub handle, in every URL of
+the repository, so the history gives away nothing new. Rewriting the history
+would change every commit's hash, and the weights' cards and the release's
+notes record the commit each training ran on.
+
+**Rejected.** Keeping `esamoun/`: a reader's `kaggle kernels push` would aim at
+an account that is not theirs. Rewriting the history: see above.
+
+**Limits.**
+
+- `kaggle kernels push -p kaggle/` no longer runs as it is: the user name must
+  be put in first, as for the dataset.
+- Drafted with Claude Code, which Eithan asked to place this call.

@@ -51,6 +51,27 @@ DESCRIBED_KEYS = (
     "dirty",
 )
 
+# On what terms the weights are published, from what was read of their sources
+# (docs/decisions.md, entry of 2026-10-15). The release's notes end with it, and
+# the README carries it word for word: the container image holds the README.
+WEIGHTS_TERMS = (
+    "**The fine-tuned weights.** The MIT licence covers the code. It does not "
+    "settle the terms of the fine-tuned RAFT weights, or of the ONNX files made "
+    "from them. They start from torchvision's pretrained weights, "
+    "`Raft_Large_Weights.C_T_SKHT_V2` and `Raft_Small_Weights.C_T_V2`, which carry "
+    "no licence of their own. torchvision warns that a pretrained model may carry "
+    "the terms of its training data, and leaves them to the user. Both models were "
+    "trained on FlyingChairs and FlyingThings3D. The large one was then trained on "
+    "Sintel, KITTI and HD1K. FlyingChairs and FlyingThings3D are for research only, "
+    "and forbid any commercial use. KITTI is under CC BY-NC-SA 3.0. Sintel's pages "
+    "state no licence, and nor does HD1K's page as archived in 2024. Whether a "
+    "dataset's terms reach the weights trained on it is not settled here. The "
+    "fine-tuned weights are published for research and for reproducing this "
+    "project's results. No commercial right is granted. The sources, as read on "
+    "2026-10-15, are in [`docs/decisions.md`]"
+    f"(https://github.com/{REPOSITORY}/blob/main/docs/decisions.md)."
+)
+
 
 class WeightsUnavailable(Exception):
     """Published weights are not cached and could not be downloaded."""
@@ -532,7 +553,9 @@ def export_onnx(name: str, exports: Path, out: Path) -> dict:
 
 
 def notes(cards: list[dict], onnx_cards: list[dict] | None = None) -> str:
-    """The text of the release: what each asset is and how it is checked.
+    """The text of the release: what each asset is, how it is checked, on what terms.
+
+    It ends with ``WEIGHTS_TERMS``, the note on what the weights may be used for.
 
     Args:
         cards: The description of each asset, as ``export`` returns it.
@@ -595,4 +618,5 @@ def notes(cards: list[dict], onnx_cards: list[dict] | None = None) -> str:
             f"{described['bytes'] / 1e6:.1f} | `{described['sha256']}` |"
             for described in onnx_cards
         ]
+    lines += ["", WEIGHTS_TERMS]
     return "\n".join(lines) + "\n"

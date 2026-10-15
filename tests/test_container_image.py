@@ -17,7 +17,7 @@ from satreg.methods.raft import Raft
 from satreg.methods.raft_onnx import RaftOnnx
 from satreg.methods.roma import Roma
 from satreg.sites import load_sites
-from satreg.weights import RELEASED_ONNX
+from satreg.weights import RELEASED_ONNX, WEIGHTS_TERMS
 
 ROOT = Path(__file__).parents[1]
 CONFIGS = ROOT / "configs"
@@ -36,6 +36,15 @@ def committed_chip() -> Path:
     """Where `satreg benchmark` looks for Beauce's chip in the container image."""
     config = load_sites(CONFIGS / "sites.toml")
     return cache_path(config.sites["beauce"], config.catalogue, DATA)
+
+
+def copied_sources() -> list[list[str]]:
+    """The sources of each COPY of the Dockerfile: every argument but the last."""
+    return [
+        line.split()[1:-1]
+        for line in (ROOT / "Dockerfile").read_text().splitlines()
+        if line.startswith("COPY ")
+    ]
 
 
 def test_the_committed_chip_is_the_file_the_benchmark_looks_for():
@@ -109,22 +118,24 @@ def test_the_small_benchmark_runs_on_the_committed_chip_with_no_network(
 
 
 def test_the_build_context_lets_in_what_the_dockerfile_copies():
-    dockerfile = (ROOT / "Dockerfile").read_text().splitlines()
     let_in = {
         line.removeprefix("!").rstrip("/")
         for line in (ROOT / ".dockerignore").read_text().splitlines()
         if line.startswith("!")
     }
-    # Every argument of a COPY but the last, which is where it goes.
-    copied = {
-        source.rstrip("/")
-        for line in dockerfile
-        if line.startswith("COPY ")
-        for source in line.split()[1:-1]
-    }
+    copied = {source.rstrip("/") for sources in copied_sources() for source in sources}
 
     assert copied == let_in
     assert all((ROOT / source).exists() for source in copied)
+
+
+def test_the_container_image_carries_the_licences_through_the_readme():
+    # The README is wrapped for reading: compare the words, not the lines.
+    readme = " ".join((ROOT / "README.md").read_text().split())
+
+    assert any({"README.md", "LICENSE"} <= set(s) for s in copied_sources())
+    assert " ".join(WEIGHTS_TERMS.split()) in readme
+    assert "Contains modified Copernicus Sentinel data 2025." in readme
 
 
 def test_the_token_is_a_build_secret_and_never_an_argument_or_a_variable():

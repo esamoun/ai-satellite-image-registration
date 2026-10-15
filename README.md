@@ -129,6 +129,29 @@ and I review its changes and check the results before they go in. The reasoning
 behind each choice is in [`docs/decisions.md`](docs/decisions.md); the entries
 marked *My call* are the ones where I chose between options.
 
-## License
+## Licence
 
-MIT
+**The code** is under the MIT licence: see [`LICENSE`](LICENSE).
+
+**The fine-tuned weights.** The MIT licence covers the code. It does not settle
+the terms of the fine-tuned RAFT weights, or of the ONNX files made from them.
+They start from torchvision's pretrained weights,
+`Raft_Large_Weights.C_T_SKHT_V2` and `Raft_Small_Weights.C_T_V2`, which carry no
+licence of their own. torchvision warns that a pretrained model may carry the
+terms of its training data, and leaves them to the user. Both models were
+trained on FlyingChairs and FlyingThings3D. The large one was then trained on
+Sintel, KITTI and HD1K. FlyingChairs and FlyingThings3D are for research only,
+and forbid any commercial use. KITTI is under CC BY-NC-SA 3.0. Sintel's pages
+state no licence, and nor does HD1K's page as archived in 2024. Whether a
+dataset's terms reach the weights trained on it is not settled here. The
+fine-tuned weights are published for research and for reproducing this project's
+results. No commercial right is granted. The sources, as read on 2026-10-15, are
+in
+[`docs/decisions.md`](https://github.com/esamoun/ai-satellite-image-registration/blob/main/docs/decisions.md).
+
+**The Sentinel-2 pixels.** [`examples/`](examples/), [`docs/demo/`](docs/demo/),
+[`docker/data/`](docker/data/) and [`tests/data/`](tests/data/) hold pieces cut
+from Sentinel-2 scenes, or images made from them. The container image ships
+`examples/` and `docker/data/`, and the demo page shows `docs/demo/`. They are
+under the Copernicus Sentinel data licence, which asks for this notice: Contains
+modified Copernicus Sentinel data 2025.

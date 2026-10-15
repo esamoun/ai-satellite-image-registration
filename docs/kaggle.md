@@ -28,7 +28,9 @@ either side.
    [Weights and duration](#weights-and-duration)). A public repository needs
    no secret.
 3. **Push the notebook**, either with the Kaggle CLI, whose own credentials stay in
-   `~/.kaggle/kaggle.json` outside the repository:
+   `~/.kaggle/kaggle.json` outside the repository, once `<user>` in the `id` of
+   [`kaggle/kernel-metadata.json`](../kaggle/kernel-metadata.json) is replaced by
+   the account's user name:
 
    ```bash
    kaggle kernels push -p kaggle/

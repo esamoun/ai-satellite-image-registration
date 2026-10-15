@@ -360,6 +360,19 @@ def test_the_released_file_is_the_kept_weights_of_the_training_unchanged(
     assert toy.sha256 in printed
 
 
+def test_the_release_notes_end_with_the_terms_of_the_weights():
+    assert weights.notes([]).endswith(weights.WEIGHTS_TERMS + "\n")
+
+
+def test_the_terms_grant_no_commercial_right_and_link_their_sources():
+    terms = weights.WEIGHTS_TERMS
+
+    assert "No commercial right is granted." in terms
+    assert "published for research and for reproducing" in terms
+    # The link must work from the release page and the container image too.
+    assert f"https://github.com/{REPOSITORY}/blob/main/docs/decisions.md" in terms
+
+
 @needs_raft
 def test_a_file_that_is_not_the_pinned_kept_weights_is_not_exported(
     tmp_path, monkeypatch

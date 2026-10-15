@@ -79,6 +79,13 @@ def test_kernel_metadata_asks_for_a_gpu_and_the_internet():
     assert metadata["is_private"] is True
 
 
+def test_kernel_metadata_leaves_the_account_to_whoever_pushes_it():
+    metadata = json.loads((KAGGLE / "kernel-metadata.json").read_text())
+
+    # As for the chips dataset: no account name in the repository.
+    assert metadata["id"] == "<user>/satreg-gpu-benchmark"
+
+
 def test_no_credentials_in_the_kaggle_files():
     # GitHub tokens, the key of a kaggle.json, Kaggle API tokens.
     credential = re.compile(r'gh[pousr]_\w{20}|github_pat_|"key"\s*:|KGAT_')

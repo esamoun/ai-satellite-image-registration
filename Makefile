@@ -1,4 +1,4 @@
-.PHONY: install install-arosics install-dl install-roma install-onnx lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle ablation small onnx curve int8 n3 n3-m1 n3-merge n3-cycle n3-final n3-bands n3-false-change n3-curve n3-dry demo container-image container-image-try clean
+.PHONY: install install-arosics install-dl install-roma install-onnx lint format test fetch benchmark n1 n2 n2-m1 n2-cost n2-bands n2-cycle n2-false-change n2-merge n2-bands-merge real-pairs check-presets cycle false-change fetch-train train-dataset train-pairs train-overfit validation validation-light validation-cycle ablation small onnx curve int8 n3 n3-m1 n3-merge n3-cycle n3-final n3-bands n3-false-change n3-curve n3-dry demo container-image container-image-try container-image-publish version clean
 
 install:
 	pip install -e ".[dev]"
@@ -294,25 +294,35 @@ demo:
 	satreg demo
 
 # The container image: the package, ONNX Runtime and the nine fine-tuned ONNX
-# files, without PyTorch (Dockerfile). While the repository is private the
-# build downloads the files with a token, passed as a build secret and written
-# to no layer:
-#
-#   GITHUB_TOKEN=$(gh auth token) make container-image
+# files, without PyTorch (Dockerfile). The build downloads the files from the
+# release's public address, with no token.
 #
 # `container-image-try` then runs it with no network: the methods it lists,
 # `satreg register` on a demo pair with a classic method and a fine-tuned one,
 # and the small benchmark of configs/container-image.toml (7 minutes on the M1
 # outside a container; CONTAINER_TRY="--pairs 2 --repeats 1" is CI's short run).
 # Both need Docker, and CI runs the same two targets on every push.
+#
+# `container-image-publish` builds it for amd64 and arm64 and pushes it to
+# CONTAINER_PUBLISH. CI runs it on a version tag alone, logged in to ghcr.io
+# with QEMU for the architecture the machine does not have. `version` prints
+# the version of pyproject.toml, which CI checks the tag against.
 CONTAINER_IMAGE = satreg:local
 CONTAINER_TRY =
+CONTAINER_PUBLISH =
 
 container-image:
-	docker build --secret id=github_token,env=GITHUB_TOKEN --tag $(CONTAINER_IMAGE) .
+	docker build --tag $(CONTAINER_IMAGE) .
 
 container-image-try:
 	python scripts/try_container_image.py --tag $(CONTAINER_IMAGE) $(CONTAINER_TRY)
+
+container-image-publish:
+	$(if $(CONTAINER_PUBLISH),,$(error CONTAINER_PUBLISH names no container image, e.g. ghcr.io/owner/name:1.0.0))
+	docker buildx build --platform linux/amd64,linux/arm64 --tag $(CONTAINER_PUBLISH) --push .
+
+version:
+	@python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

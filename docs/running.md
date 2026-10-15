@@ -46,11 +46,11 @@ make container-image        # tagged satreg:local
 make container-image-try    # the checks CI runs, with no network
 ```
 
-The build downloads the nine files of the `weights-n3` release. While the
-repository is private it needs a token, passed as a build secret and written to
-no layer: `GITHUB_TOKEN=$(gh auth token) make container-image`. Without one,
-the files are read from the release's public address. CI builds the container
-image on amd64 and on arm64 on every push, and runs `make container-image-try`.
+The build downloads the nine files of the `weights-n3` release from its
+public address, with no token. CI builds the container image on amd64 and on
+arm64 on every push, and runs `make container-image-try`. On a version tag it
+then builds both and pushes them to `ghcr.io` under the version of
+`pyproject.toml` (`make container-image-publish`).
 
 On a Mac without Docker Desktop, [Colima](https://github.com/abiosoft/colima)
 runs it. This is how it was installed on the M1 (8 GB) on 2026-10-13:
@@ -766,7 +766,7 @@ the held-out sites were read afterwards, once, in
 
 ```bash
 # once: 25 MB, to PyTorch's cache
-GITHUB_TOKEN=$(gh auth token) satreg fetch-weights raft_large_ft raft_small_ft
+satreg fetch-weights raft_large_ft raft_small_ft
 satreg validate --config configs/validation.toml --light --methods raft raft_ft
 ```
 
@@ -787,26 +787,22 @@ state (21 MB and 4 MB). So the pinned hashes are the ones the tables above
 recorded in their `context-*.json`, and a test checks it. A JSON beside each
 asset repeats what the file says of its training, for a reader without PyTorch.
 
-**The token.** The repository is private for now, and so are its release
-assets: the download needs a GitHub token that can read the repository's
-contents, the one of `gh auth token` or a fine-grained token limited to this
-repository with *Contents: read-only*. `satreg` reads it from the environment
-variable `GITHUB_TOKEN`, sends it to `api.github.com` and nowhere else, and
-writes it nowhere: not to a file, not to `context.json`, not in a message.
-Without a token and without the files in the cache, a command that names
-`raft_ft` stops before its first pair and says to set one. No command runs the
-two methods unless they are named, the tests that need the files are skipped,
-and CI downloads nothing.
+**No token.** The repository was checked public on 2026-10-15, and so were
+its release assets: the download needs no token. Checked that day, from an empty
+cache and with no token: the eleven files of the release (the two weights and
+the nine ONNX files) downloaded, and each passed its hash. While the
+repository was private, the download needed a GitHub token, and `satreg` still
+takes one: it reads it from the environment variable `GITHUB_TOKEN`, sends it
+to `api.github.com` and nowhere else, and writes it nowhere: not to a file,
+not to `context.json`, not in a message. No command runs the two methods unless
+they are named, the tests that need the files are skipped, and the tests
+download nothing.
 
 | where | how the weights get there |
 |---|---|
-| M1 | `GITHUB_TOKEN=$(gh auth token) satreg fetch-weights raft_large_ft raft_small_ft`, once; or, with no token, `satreg fetch-weights --from outputs/release` after `satreg export-weights` |
-| Kaggle | the benchmark notebook runs `satreg fetch-weights` for the two files with the `GITHUB_TOKEN` secret that already clones the repository ([`docs/kaggle.md`](kaggle.md)) |
-| CI | nothing is downloaded: the download is tested against a stand-in for GitHub, the wrong hash included |
-
-The day the repository is public, the same code downloads the same files
-without a token, from the release's public address, and the token and the
-Kaggle secret are no longer needed.
+| M1 | `satreg fetch-weights raft_large_ft raft_small_ft`, once; or `satreg fetch-weights --from outputs/release` after `satreg export-weights` |
+| Kaggle | the benchmark notebook runs `satreg fetch-weights` for the two files, with no token; with the `GITHUB_TOKEN` secret if one is attached, as while the repository was private ([`docs/kaggle.md`](kaggle.md)) |
+| CI | the tests download nothing: the download is tested against a stand-in for GitHub, the wrong hash included. The container image's build downloads the nine ONNX files |
 
 **Publishing.** `satreg export-weights` copies each `best.pt` from
 `outputs/train/` to `outputs/release/` under its asset name, after checking it

@@ -4,7 +4,7 @@
 # methods and the nine fine-tuned RAFT files, with no PyTorch. It registers a
 # supplied pair and runs a small benchmark with no network.
 #
-#   docker build --secret id=github_token,env=GITHUB_TOKEN --tag satreg:local .
+#   docker build --tag satreg:local .
 #   docker run --rm --network none satreg:local register
 #
 # What is in it, what is left out and why: docs/decisions.md, entries of
@@ -13,6 +13,9 @@
 # The Python the development machine runs. Built for amd64 and arm64: every
 # dependency has a wheel for both, so nothing is compiled.
 FROM python:3.13-slim
+
+# The repository GitHub links the published package to.
+LABEL org.opencontainers.image.source="https://github.com/esamoun/ai-satellite-image-registration"
 
 # Where the fine-tuned files are cached and read: `satreg` works out PyTorch's
 # cache directory from TORCH_HOME without importing PyTorch. matplotlib wants a
@@ -44,12 +47,9 @@ COPY src/ src/
 RUN pip install . onnxruntime && rm -rf build
 
 # The nine ONNX files of the release, each checked against the SHA-256 pinned
-# in src/satreg/weights.py: a file with another hash fails the build. While the
-# repository is private the download needs a token, mounted for this step only
-# and written to no layer. Without one the files are read from the release's
-# public address.
-RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
-    python -c "from satreg import weights; [print(weights.fetch(name)) for name in weights.RELEASED_ONNX]"
+# in src/satreg/weights.py: a file with another hash fails the build. They are
+# read from the release's public address, with no token.
+RUN python -c "from satreg import weights; [print(weights.fetch(name)) for name in weights.RELEASED_ONNX]"
 
 # The method parameters and run configs, the demo pairs, and the Beauce
 # benchmark chip where `satreg benchmark` looks for it.

@@ -4,9 +4,10 @@ A training's kept checkpoint leaves the machine that trained it as a release
 asset, and so do its exports to ONNX, one per refinement count. This module
 names each published file with its SHA-256, downloads it once to PyTorch's
 cache, next to the pretrained weights torchvision puts there, and refuses a
-file whose hash is not the one written here. While the repository is private
-the download needs a token, read from the environment and sent to GitHub's API
-only. See docs/decisions.md.
+file whose hash is not the one written here. The repository is public and
+the download needs no token; one is still taken from the environment, as when
+the repository was private, and sent to GitHub's API only. See
+docs/decisions.md.
 """
 
 import json
@@ -367,8 +368,8 @@ def _open(url: str, accept: str, token: str | None, weights: Released) -> Any:
 def download(weights: Released, destination: Path, token: str | None) -> None:
     """Download a published file from its release, unchecked.
 
-    Without a token the file is asked at the address anyone can read once the
-    repository is public. With one it goes through GitHub's API, the only way
+    Without a token the file is asked at the address anyone can read, the
+    repository being public. With one it goes through GitHub's API, the only way
     into a private repository: the release is read first, to find the asset.
 
     Args:

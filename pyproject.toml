@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "satreg"
-version = "0.1.0"
+version = "1.0.0"
 description = "Aligning satellite images to a tenth of a pixel: classic methods vs AI"
 readme = "README.md"
 requires-python = ">=3.11"

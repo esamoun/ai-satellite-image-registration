@@ -4,6 +4,8 @@ it are CI's job (`make container-image`, `make container-image-try`)."""
 
 import hashlib
 import json
+import re
+import tomllib
 from pathlib import Path
 
 import rasterio
@@ -17,7 +19,7 @@ from satreg.methods.raft import Raft
 from satreg.methods.raft_onnx import RaftOnnx
 from satreg.methods.roma import Roma
 from satreg.sites import load_sites
-from satreg.weights import RELEASED_ONNX, WEIGHTS_TERMS
+from satreg.weights import RELEASED_ONNX, REPOSITORY, WEIGHTS_TERMS
 
 ROOT = Path(__file__).parents[1]
 CONFIGS = ROOT / "configs"
@@ -138,15 +140,38 @@ def test_the_container_image_carries_the_licences_through_the_readme():
     assert "Contains modified Copernicus Sentinel data 2025." in readme
 
 
-def test_the_token_is_a_build_secret_and_never_an_argument_or_a_variable():
+def test_the_container_image_is_built_with_no_token():
+    # The release is public: no build secret in the Dockerfile, the Makefile or
+    # the workflow, and no token reaches a layer.
     dockerfile = (ROOT / "Dockerfile").read_text()
-    # One line per instruction: an ENV or a RUN may continue over several.
-    instructions = dockerfile.replace("\\\n", " ").splitlines()
+    makefile = (ROOT / "Makefile").read_text()
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
 
-    assert "--mount=type=secret,id=github_token,env=GITHUB_TOKEN" in dockerfile
-    assert not any(
-        "TOKEN" in line for line in instructions if line.startswith(("ARG", "ENV"))
-    )
+    assert "--mount=type=secret" not in dockerfile
+    assert "TOKEN" not in dockerfile
+    assert "--secret" not in makefile
+    assert "GITHUB_TOKEN" not in workflow
+
+
+def test_the_docs_name_the_container_image_of_the_package_version():
+    # CI pushes the version of pyproject.toml, on the tag of that version: every
+    # command a reader copies must name it, with no other tag and no digest.
+    # docs/decisions.md is a log, and is left as it was written.
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    name = re.escape(f"ghcr.io/{REPOSITORY}")
+    docs = [ROOT / "README.md"] + [
+        path
+        for path in sorted((ROOT / "docs").glob("*"))
+        if path.suffix in (".md", ".html") and path.name != "decisions.md"
+    ]
+
+    references = {
+        doc.name: re.findall(name + r"([:@][\w.-]*)?", doc.read_text()) for doc in docs
+    }
+
+    assert references["README.md"]
+    assert references["running.md"]
+    assert {ref for refs in references.values() for ref in refs} == {f":{version}"}
 
 
 def test_onnx_runtime_telemetry_is_turned_off_in_the_container_image():

@@ -6111,3 +6111,101 @@ an account that is not theirs. Rewriting the history: see above.
 - `kaggle kernels push -p kaggle/` no longer runs as it is: the user name must
   be put in first, as for the dataset.
 - Drafted with Claude Code, which Eithan asked to place this call.
+
+## 2026-10-15: The repository is made public last, and the demo is served from its own `docs/`
+
+**Decision.** The repository went public only once the check of the entry
+"The weights are published with a note on their terms, and the repository is
+checked before it goes public" was done: no secret, no personal output, no
+large file, the licence note written. GitHub Pages serves the demo page from
+`main` and `/docs` of this repository, at
+`esamoun.github.io/ai-satellite-image-registration/`. The portfolio page
+(`esamoun.github.io`) links to it, and stays in Eithan's hands.
+
+*My call* (2026-10-12, when N4 was planned): the repository made public last,
+after the check, and the demo in `docs/` of this repository rather than on the
+portfolio site.
+
+**Why last.** Going public is the one step that cannot be taken back: every
+past version of every file and every commit's author go with it, and a clone
+or a cache keeps them. Everything that could be checked privately was checked
+first. On a free account Pages needs a public repository, so the demo comes
+after, not before.
+
+**Why `docs/` of this repository.** The demo page reads data that `satreg demo`
+writes into `docs/demo/`, from the same commit as the code and the tables it
+shows. Served from the repository, page, data and code move together, and the
+README's link names one address. A copy on the portfolio site would have to be
+kept in step by hand.
+
+**Rejected.** Public earlier, to try the tokenless download and Pages sooner:
+the check would have come after the history was out. The demo on the portfolio
+site: above.
+
+**Limits.**
+
+- The tokenless download could only be tried once the repository was public.
+  It was, on 2026-10-15: the eleven files of the release, from an empty cache,
+  each with its hash (`docs/running.md`, "Fine-tuned weights").
+- Drafted with Claude Code from the plan of N4; the why is to be reread by
+  Eithan.
+
+## 2026-10-15: A version tag publishes the container image, built for both architectures on one machine
+
+**Decision.** The CI workflow has a fourth job, `publish`. It runs on a tag
+that starts with `v`, and only once `lint`, `test` and both `container-image`
+jobs have passed on it. It is the one job with `packages: write`. It checks
+that the tag is `v` followed by the version of `pyproject.toml`, and stops if
+not. Then `make container-image-publish` builds the container image for amd64
+and arm64 with `docker buildx` and pushes it to
+`ghcr.io/esamoun/ai-satellite-image-registration:<version>`, logged in with
+the job's own token. `make version` prints the version the tag is checked
+against. The version goes from 0.1.0 to 1.0.0, and a test keeps every name of
+the package in the README and in `docs/` (this log aside) on it, with no other
+tag and no digest.
+
+The repository being public, the build reads the nine ONNX files from the
+release's public address: the build secret is gone from the `Dockerfile`, the
+Makefile and the workflow, and a test fails if one comes back in any of the
+three. The `Dockerfile` sets one OCI label, `org.opencontainers.image.source`,
+which links the package to the repository.
+
+**Why one machine.** The ticket gives `packages: write` to one job. Docker's
+documentation gives QEMU on one runner as the easiest way to start building
+multi-platform container images. Building each architecture on its own
+machine, as the `container-image` jobs do, takes either a matrix that pushes
+each architecture by digest and a job that joins them into one manifest, every
+pushing job with write access, or Docker's reusable workflow
+`docker/github-builder`, which defines the build itself instead of the
+Makefile. Here arm64 is built under QEMU on the amd64 machine. That build
+installs wheels and downloads files: nothing is compiled and no model runs.
+The arm64 container image was run natively by the `container-image` job of the
+same commit.
+
+**Why the tag check.** A container image named 1.0.0 should hold a package
+that says 1.0.0. A tag pushed before the version is bumped publishes nothing.
+
+**Rejected.**
+
+- Native builds on two machines, by a matrix and a joining job or by
+  `docker/github-builder`: above.
+- Pushing the very container images the `container-image` jobs tried, carried
+  as artifacts: a second registry tool to push a container image saved to disk,
+  for container images built minutes apart from the same `Dockerfile`.
+- `docker/build-push-action`: the build stays the Makefile's, as on a laptop
+  (entry of 2026-10-13). The `docker/*` actions used only set up QEMU, the
+  builder and the login.
+- A `latest` tag: the README names the version, and a reader pulls what it
+  names.
+
+**Limits.**
+
+- The published container image is rebuilt, not the one CI tried: pip takes
+  the newest packages of the day, as it did minutes before. Pulling it and
+  running the README's command, with no login, is the check after the push.
+- The arm64 build under emulation is slower: not measured before the first tag.
+- GitHub's documentation says a package is private when first published: it
+  is made public by Eithan after the first push, and read again then.
+- The tag is set and pushed by Eithan: nothing is published before.
+- Drafted with Claude Code from the plan of N4; the why is to be reread by
+  Eithan.

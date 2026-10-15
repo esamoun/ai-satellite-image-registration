@@ -18,15 +18,14 @@ either side.
 1. **Push the commit to run.** The notebook clones from GitHub; set `COMMIT` in
    its parameters cell to that commit's hash (`main` runs whatever `main` is when
    the notebook starts, which `context.json` records anyway).
-2. **Give the notebook access to the repository**, while it is private: create a
-   fine-grained GitHub token with read-only access to the contents of this one
-   repository, and store it in the notebook as a Kaggle secret named
-   `GITHUB_TOKEN` (*Add-ons → Secrets*). The token goes to git through the
-   environment only, never on a command line or in a file, so it is in neither
-   the clone nor the saved output. The same token, the same way, downloads the
-   fine-tuned weights from the repository's release (see
-   [Weights and duration](#weights-and-duration)). A public repository needs
-   no secret.
+2. **No secret is needed**: the repository was checked public on 2026-10-15,
+   and the notebook clones it and downloads the fine-tuned weights of its release
+   with no token. While it was private, the notebook took a fine-grained GitHub
+   token, read-only on the contents of this one repository, from a Kaggle secret
+   named `GITHUB_TOKEN` (*Add-ons → Secrets*); it still does if one is attached.
+   The token goes to git through the environment only, never on a command line
+   or in a file, so it is in neither the clone nor the saved output (see
+   [Weights and duration](#weights-and-duration)).
 3. **Push the notebook**, either with the Kaggle CLI, whose own credentials stay in
    `~/.kaggle/kaggle.json` outside the repository, once `<user>` in the `id` of
    [`kaggle/kernel-metadata.json`](../kaggle/kernel-metadata.json) is replaced by
@@ -169,8 +168,8 @@ on the first GPU. Each run's directory is saved as the notebook's output, under
 4. **Inputs** (*Add Input*): the private dataset `<user>/satreg-training-chips`.
    The notebook finds it by its `chips.json`, wherever Kaggle mounts it, and
    stops if it is missing.
-5. **Secret**: `GITHUB_TOKEN`, as for the benchmark notebook, while the
-   repository is private.
+5. **Secret**: none, the repository being public. `GITHUB_TOKEN` was needed, as
+   for the benchmark notebook, while it was private.
 
 ### The parameters cell
 
@@ -466,9 +465,10 @@ Set `WITH_ROMA = False` to skip RoMa (and its weights) for a quicker check.
 The fine-tuned weights of `raft_ft` and `raft_small_ft` (25 MB) come from the
 same place on Kaggle as on the M1: the release of the repository, read by
 `satreg fetch-weights` in a cell of its own, which checks each file against the
-SHA-256 pinned in the code. While the repository is private, that cell gives
-the command the token of the `GITHUB_TOKEN` secret through the environment,
-then drops it: the benchmark runs after it, from the cache, without the token.
+SHA-256 pinned in the code. The repository being public, it needs no token.
+While it was private, that cell gave the command the token of the `GITHUB_TOKEN`
+secret through the environment, then dropped it: the benchmark runs after it,
+from the cache, without the token. It still does so if a secret is attached.
 Set `WITH_FINE_TUNED = False` for a config that lists neither method. A private
 Kaggle dataset holding the two files would work too (`satreg fetch-weights
 --from` reads a folder, with the same check); it is not the route taken, since

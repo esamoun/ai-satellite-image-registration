@@ -6204,8 +6204,12 @@ that says 1.0.0. A tag pushed before the version is bumped publishes nothing.
   the newest packages of the day, as it did minutes before. Pulling it and
   running the README's command, with no login, is the check after the push.
 - The arm64 build under emulation is slower: not measured before the first tag.
-- GitHub's documentation says a package is private when first published: it
-  is made public by Eithan after the first push, and read again then.
+- GitHub's documentation says a package is private when first published, so
+  Eithan was to make it public after the first push. Read right after it, on
+  2026-10-15, the package was public already, linked to the repository: its
+  page and the manifest of `1.0.0` read with no login, and a Docker with no
+  login pulled it and ran the README's command. The documentation read does not
+  say why.
 - The tag is set and pushed by Eithan: nothing is published before.
 - Drafted with Claude Code from the plan of N4; the why is to be reread by
   Eithan.

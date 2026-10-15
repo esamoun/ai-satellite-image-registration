@@ -5796,3 +5796,126 @@ container image with a network would not know.
 - Outside the container image nothing is changed: `pip install ".[onnx]"`
   takes 1.31.0 as it comes, and the package sets nothing. Whether the package
   should turn it off itself is not decided.
+
+## 2026-10-13: The demo page is written by hand and opens on the false changes
+
+**Decision.** The page is `docs/index.html`, `docs/demo.css` and
+`docs/demo.js`, with no framework and no build step. Its typeface is a file
+in `docs/fonts/`, and nothing is loaded from another host. It reads
+`docs/demo/` and computes no figure: it formats the ones the files hold, and
+scales arrows.
+
+- It is written first for a recruiter who gives it thirty seconds: the
+  slider and three figures (true shift, error, false changes before and
+  after) are on the first screen, in short sentences. What an engineer checks
+  comes after: the arrows, the cost curve, how its figures were read, a
+  table, and five statements of what the page does and does not show.
+- It opens on the first site and the first preset of the manifest (Beauce,
+  `clean`), on fine-tuned RAFT, and on the false changes: the moving image
+  with the pixels a change detector flags, before correction left of the
+  divider and after it on the right. Two other views set the reference
+  against the moving image, and against the corrected one.
+- The site, the preset and the method are chosen in one bar, which holds for
+  the slider and the arrows at once and stays in view while they scroll. It
+  is three menus under 1,180 px wide, and no longer stays in view on a phone,
+  where it takes two rows.
+- On arrival the divider moves once, from 88 % to the middle, to show that it
+  moves. It does not when the visitor asks for reduced motion.
+- The cost curve is three charts of the same points: error against time, the
+  large one, then failed pairs against time and error against memory.
+  Hovering a point marks it in the three and writes its figures; nothing is
+  marked otherwise (entry of 2026-10-12). A table under the charts holds
+  every figure drawn.
+- The M1 and T4 views draw what the files hold. On the T4 the two time charts
+  keep the 12 RAFT points, whose error and failed pairs are still the ones
+  read on the M1's CPU; the memory chart stays the M1's. A note under the
+  charts says both.
+- The error arrows are drawn 3, 10, 30 or 100 times their length. The page
+  opens on the largest of the four that keeps the longest arrow shorter than
+  the gap between two arrows, and writes which one it took.
+- Each figure is one plain sentence, what it is and which way is better, with
+  the exact detail in smaller type under it (the shift's dx and dy, the pixel
+  counts, how an error was averaged). The charts' captions say which way is
+  better on each axis. No point is named or recommended (entry of
+  2026-10-12).
+
+**The pictures and the units.** The images of `docs/demo/` are 256 px
+windows of Sentinel-2's B04 band, 10 m a pixel, shown four or five times
+their size. Drawn square by square, they read as blocks. The slider and the
+arrows now draw them smoothed by the browser at 1× and 2×, and square by
+square at 4×, where the caption says each square is one pixel, 10 m on the
+ground. This is the display only: the files are the same.
+
+- Each distance is also given in metres, after the pixels: 10 m a pixel, the
+  resolution of the GeoTIFFs of `examples/` for these same scenes and windows.
+  It is a change of unit, not a measure. A test fails if the page's pixel
+  size and the GeoTIFFs' disagree.
+- A scale bar on the slider reads 500 m at 1×, 200 m at 2× and 100 m at 4×.
+- Not done: true colour (B04, B03, B02), which would mean writing the demo
+  files again and would show an image the methods did not see; and 512 px
+  windows, which would no longer be the pairs of the published tables.
+  Sentinel-2 sees nothing finer than 10 m: a sharper picture of the same
+  ground would be another, commercial, satellite.
+
+*My call* (2026-10-13, after the first version was read, the options laid
+out for each): written first for a recruiter with thirty seconds; the
+portfolio's visual family, with a clearer order and larger pictures; short
+plain sentences that speak to the reader and keep the technical words with
+their meaning.
+
+*My call* (2026-10-13, the options laid out): the typeface is a file kept in
+the repository, rather than left to the visitor's system.
+
+The smoothed pictures, the metres, the scale bar and the plain sentences
+were done on 2026-10-15, after the user found the pictures pixelated and
+asked for a page a reader in a hurry takes in at once. They were not chosen
+between options.
+
+**Why.** The first version put the same weight on everything, and read as
+notes: the reader it is for would have left before the slider. The false
+changes are what registration is for, and one glance shows them going from
+43 % of the pixels to none, which the two grey images side by side do not.
+One chart carries two of the three quantities the ticket asks for, so time
+and memory each get their own against the error. The failed pairs get the
+third: the mean error is taken over the pairs that did not fail, so a point
+with many failures has its error read on the easier pairs, and the chart
+beside it shows how many were left out. A fixed gain for the error arrows
+either hides a 0.05 px error or covers the image with a 5 px one.
+
+**The typeface.** Schibsted Grotesk, the portfolio's. The variable file
+(weights 400 to 900, 70 kB) and its licence were copied on 2026-10-13 from
+the typeface's own repository, `schibsted/schibsted-grotesk`, branch `main`:
+`fonts/variable/SchibstedGrotesk[wght].woff2` and `OFL.txt`. It is under the
+SIL Open Font License 1.1, which allows it to be redistributed with its
+licence beside it. The page's footer names it and links the licence. A test
+fails if the style sheet reads a file from anywhere else.
+
+    8b77a34cdd59455aa3434e949597e99346204d40357905fd918df20ed1139ac1  SchibstedGrotesk-wght.woff2
+    3b4f3063b6ac7c1e403e2c4a5e8ef3a58190ff83ed7b15af66511858699139ce  OFL.txt
+
+**Limits.**
+
+- The words for a site's landscape (open fields, a city, forest, a coast),
+  the labels of the methods and their one-sentence descriptions are in the
+  page's script, not in the manifest. A test checks that every method, site
+  and preset of the manifest has a label. The descriptions are checked by
+  reading them against `CONTEXT.md`, not by a test.
+- A failure's reason is shown without the name of its exception:
+  `5 inliers, need 10` for the files' `RegistrationFailure: 5 inliers, need
+  10`.
+- The points of the charts cannot be reached with the keyboard. The table
+  holds the same figures.
+- `curve-refinements.csv` is published beside the two other curve files and
+  the page does not read it.
+- Checked in one browser, the Chromium of the development machine, served
+  from a local web server: the 40 combinations of site, preset and method at
+  1,280 px wide, and the layout at 1,024, 768 and 375 px, light and dark,
+  with no console error and no request to another host. On 2026-10-15 the
+  figures of the 40 combinations, the table and the points of the charts
+  were read from the page and compared with `docs/demo/`: none differed. Not checked in Safari
+  or Firefox, nor on a phone: a touch was only emulated.
+- The links to the README and to `docs/evaluation.md` point at the GitHub
+  repository, which is private until ticket 09: they answer 404 until then.
+- The layout, the style sheet and the wording were drafted with Claude Code
+  from the choices above. No picture on the page is generated: each one is a
+  file of `docs/demo/`.

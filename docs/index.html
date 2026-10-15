@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Registration demo: Sentinel-2 image registration benchmark</title>
+<meta name="description" content="Four pairs of Sentinel-2 images, four registration methods: the images before and after correction, the displacement each method estimates, and what accuracy costs in time and memory.">
+<!-- No icon file: an empty one keeps the browser from asking for /favicon.ico. -->
+<link rel="icon" href="data:,">
+<link rel="preload" href="fonts/SchibstedGrotesk-wght.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="demo.css">
+<script src="demo.js" defer></script>
+</head>
+<body>
+<div class="wrap">
+
+<header class="opening">
+  <div class="masthead">
+    <p class="project">Sentinel-2 image registration benchmark <span>Demo</span></p>
+    <ul class="links">
+      <li><a href="https://github.com/esamoun/ai-satellite-image-registration#readme">README</a></li>
+      <li><a href="https://github.com/esamoun/ai-satellite-image-registration/blob/main/docs/evaluation.md">Evaluation</a></li>
+    </ul>
+  </div>
+  <h1 class="title" data-text="Two images of the same place never line up exactly."><span>Two images of the same place never line up exactly.</span></h1>
+  <p class="lede">Off by a few pixels, a computer comparing them sees change where nothing changed. Registration measures that offset and undoes it. Below, four methods try it on four places. <strong>Drag the divider:</strong> magenta marks the false changes, before correction on the left and after on the right.</p>
+</header>
+
+<noscript><p class="notice">This page reads its images and figures with JavaScript, which is turned off here. The same figures are in the evaluation, linked above.</p></noscript>
+<p class="notice" id="load-error" role="alert" hidden></p>
+
+<main id="main" hidden>
+
+<div class="pairs">
+
+  <div class="controls" role="group" aria-label="Site, conditions and method">
+    <div class="choice">
+      <fieldset class="chips">
+        <legend>Site</legend>
+        <div class="seg" id="pick-site"></div>
+      </fieldset>
+      <label class="pick"><span>Site</span><select id="select-site"></select></label>
+    </div>
+    <div class="choice">
+      <fieldset class="chips">
+        <legend>Conditions</legend>
+        <div class="seg" id="pick-preset"></div>
+      </fieldset>
+      <label class="pick"><span>Conditions</span><select id="select-preset"></select></label>
+    </div>
+    <div class="choice">
+      <fieldset class="chips">
+        <legend>Method</legend>
+        <div class="seg" id="pick-method"></div>
+      </fieldset>
+      <label class="pick"><span>Method</span><select id="select-method"></select></label>
+    </div>
+  </div>
+
+  <section class="stage" aria-labelledby="slider-label">
+    <h2 id="slider-label" class="unseen">Before and after correction</h2>
+
+    <div class="compare">
+      <div class="frame" id="frame" role="group" aria-label="The two images, one on each side of the divider" aria-describedby="slider-caption">
+        <div class="pane pane-a">
+          <img id="image-a" alt="" draggable="false">
+          <img id="veil-a" class="veil" alt="" draggable="false" hidden>
+          <span class="tag" id="tag-a"></span>
+        </div>
+        <div class="pane pane-b">
+          <img id="image-b" alt="" draggable="false">
+          <img id="veil-b" class="veil" alt="" draggable="false" hidden>
+          <p class="missing" id="missing-b" hidden></p>
+          <span class="tag" id="tag-b"></span>
+        </div>
+        <input type="range" class="split" id="split" min="0" max="100" step="1" value="50" aria-label="Position of the divider, from left to right">
+        <div class="scale" aria-hidden="true"><i></i><span id="scale-text"></span></div>
+        <div class="divider" aria-hidden="true"><span><svg viewBox="0 0 24 24"><path d="M9.5 7 4.5 12l5 5M14.5 7l5 5-5 5"/></svg></span></div>
+      </div>
+      <ul class="legend" id="changed-legend" hidden>
+        <li><i class="swatch-changed"></i>flagged as changed</li>
+        <li><i class="swatch-veil"></i>not counted: cloud, border, or read from outside the image</li>
+      </ul>
+      <p class="credit" id="pair-note"></p>
+      <p class="credit" id="preset-note"></p>
+    </div>
+
+    <div class="readout">
+      <div class="method">
+        <h3 id="method-name"></h3>
+        <p id="method-gloss"></p>
+      </div>
+
+      <p class="failure" id="slider-failure" hidden></p>
+      <dl class="facts" id="slider-facts"></dl>
+
+      <div class="view">
+        <div class="toolbar">
+          <fieldset>
+            <legend>Show</legend>
+            <div class="seg" id="pick-view">
+              <label><input type="radio" name="view" value="changed" checked><span>False changes</span></label>
+              <label><input type="radio" name="view" value="before"><span>Reference and moving</span></label>
+              <label><input type="radio" name="view" value="after"><span>Reference and corrected</span></label>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Zoom</legend>
+            <div class="seg" id="pick-zoom">
+              <label><input type="radio" name="zoom" value="1" checked><span>1×</span></label>
+              <label><input type="radio" name="zoom" value="2"><span>2×</span></label>
+              <label><input type="radio" name="zoom" value="4"><span>4×</span></label>
+            </div>
+          </fieldset>
+        </div>
+        <p class="meta" id="slider-caption"></p>
+      </div>
+
+      <p class="meta">One pair shows a method at work. It does not measure it: the measurements, on thousands of pairs, are in the <a href="https://github.com/esamoun/ai-satellite-image-registration/blob/main/docs/evaluation.md">evaluation</a>.</p>
+    </div>
+  </section>
+
+  <section class="block" aria-labelledby="arrows-label">
+    <div class="head">
+      <h2 id="arrows-label">When the offset changes across the image</h2>
+      <p>Here the same window is warped instead of shifted, so each point moves by its own amount. An arrow shows where a point of the reference is found in the moving image, one every <span id="arrow-step">16&nbsp;px</span>. The first picture is the truth, the second the method's estimate, the third the difference between the two, magnified: the shorter its arrows, the better.</p>
+    </div>
+
+    <p class="failure" id="arrows-failure" hidden></p>
+
+    <div class="fields">
+      <figure class="field">
+        <div class="overlay"><img id="field-image-truth" alt="" draggable="false"><svg id="field-truth" viewBox="0 0 256 256" role="img" aria-labelledby="field-truth-caption"></svg></div>
+        <figcaption id="field-truth-caption"></figcaption>
+      </figure>
+      <figure class="field">
+        <div class="overlay"><img id="field-image-estimate" alt="" draggable="false"><svg id="field-estimate" viewBox="0 0 256 256" role="img" aria-labelledby="field-estimate-caption"></svg><p class="missing" id="missing-estimate" hidden></p></div>
+        <figcaption id="field-estimate-caption"></figcaption>
+      </figure>
+      <figure class="field">
+        <div class="overlay"><img id="field-image-error" alt="" draggable="false"><svg id="field-error" viewBox="0 0 256 256" role="img" aria-labelledby="field-error-caption"></svg><p class="missing" id="missing-error" hidden></p></div>
+        <figcaption id="field-error-caption"></figcaption>
+      </figure>
+    </div>
+
+    <div class="under">
+      <dl class="facts" id="arrows-facts"></dl>
+      <div class="toolbar">
+        <fieldset>
+          <legend>Error arrows drawn at</legend>
+          <div class="seg" id="pick-gain">
+            <label><input type="radio" name="gain" value="auto" checked><span>Fit</span></label>
+            <label><input type="radio" name="gain" value="3"><span>3×</span></label>
+            <label><input type="radio" name="gain" value="10"><span>10×</span></label>
+            <label><input type="radio" name="gain" value="30"><span>30×</span></label>
+            <label><input type="radio" name="gain" value="100"><span>100×</span></label>
+          </div>
+        </fieldset>
+        <p class="meta" id="gain-note"></p>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<section class="block" aria-labelledby="curve-label">
+  <div class="head">
+    <h2 id="curve-label">What accuracy costs</h2>
+    <div>
+      <p>RAFT, the neural network of this benchmark, corrects its own estimate several times in one call: these are its refinements. Fewer refinements make a call shorter and its estimate less accurate. Each point is one RAFT model with 4, 8 or 12 refinements, and the number beside it says which.</p>
+      <p>None of this was measured on the pairs above. It was measured on the <span id="curve-pairs">1,800</span> pairs of the two held-out sites, a mountain site and a desert site whose landscape types are in no training image.</p>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <fieldset>
+      <legend>Time read on</legend>
+      <div class="seg" id="pick-machine">
+        <label><input type="radio" name="machine" value="m1" checked><span>M1, on its CPU</span></label>
+        <label><input type="radio" name="machine" value="t4"><span>T4, a GPU</span></label>
+      </div>
+    </fieldset>
+    <p class="meta" id="machine-note"></p>
+  </div>
+
+  <div class="charts" id="charts">
+    <figure class="chart chart-main">
+      <svg id="chart-error" role="group" aria-labelledby="chart-error-caption"></svg>
+      <figcaption id="chart-error-caption"></figcaption>
+    </figure>
+    <figure class="chart">
+      <svg id="chart-failures" role="group" aria-labelledby="chart-failures-caption"></svg>
+      <figcaption id="chart-failures-caption"></figcaption>
+    </figure>
+    <figure class="chart">
+      <svg id="chart-memory" role="group" aria-labelledby="chart-memory-caption"></svg>
+      <figcaption id="chart-memory-caption"></figcaption>
+    </figure>
+    <div class="tip" id="tip" hidden></div>
+  </div>
+
+  <ul class="legend keys">
+    <li><svg viewBox="0 0 16 16" aria-hidden="true"><circle class="mark c-large solid" cx="8" cy="8" r="4.5"/></svg>RAFT large</li>
+    <li><svg viewBox="0 0 16 16" aria-hidden="true"><rect class="mark c-small solid" x="3.8" y="3.8" width="8.4" height="8.4"/></svg>RAFT small</li>
+    <li><svg viewBox="0 0 32 16" aria-hidden="true"><line class="line c-ink" x1="1" y1="8" x2="31" y2="8"/><circle class="mark c-ink solid" cx="16" cy="8" r="4.5"/></svg>fine-tuned: filled, full line</li>
+    <li><svg viewBox="0 0 32 16" aria-hidden="true"><line class="line c-ink dashed" x1="1" y1="8" x2="31" y2="8"/><circle class="mark c-ink hollow" cx="16" cy="8" r="4.5"/></svg>pretrained: hollow, dashed line</li>
+    <li><svg viewBox="0 0 16 16" aria-hidden="true"><path class="mark c-ref solid" d="M8 2.5 13.5 8 8 13.5 2.5 8Z"/></svg>int8 copy of RAFT large, fine-tuned: the same model computing on 8-bit integers</li>
+    <li><svg viewBox="0 0 16 16" aria-hidden="true"><path class="mark c-ref cross" d="M3.5 3.5 12.5 12.5M12.5 3.5 3.5 12.5"/></svg>classic method</li>
+  </ul>
+
+  <p class="plain">No point is marked as the one to keep. These are held-out pairs, and no choice may be made on their figures.</p>
+
+  <div class="more">
+    <details>
+      <summary>How these figures were read</summary>
+      <p>The error is the mean distance between the estimated and the true displacement, over the pairs that did not fail. A pair fails when the method gives no estimate or is more than <span class="threshold">1</span>&nbsp;px off on average, so a point with many failed pairs has its error read on the easier ones: the chart of failed pairs is there for that.</p>
+      <p>Time is the median time of one call on a 256 × 256&nbsp;px pair. Memory is what calling the method adds to a process that does nothing else: a lower bound, and the memory of SIFT + RANSAC and of AROSICS had not settled when it was read.</p>
+    </details>
+    <details>
+      <summary>The same figures as a table</summary>
+      <div class="scroll">
+        <table id="curve-table">
+          <caption>Error, failed pairs, time and memory of each point, as the curve files hold them. An empty cell is a figure the files do not hold: a classic method has no refinements, and neither it nor an int8 copy was timed on the T4.</caption>
+          <thead>
+            <tr>
+              <th scope="col">Method</th>
+              <th scope="col" class="num">Refinements</th>
+              <th scope="col" class="num">Error (px)</th>
+              <th scope="col" class="num">Failed pairs</th>
+              <th scope="col" class="num">Time on the M1 (ms)</th>
+              <th scope="col" class="num">Memory added on the M1 (MiB)</th>
+              <th scope="col" class="num">Time on the T4 (ms)</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+</section>
+
+<section class="block" aria-labelledby="about-label">
+  <div class="head">
+    <h2 id="about-label">Read this before you quote a figure</h2>
+  </div>
+  <dl class="claims">
+    <div>
+      <dt>This page shows. It measures nothing.</dt>
+      <dd>One pair per site says nothing of what a method does on average: a method can fail here and hold on most pairs, or the reverse. No figure on this page enters a table. Rates and means are read in the <a href="https://github.com/esamoun/ai-satellite-image-registration/blob/main/docs/evaluation.md">evaluation</a>, on thousands of pairs.</dd>
+    </div>
+    <div>
+      <dt>A rule picks the demo pairs, not an eye.</dt>
+      <dd>The benchmark draws twenty pairs per site from a fixed seed. For each site, the demo pair is the first of them whose true shift is over <span id="rule-shift">2</span>&nbsp;px: under that, a slider has nothing to show. The rule reads the true shift only, so no method runs to pick a pair. The threshold was set after the true shifts of the first pairs were seen, and before any method's result on them was looked at.</dd>
+    </div>
+    <div>
+      <dt>The four sites are seen sites.</dt>
+      <dd>Their pixels were never trained on, but their landscape types were. Each demo pair is also one of the twenty pairs per site of the published tables, so the page shows a pair the tables already count and adds nothing to them.</dd>
+    </div>
+    <div>
+      <dt>The cost curve comes from other pairs.</dt>
+      <dd>It was measured on the <span class="curve-pairs">1,800</span> pairs of the two held-out sites, whose landscape types are in no training image. Its figures are the only held-out figures on this page.</dd>
+    </div>
+    <div>
+      <dt>Everything was computed ahead.</dt>
+      <dd>One command, <code>satreg demo</code>, wrote every file this page reads: the images, the changed pixels, the arrows. The curve files are copies of the published ones. Your browser draws them and runs no model.</dd>
+    </div>
+  </dl>
+</section>
+
+</main>
+
+<footer>
+  <ul class="links">
+    <li><a href="https://github.com/esamoun/ai-satellite-image-registration#readme">README</a></li>
+    <li><a href="https://github.com/esamoun/ai-satellite-image-registration/blob/main/docs/evaluation.md">Evaluation</a></li>
+  </ul>
+  <p id="notice">Contains modified Copernicus Sentinel data 2025</p>
+  <p>Set in Schibsted Grotesk, under the <a href="fonts/OFL.txt">SIL Open Font License</a>.</p>
+</footer>
+
+</div>
+</body>
+</html>

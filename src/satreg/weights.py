@@ -26,8 +26,9 @@ from .compute import file_sha256
 # The repository whose releases hold the weights, as owner/name.
 REPOSITORY = "esamoun/ai-satellite-image-registration"
 
-# The environment variable a token for a private repository is read from. The
-# token is never an option of a command: options are written to context.json.
+# The environment variable a token is read from, for a repository that is not
+# public; this one is, and needs none. The token is never an option of a
+# command: options are written to context.json.
 TOKEN_VARIABLE = "GITHUB_TOKEN"
 
 # Seconds without an answer before a request to GitHub is given up.

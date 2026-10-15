@@ -159,7 +159,7 @@ def test_weights_not_in_the_cache_are_downloaded_from_the_release(
 
     assert path.read_bytes() == CONTENT
     assert [p.name for p in cache.iterdir()] == [toy.asset]
-    # Without a token, the address anyone reads once the repository is public.
+    # Without a token: the repository is public, and anyone reads this address.
     (request,) = github.requests
     assert request.full_url == public_url(toy)
     assert not request.has_header("Authorization")

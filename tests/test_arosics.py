@@ -29,7 +29,7 @@ TOLERANCE_PX = 0.1
 needs_arosics = pytest.mark.skipif(
     bool(missing_modules()),
     reason=f"AROSICS is an optional extra, not installed: missing "
-    f"{', '.join(missing_modules())} (see the README)",
+    f"{', '.join(missing_modules())} (see docs/running.md)",
 )
 
 

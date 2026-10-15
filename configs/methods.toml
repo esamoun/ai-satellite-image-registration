@@ -92,7 +92,7 @@ model = "small"
 # RAFT fine-tuned on training pairs (N3), with the published weights: the kept
 # checkpoint of the retained training, an asset of a GitHub release, downloaded
 # to PyTorch's cache on first use and checked against the SHA-256 pinned in
-# src/satreg/weights.py (README, "Fine-tuned weights").
+# src/satreg/weights.py (docs/running.md, "Fine-tuned weights").
 #   release  name of the published weights, a key of weights.RELEASED
 [methods.raft_ft]
 method = "raft"

@@ -1429,20 +1429,20 @@ def configured_methods(args: argparse.Namespace) -> dict[str, Method]:
         if missing := missing_dependencies(methods[name]):
             raise SystemExit(
                 f"satreg: method {name} needs {', '.join(missing)}, not installed "
-                "(see the README)"
+                "(see docs/running.md)"
             )
         # A fine-tuned method without its weights would fail every pair.
         checkpoint = getattr(methods[name], "checkpoint", "")
         if checkpoint and not Path(checkpoint).is_file():
             raise SystemExit(
                 f"satreg: method {name} needs its checkpoint at {checkpoint}, not "
-                "there: train it with satreg train (see the README)"
+                "there: train it with satreg train (see docs/running.md)"
             )
         file = getattr(methods[name], "file", "")
         if file and not Path(file).is_file():
             raise SystemExit(
                 f"satreg: method {name} needs its ONNX file at {file}, not there: "
-                "write it with satreg export (see the README)"
+                "write it with satreg export (see docs/running.md)"
             )
         # The same for published weights that cannot be had: downloaded here,
         # once, if they are not in the cache.
@@ -2292,7 +2292,7 @@ def train(args: argparse.Namespace) -> str:
     if missing := missing_modules():
         raise SystemExit(
             f"satreg: training needs {', '.join(missing)}, not installed "
-            "(see the README)"
+            "(see docs/running.md)"
         )
     if args.stop_at is not None and args.stop_at < 1:
         raise SystemExit("satreg: need --stop-at >= 1")
@@ -2585,7 +2585,7 @@ def _as_configured(
     if not run.get("config"):
         raise SystemExit(
             f"satreg: {path} was not run from a run configuration: run make "
-            f"{recipe} (see the README)"
+            f"{recipe} (see docs/running.md)"
         )
     configured = load_run_config(Path(run["config"]), command)
     unlike = sorted(
@@ -2626,7 +2626,7 @@ def _scored_run(
     if not (path / table).is_file() or not (path / "context.json").is_file():
         raise SystemExit(
             f"satreg: no {table} and context.json in {path}: run make {recipe} "
-            "(see the README)"
+            "(see docs/running.md)"
         )
     context = json.loads((path / "context.json").read_text())
     _as_configured(path, context, command, recipe, free)
@@ -2871,7 +2871,7 @@ def export_weights(args: argparse.Namespace) -> str:
     if missing := missing_modules():
         raise SystemExit(
             f"satreg: export-weights needs {', '.join(missing)}, not installed "
-            "(see the README)"
+            "(see docs/running.md)"
         )
     try:
         cards = [
@@ -2935,7 +2935,8 @@ def export_onnx(args: argparse.Namespace) -> str:
     """
     if missing := [*missing_modules(), *onnxexport.missing_modules()]:
         raise SystemExit(
-            f"satreg: export needs {', '.join(missing)}, not installed (see the README)"
+            f"satreg: export needs {', '.join(missing)}, not installed "
+            "(see docs/running.md)"
         )
     if low := [count for count in args.refinements if count < 1]:
         raise SystemExit(f"satreg: need --refinements of at least 1, got {low[0]}")
@@ -3011,7 +3012,7 @@ def quantize_files(args: argparse.Namespace) -> str:
     if missing := quantize.missing_modules():
         raise SystemExit(
             f"satreg: quantize needs {', '.join(missing)}, not installed "
-            "(see the README)"
+            "(see docs/running.md)"
         )
     if not args.static and not args.dynamic:
         raise SystemExit("satreg: quantize needs --static or --dynamic files")
@@ -3029,7 +3030,7 @@ def quantize_files(args: argparse.Namespace) -> str:
         if not (args.onnx / f"{name}.onnx").is_file():
             raise SystemExit(
                 f"satreg: no export at {args.onnx / f'{name}.onnx'}: write it "
-                "with satreg export (see the README)"
+                "with satreg export (see docs/running.md)"
             )
     pairs, anchors = [], {}
     if args.static:
@@ -3293,7 +3294,8 @@ def read_curve(args: argparse.Namespace) -> str:
     footprints = args.out / CURVE_FOOTPRINT / "footprints.csv"
     if not footprints.is_file():
         raise SystemExit(
-            f"satreg: no footprints at {footprints}: run make {recipe} (see the README)"
+            f"satreg: no footprints at {footprints}: run make {recipe} "
+            "(see docs/running.md)"
         )
     try:
         methods = load_methods(args.methods_config)
@@ -3434,13 +3436,13 @@ def read_final(args: argparse.Namespace) -> str:
     if not pairs.is_file() or not (args.table / "context.json").is_file():
         raise SystemExit(
             f"satreg: no pairs.csv and context.json in {args.table}: run make n3 "
-            "(see the README)"
+            "(see docs/running.md)"
         )
     parts = json.loads((args.table / "context.json").read_text()).get("merged")
     if not parts:
         raise SystemExit(
             f"satreg: {args.table} is not a table satreg merge wrote: run make n3 "
-            "(see the README)"
+            "(see docs/running.md)"
         )
     for part in parts:
         _as_configured(part["path"], part["context"], "benchmark", "n3", free)

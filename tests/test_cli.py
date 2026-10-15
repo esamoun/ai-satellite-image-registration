@@ -259,7 +259,7 @@ def test_default_methods_leave_out_roma_even_when_installed(monkeypatch):
 def test_requesting_a_method_not_installed_is_reported(monkeypatch):
     monkeypatch.setattr(cli, "missing_dependencies", without_arosics)
 
-    with pytest.raises(SystemExit, match="arosics needs osgeo.*README"):
+    with pytest.raises(SystemExit, match="arosics needs osgeo.*docs/running.md"):
         main(["benchmark", "--methods", "arosics"] + PRESETS)
 
 

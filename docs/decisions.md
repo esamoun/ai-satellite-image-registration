@@ -5919,3 +5919,59 @@ fails if the style sheet reads a file from anywhere else.
 - The layout, the style sheet and the wording were drafted with Claude Code
   from the choices above. No picture on the page is generated: each one is a
   file of `docs/demo/`.
+
+## 2026-10-15: The README is a front door, and the usage moves to `docs/running.md`
+
+**Decision.** The README is about 130 lines: what the project is, one figure
+linked to the demo page, the status, the container command, two
+`satreg register` examples, the results in short with links to
+`docs/evaluation.md`, the limits, where the reasoning is, how it was built and
+the licence. The usage it held, its lines 70 to 1019, moves to
+`docs/running.md` as it was, under the same headings, with its links rewritten
+relative to `docs/`. A section on the container image comes before it, with
+the figures of the run on the M1 (2026-10-13): the container's error figures
+are the ones to expect, the int8 rows to the third decimal. The layout was
+planned with N4, after the README of project 1.
+
+**Why.** At 1,042 lines the README put a thousand lines of commands between a
+reader and the results. A recruiter reads the first screen; whoever wants to
+reproduce a table reads `docs/running.md` anyway.
+
+*My call* (2026-10-15, the two options laid out): the cost curve as the
+README's figure, rather than the figure of false changes.
+
+**The figure.** The cost curve of the final evaluation
+(`docs/results/n3/final/curve.png`): accuracy against cost is the project's
+question, and the figure answers it on the held-out pairs, with the classic
+methods and RAFT, pretrained and fine-tuned, on the same axes.
+
+**The two examples.** `phase_correlation` and `raft_ft_onnx`: the cheapest
+classic method, and the fine-tuned model under ONNX Runtime, which runs with
+no PyTorch, in the container image too. `raft_ft` would need PyTorch. The
+README says they are examples and not a recommendation: there is still no
+default method (entry of 2026-10-12). The four commands of that entry, one per
+kind of method, are in `docs/running.md`, under "Register a pair of your
+own"; its Limits, which say the README shows them, held until today.
+
+**What points to it.** The error messages of `satreg`, the AROSICS module,
+`pyproject.toml` and `configs/methods.toml` said "see the README" for text
+that is now in `docs/running.md`, and say so. `docs/evaluation.md` and
+`docs/kaggle.md` link the section of `docs/running.md` they meant. No file
+linked to a heading of the README.
+
+**Rejected.** The usage kept in the README under a table of contents: still a
+thousand lines before the end. One file per level: the links of
+`docs/evaluation.md` and `docs/kaggle.md` would move again, and project 1 has
+one file. The figure of false changes (`docs/results/n3/final/false_change.png`):
+eighteen small charts, unreadable at the width of a README.
+
+**Limits.**
+
+- `docs/running.md` is about 1,100 lines, moved and not rewritten: it reads as
+  the README did, level by level, and repeats some of `docs/evaluation.md`.
+- The README's results are a summary of `docs/evaluation.md` copied by hand.
+  No test checks that the two agree.
+- The link to `docs/key-decisions.md` is dead until that page is written. The
+  demo page's address and the `ghcr.io` command answer only once the
+  repository is public and the container image published.
+- The two method names and the wording were drafted with Claude Code.

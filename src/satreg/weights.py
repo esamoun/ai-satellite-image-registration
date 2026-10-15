@@ -334,7 +334,7 @@ def _open(url: str, accept: str, token: str | None, weights: Released) -> Any:
         elif exc.code == 404:
             reason = (
                 f"{where} is not public: set {TOKEN_VARIABLE} to a token that can "
-                "read the repository (see the README)"
+                "read the repository (see docs/running.md)"
             )
         else:
             reason = f"GitHub answered HTTP {exc.code} for {where}"

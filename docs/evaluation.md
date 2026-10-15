@@ -32,8 +32,9 @@ run. They were run once, and read on 2026-10-12
 - **Sites.** The four sites of N2, whose landscapes the training saw on other
   pixels, and the two held-out sites, a mountain (`alps`) and a desert
   (`libya4`), whose landscapes it did not see. Training and validation used
-  twelve other chips, eight to train on and four to validate (see the
-  README); no network was trained on a benchmark chip.
+  twelve other chips, eight to train on and four to validate (see
+  [`running.md`](running.md#training-chips)); no network was trained on a
+  benchmark chip.
 - **Methods.** The ten methods of N2, plus `raft_ft` and `raft_small_ft`:
   torchvision's RAFT large and RAFT small, fine-tuned on this project's
   simulated pairs. Twelve in all.
@@ -100,7 +101,7 @@ are the commands as they ran, once: the two sites are read, and they are not
 to be run again to change anything. The M1 part needs the `[dl]`
 and `[onnx]` extras, AROSICS, RoMa, the pretrained ONNX files (`make onnx`)
 and the fine-tuned weights, which `satreg` downloads and checks against their
-pinned SHA-256 (see the README).
+pinned SHA-256 (see [`running.md`](running.md#fine-tuned-weights)).
 
 | run | config | device | pairs | duration |
 |---|---|---|---:|---:|
@@ -567,7 +568,7 @@ satreg false-change --config configs/n2.toml         # M1          -> outputs/n2
 The two GPU runs are made first, with the Kaggle notebook, and downloaded to
 `outputs/kaggle/outputs/` ([`kaggle.md`](kaggle.md)). The M1 part needs the
 `[dl]` extra, AROSICS and RoMa (`make install-dl install-arosics install-roma`,
-see the README).
+see [`running.md`](running.md#arosics)).
 
 | run | config | device | pairs | duration |
 |---|---|---|---:|---:|
@@ -913,8 +914,9 @@ failure as a miss.
 satreg benchmark --config configs/n1.toml
 ```
 
-AROSICS must be installed (`make install-arosics`, see the README). A missing chip
-is fetched on the first run (about 1.5 MB per site) and cached in `data/chips/`,
+AROSICS must be installed (`make install-arosics`, see
+[`running.md`](running.md#arosics)). A missing chip is fetched on the first run
+(about 1.5 MB per site) and cached in `data/chips/`,
 and `make n1` runs the same command. The run takes
 about 5 min 30 s on the machine below and writes `outputs/n1/`: `pairs.csv` (one
 row per pair and method, with the truth, the estimate, each method's diagnostics

@@ -1,8 +1,8 @@
 """AROSICS global co-registration (``COREG``), on the pair's map grid.
 
 AROSICS and the GDAL bindings it needs are an optional extra (``pip install -e
-".[arosics]"``, see the README). This module imports them only when the method
-runs, so the rest of the package works without them.
+".[arosics]"``, see docs/running.md). This module imports them only when the
+method runs, so the rest of the package works without them.
 """
 
 import importlib.util

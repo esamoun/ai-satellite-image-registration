@@ -326,7 +326,8 @@ weights of the kept checkpoint.
 
 ## The GPU column of the cost curve
 
-The cost curve of N3 (`make curve`, see the README) is read on the M1's CPU.
+The cost curve of N3 (`make curve`, see
+[`running.md`](running.md#the-cost-curve)) is read on the M1's CPU.
 Its table has one more column, the time of the same twelve models under PyTorch
 on a T4, which `satreg curve` fills when a run of them on the same 360 pairs is
 in `outputs/curve/gpu-light`. The notebook makes that run with
@@ -371,10 +372,11 @@ install and the weights aside
 
 ## The final evaluation of N3
 
-The final evaluation (`make n3`, see the README) reads the two held-out sites,
-once, after the freeze written in [`decisions.md`](decisions.md). Two of its
-runs are made on a T4, each in its own session, from the commit the freeze
-names: set `COMMIT` to its hash, not to `main`.
+The final evaluation (`make n3`, see [`running.md`](running.md#the-n3-run))
+reads the two held-out sites, once, after the freeze written in
+[`decisions.md`](decisions.md). Two of its runs are made on a T4, each in
+its own session, from the commit the freeze names: set `COMMIT` to its
+hash, not to `main`.
 
 The GPU half of the simulated table,
 [`configs/n3-gpu.toml`](../configs/n3-gpu.toml): the four RAFT models, the two

@@ -6213,3 +6213,81 @@ that says 1.0.0. A tag pushed before the version is bumped publishes nothing.
 - The tag is set and pushed by Eithan: nothing is published before.
 - Drafted with Claude Code from the plan of N4; the why is to be reread by
   Eithan.
+
+## 2026-10-16: The int8 copy of fine-tuned RAFT runs in a browser, 0.06 px from ONNX Runtime in Python, and the demo page stays without it
+
+**Decision.** Nothing is added to the demo page. This entry records a trial of
+under half a day, ticket 10 of N4: can an int8 copy of fine-tuned RAFT run in a
+web page, with ONNX Runtime's browser build? It can. The page stays precomputed,
+as the entry "The demo is computed ahead, not in the browser" decided, and N4
+closes on it.
+
+**What was tried.** A scratch page, outside `docs/` and not committed, loaded
+`raft_large_ft_r4_int8` (6.4 MB, the smallest int8 copy) with
+`onnxruntime-web` 1.29.0 from its CDN, and ran it on one demo pair: Beauce,
+`clean`, translation, 256 px. The two inputs were prepared in Python by the
+code `raft_onnx` runs, and saved as raw float32, so the trial compares the
+runtimes and nothing else. The reference is ONNX Runtime 1.30.0 in Python, on
+the same file and the same inputs. Both ran on the M1 (macOS 26.6.2); the
+browser was the Chromium 152 built into the Claude desktop app, served from
+`localhost` with `Cross-Origin-Opener-Policy` and
+`Cross-Origin-Embedder-Policy` set, the two headers that let WebAssembly use
+threads.
+
+**What came out.**
+
+- The file loads and runs on the WebAssembly backend. No operator is missing:
+  `GridSample` and the `QuantizeLinear` and `DequantizeLinear` pairs of the int8
+  copy all run.
+- The browser's flow against Python's: the largest difference is 0.061 px, on
+  one of its 131,072 values. The mean difference is 0.010 px, the 99th
+  percentile 0.036 px. The mean flow moves by 0.0004 px in x and 0.0013 px in
+  y. For scale, Python's own result moves by up to 0.042 px (mean 0.0008)
+  between one thread and its default, and the int8 copy is 0.086 px at most
+  (mean 0.014) from its float twin.
+- Time of a call at 256 px, five calls after a first one: 1.51 s on one
+  thread, against 265 ms for Python on one thread; 0.64 s and 0.82 s in two
+  runs on the browser's default threads, against 159 ms and 160 ms for Python
+  on its default, in two runs too. The browser is four to six times slower. The
+  app's browser pane was hidden during the runs, which may slow a page; not
+  measured apart.
+- Two builds of the browser runtime were run: the one with WebGPU, and the one
+  with WebAssembly only. On one thread they give the same differences to
+  Python, in every figure above, and calls of 1.53 s and 1.51 s. The runs on
+  default threads were made with the build with WebGPU, not the other.
+- The WebGPU backend runs but returns a wrong flow, a mean of about ten
+  billion px, in 3.5 s a call. Its cause was not looked for.
+- What the reader downloads: the model, 6.4 MB, and the WebAssembly-only
+  runtime, 14.0 MB (3.0 MB compressed as the CDN serves it) plus 50 KB of
+  JavaScript. The build with WebGPU pulls a 27.8 MB runtime instead (5.4 MB
+  compressed). The demo's data is 2.7 MB today.
+
+**Why not now: what adding it to the page would take.**
+
+- Nothing on the page is loaded from another host (entry "The demo page is
+  written by hand and opens on the false changes"). The runtime would be
+  committed under `docs/` (14.0 MB of WebAssembly, then a new copy each time
+  it is upgraded), or the rule dropped.
+- GitHub Pages sends neither of the two headers (read on the demo page's
+  address on 2026-10-16), so the page would run on one thread: 1.5 s a call on
+  the M1, more on a phone (not measured). A service worker can add the two
+  headers; not tried.
+- The preparation of the inputs, a percentile stretch, edge padding and three
+  equal channels, would be rewritten in JavaScript, and the pair read in the
+  page. The trial skipped both, so the difference of the whole chain to Python
+  would have to be measured again.
+- The model would be fetched from the release instead of committed: whether
+  the release's download address allows a page to read it was not checked.
+- The page would say that its numbers are its own: up to 0.06 px from the
+  published method's flow on this pair.
+
+**Rejected.** Adding it in N4: the ticket ruled it out before the trial, and
+the list above is more work than N4 has left.
+
+**Limits.**
+
+- One pair, one file, one machine, one browser. Safari and Firefox were not
+  tried, nor the 8- and 12-refinement copies.
+- The scratch page is in the local ticket tracker, not in the repository.
+- Drafted with Claude Code from ticket 10 of N4; the why is to be reread by
+  Eithan.

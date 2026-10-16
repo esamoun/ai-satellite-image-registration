@@ -251,11 +251,11 @@
     </div>
     <div>
       <dt>A rule picks the demo pairs, not an eye.</dt>
-      <dd>The benchmark draws twenty pairs per site from a fixed seed. For each site, the demo pair is the first of them whose true shift is over <span id="rule-shift">2</span>&nbsp;px: under that, a slider has nothing to show. The rule reads the true shift only, so no method runs to pick a pair. The threshold was set after the true shifts of the first pairs were seen, and before any method's result on them was looked at.</dd>
+      <dd>The benchmark draws each site's pairs from a fixed seed, the same pairs in the same order on every run. For each site, the demo pair is the first of them whose true shift is over <span id="rule-shift">2</span>&nbsp;px: under that, a slider has nothing to show. The rule reads the true shift only, so no method runs to pick a pair. The threshold was set after the true shifts of the first pairs were seen, and before any method's result on them was looked at.</dd>
     </div>
     <div>
       <dt>The four sites are seen sites.</dt>
-      <dd>Their pixels were never trained on, but their landscape types were. Each demo pair is also one of the twenty pairs per site of the published tables, so the page shows a pair the tables already count and adds nothing to them.</dd>
+      <dd>Their pixels were never trained on, but their landscape types were. Each demo pair is also a pair of the published tables, so the page shows a pair the tables already count and adds nothing to them.</dd>
     </div>
     <div>
       <dt>The cost curve comes from other pairs.</dt>

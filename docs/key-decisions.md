@@ -13,8 +13,8 @@ Drafted with Claude Code from the log, and reviewed by me.
 
 ### 1. Two sites stay hidden until the end
 
-Of the six test sites, two (a mountain and a desert) are kept back for the
-final test in N3. In N2 they appear in no table at all: not in a separate one,
+Of the six sites of the benchmark, two (a mountain and a desert) are kept back
+for the final test in N3. In N2 they appear in no table at all: not in a separate one,
 not flagged in the main one. N2 is where I tuned thresholds, presets and
 variants, and anything I tune while looking at a site leaks into its score. A
 separate table would only work if I trusted myself not to look. So the
@@ -71,8 +71,9 @@ architecture.
 
 A hidden site stops being hidden the moment you make a choice knowing its
 score. So the two sites were read exactly once, and before that run a dated
-entry of the log froze everything it would use: the commit, the weights and
-model files by their SHA-256 hash, the points of the cost curve, the configs.
+entry of the log froze everything it would use: the commit, the weights
+and exported models by their SHA-256 hash, the points of the cost curve, the
+configs.
 I also timed the final cost curve on all 1,800 pairs rather than ten per cell,
 so that the error and failure rate of each point come from the same pairs as
 the criterion. Anyone can check the order from the dates of the log and of the
@@ -99,7 +100,7 @@ log caught that before anything was committed.
 The laptop is an M1 without a fan. On a rested machine, RAFT large with 12
 refinements under ONNX Runtime takes 630 to 640 ms a call; after two and a half
 minutes of calls it is up to 860 to 880 ms. The curve shows the sustained
-figure (905 ms), not the rested one (640 ms), because a benchmark is a long run
+figure (916 ms), not the rested one (640 ms), because a benchmark is a long run
 and the rested speed lasts a few calls. A first run came out slow because the
 whole machine was slower for most of it, so I ran it again at night with
 nothing else running and did not publish the first one. I also kept ONNX

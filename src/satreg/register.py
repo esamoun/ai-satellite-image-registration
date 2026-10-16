@@ -270,7 +270,7 @@ def padding_note(method: Method, shape: tuple[int, int]) -> str | None:
     return (
         f"the pair is {shape[0]} x {shape[1]} px and RAFT pads it up to "
         f"{MIN_SIDE} px a side, which costs accuracy: 0.14 to 0.30 px of mean "
-        "error on 64 px synthetic pairs, against 0.02 to 0.07 px at 256 px"
+        "error on 64 px simulated pairs, against 0.02 to 0.07 px at 256 px"
     )
 
 

@@ -946,7 +946,7 @@ def _parser(
         "demo",
         help="write the data of the demo page: one pair per seen site, picked "
         "by a rule on its ground truth, what five methods make of it, and the "
-        "same pairs as examples for satreg register",
+        "same pairs as files to try satreg register on",
     )
     showing.add_argument(
         "--sites",

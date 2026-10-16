@@ -5428,9 +5428,10 @@ true shifts of pairs 0 to 3 were then computed, and pair 0 of Vosges moves by
 no method's result on these pairs was looked at to write it. It is still a
 threshold chosen with the shifts in view, and this entry says so.
 
-**A demo pair is also a pair of the tables.** Drawn with seed 0, it is one of
-the twenty pairs per site of the published N2 and N3 tables. The page shows
-it and adds no figure to any table. The errors `satreg demo` writes are those
+**A demo pair is also a pair of the tables.** Drawn with seed 0, it is among
+the first pairs of its site in the published N2 and N3 tables, which draw
+100 pairs a cell in the same order. The page shows it and adds no figure to
+any table. The errors `satreg demo` writes are those
 of the benchmark on the same pair: equal for the classic methods, and within
 0.0001 px for RAFT, whose published figures are from the T4 run and these from
 the M1.
@@ -5929,8 +5930,8 @@ linked to the demo page, the status, the container command, two
 the licence. The usage it held, its lines 70 to 1019, moves to
 `docs/running.md` as it was, under the same headings, with its links rewritten
 relative to `docs/`. A section on the container image comes before it, with
-the figures of the run on the M1 (2026-10-13): the container's error figures
-are the ones to expect, the int8 rows to the third decimal. The layout was
+the figures of the run on the M1 (2026-10-13): the container image's error
+figures are the ones to expect, the int8 rows within 0.0011 px. The layout was
 planned with N4, after the README of project 1.
 
 **Why.** At 1,042 lines the README put a thousand lines of commands between a
@@ -6052,7 +6053,7 @@ branch on `origin`, on 2026-10-15:
 - The two notebooks have no saved output, and never had.
 - `/.scratch/`, `/data/` and `/outputs/` are ignored, and nothing under them
   was ever committed; nor any `.env`, `kaggle.json`, `.pth`, `.onnx` or
-  `.npz`. The largest file is the container's chip, 1.55 MB, meant to be
+  `.npz`. The largest file is the container image's chip, 1.55 MB, meant to be
   there. The objects weigh 19.7 MiB.
 - The six figures of `docs/results/` are plots, with no imagery.
 - `origin` held one branch besides `main`, `n4-03-container-image`, with no
@@ -6260,7 +6261,7 @@ threads.
 - What the reader downloads: the model, 6.4 MB, and the WebAssembly-only
   runtime, 14.0 MB (3.0 MB compressed as the CDN serves it) plus 50 KB of
   JavaScript. The build with WebGPU pulls a 27.8 MB runtime instead (5.4 MB
-  compressed). The demo's data is 2.7 MB today.
+  compressed). The demo's data is 2.6 MB today.
 
 **Why not now: what adding it to the page would take.**
 

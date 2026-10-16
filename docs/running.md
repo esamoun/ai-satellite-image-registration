@@ -101,7 +101,7 @@ docker run --rm --network none --user "$(id -u):$(id -g)" \
 ```
 
 It took 17 min 35 s in Colima's machine, against 7 min 33 s on the same M1
-outside a container, and the container used about 765 MiB of memory (read
+outside a container, and the run used about 765 MiB of memory (read
 every 15 s with `docker stats`, not a true peak). Its error figures are the
 ones to expect (mean end-point error of the pairs that did not fail, in px;
 failures are pairs whose error is over 1 px or that the method declined):
@@ -123,8 +123,8 @@ failures are pairs whose error is over 1 px or that the method declined):
 
 No method fails a `clean` pair. The nine rows of the classic methods and of
 the float RAFT files are the M1's own outside a container, to five decimals.
-The three int8 rows hold to the third decimal only: outside a container the M1
-gives them up to 0.0011 px apart (`raft_ft_r4_onnx_int8`, `hard`: 0.1393).
+The three int8 rows hold within 0.0011 px only: outside a container the M1
+gives them up to that far apart (`raft_ft_r4_onnx_int8`, `hard`: 0.1393).
 The container image runs Linux and ONNX Runtime 1.31.0 where that run had
 macOS and 1.30.0; which of the two moves them was not looked for. Library
 versions are not pinned, so a later build can move a figure in its last

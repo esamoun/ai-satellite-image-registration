@@ -2,8 +2,8 @@
 
 This project compares classic and deep-learning methods for aligning two
 Sentinel-2 images to a fraction of a pixel. Along the way I made a lot of
-calls, and [the decision log](decisions.md) keeps all 129 entries with their
-reasoning and their numbers. This page is the short version: the twelve that
+calls, and [the decision log](decisions.md) keeps every one of them with its
+reasoning and its numbers. This page is the short version: the twelve that
 shaped the project most. For each one, what I picked, what I turned down, and
 why. Every section links to the full entry.
 

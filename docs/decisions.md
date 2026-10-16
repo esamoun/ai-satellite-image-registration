@@ -6291,3 +6291,28 @@ the list above is more work than N4 has left.
 - The scratch page is in the local ticket tracker, not in the repository.
 - Drafted with Claude Code from ticket 10 of N4; the why is to be reread by
   Eithan.
+
+## 2026-10-16: The demo is linked from the GitHub profile and the repository's page, not from a portfolio site
+
+**Decision.** The entry "The repository is made public last, and the demo is
+served from its own `docs/`" says the portfolio page (`esamoun.github.io`)
+links to the demo. It did not: on 2026-10-16 that address served nothing. The
+demo is now linked from Eithan's GitHub profile (the README of
+`esamoun/esamoun`, next to the code) and from the repository's website field.
+
+*Eithan's call* (2026-10-16): the profile and the repository now, the
+portfolio site later.
+
+**Why.** The profile is already online and links the other project the same
+way, the code and then the page. The website field puts the link at the top
+of the repository's GitHub page. Neither needs a new public repository.
+
+**Rejected.** Putting the portfolio site online now: a new public repository,
+and this project's card to rewrite first (it still says "In progress" and
+"Started September 2026", and its steps stop at N1).
+
+**Limits.**
+
+- The local portfolio page still describes this project as it was in
+  September; its two PDFs as well.
+- Drafted with Claude Code; the why is to be reread by Eithan.

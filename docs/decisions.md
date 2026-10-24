@@ -6317,3 +6317,27 @@ and this project's card to rewrite first (it still says "In progress" and
 - The local portfolio page still describes this project as it was in
   September; its two PDFs as well.
 - Drafted with Claude Code; the why is to be reread by Eithan.
+
+## 2026-10-23: The local portfolio page and its PDFs describe the finished project
+
+**Decision.** The local portfolio page (`esamoun.github.io`) and its two A4
+PDFs now describe this project as finished. This supersedes the limit of the
+entry "The demo is linked from the GitHub profile and the repository's page,
+not from a portfolio site", which said they still described it as it was in
+September. The card shows one demo pair (Beauce, clean translation: 43 % of
+pixels flagged before correction, 1 of 57,600 after fine-tuned RAFT), the N3
+figures (0.069 px against 0.095 px on the 1,800 held-out pairs; 0 of 384 real
+triplets failed against 89) and what ships (a command, a container image
+without PyTorch, the demo page).
+
+**Why.** That entry rejected putting the portfolio site online with this card
+still to rewrite first. The card is rewritten, and each figure on it was
+checked against this repository (`docs/evaluation.md`, the demo's `pair.json`,
+`tests/`) before it went in.
+
+**Limits.**
+
+- The portfolio site is still not online: the page and its PDFs are local, in
+  a folder that is not a repository. The demo is still linked from the profile
+  and the repository's page only.
+- Drafted with Claude Code; the why is to be reread by Eithan.

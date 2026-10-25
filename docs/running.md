@@ -130,6 +130,13 @@ macOS and 1.30.0; which of the two moves them was not looked for. Library
 versions are not pinned, so a later build can move a figure in its last
 decimals too.
 
+The run outside a container is in
+[`results/n4/container-image-m1.md`](results/n4/container-image-m1.md), with
+its [`context`](results/n4/context-container-image-m1.json). The run in the
+container image is not kept: a two-pair run wrote over its files on
+2026-10-15, so its figures here, its duration and its memory were read on
+2026-10-13 and have no file in the repository.
+
 These 20 pairs are the first 20 of the 100 Beauce pairs of the published
 tables: a row here is a fifth of a published row, and is not expected to give
 its figure.

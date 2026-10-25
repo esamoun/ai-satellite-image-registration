@@ -372,6 +372,9 @@ def clear(out: Path) -> None:
     Called before the method runs, so that the directory never shows the
     result of another call as that of this one, whether this one fails or
     answers with a displacement of another model.
+
+    Args:
+        out: Directory of the call; a file that is not there is skipped.
     """
     for name in (DISPLACEMENT_FILE, CORRECTED_FILE, FLOW_FILE):
         (out / name).unlink(missing_ok=True)

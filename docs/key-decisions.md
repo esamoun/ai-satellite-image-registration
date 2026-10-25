@@ -171,12 +171,13 @@ am measuring.
 ### 12. A light container image, without PyTorch
 
 The container image runs three classic methods and the fine-tuned RAFT models
-under ONNX Runtime, without PyTorch. I preferred that to a full image, or to
-shipping both. PyTorch alone takes 583 MB on my development machine, and the
-image only has to register a pair and run a small benchmark, which the ONNX
-exports do without it. A full image would also need a system GDAL for AROSICS,
-and the deep-learning tables were computed on a Kaggle GPU that a laptop's
-container does not have anyway; they can still be reproduced outside it, with
-`make`. Light is relative, though: the image is 942 MB on amd64.
+under ONNX Runtime, without PyTorch. I preferred that to a full container
+image, or to shipping both. PyTorch alone takes 583 MB on my development
+machine, and the container image only has to register a pair and run a small
+benchmark, which the ONNX exports do without it. A full container image would
+also need a system GDAL for AROSICS, and the deep-learning tables were
+computed on a Kaggle GPU that a laptop's container does not have anyway; they
+can still be reproduced outside it, with `make`. Light is relative, though:
+the container image is 942 MB on amd64.
 
 [Full entry, 2026-10-13](decisions.md#2026-10-13-the-container-image-is-light-no-pytorch-the-classic-methods-and-fine-tuned-raft-under-onnx-runtime)

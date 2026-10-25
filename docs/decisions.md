@@ -5267,9 +5267,10 @@ still answer "which one" for the reader, and it estimates a single
 translation. The method with the lowest validation error: chosen after the
 read all the same.
 
-**Limits.** The README shows one command per kind of method. An example is
-still a name a reader may copy, so the section says the four are examples and
-not a ranking. The list has 44 names on the M1 with every extra installed,
+**Limits.** The README showed one command per kind of method; since
+2026-10-15 it shows two, and `docs/running.md` the four (entry "The README is
+a front door"). An example is still a name a reader may copy, so both say
+their commands are examples and not a ranking. The list has 44 names on the M1 with every extra installed,
 variants included.
 
 ## 2026-10-12: A supplied pair is at most 512 px a side, from a measurement on the M1
@@ -5774,27 +5775,41 @@ identifier". Its Linux wheels, amd64 and arm64, were then read: they hold
 telemetry code (`telemetry_1ds.cc`), the address
 `https://mobile.events.data.microsoft.com/OneCollector/1.0` and the name
 `ORT_DISABLE_TELEMETRY`. The 1.30.0 of the development machine, which the
-published tables were made with, has none of the three. On the M1 with
-1.31.0 and a home directory that cannot be written to, the warning appears,
-and is gone with the variable set to 1. A container image said to need no
-network when it runs should not carry a library that tries to report its
-use, and one line turns that off.
+published tables were made with, has telemetry too: its macOS library holds
+the same address, the same name and the same warning, and the `Privacy.md`
+it installs says telemetry is on by default in the official builds, macOS
+and Linux included, and that `ORT_DISABLE_TELEMETRY=1` set before ONNX
+Runtime starts turns it all off. On the M1 with 1.31.0 and a home directory
+that cannot be written to, the warning appears, and is gone with the
+variable set to 1. A container image said to need no network when it runs
+should not carry a library that tries to report its use, and one line turns
+that off.
+
+Until 2026-10-25 this paragraph said 1.30.0 held none of the three. That was
+wrong: the library was read again that day, and the setting does not change.
 
 **Rejected.** Pinning ONNX Runtime to 1.30.0: it is the version of the
-published tables and has no telemetry, but it goes back on one package only
-on a limit already written (library versions are not pinned), and the
-question comes back at the next upgrade. Nothing changed: every command CI
-runs has no network, so nothing leaves there, but a user who runs the
-container image with a network would not know.
+published tables, but it has the same telemetry, and it goes back on one
+package only on a limit already written (library versions are not pinned),
+and the question comes back at the next upgrade. Nothing changed: every
+command CI runs has no network, so nothing leaves there, but a user who runs
+the container image with a network would not know.
 
 **Limits.**
 
-- What ONNX Runtime 1.31.0 sends, and whether it sends anything by default,
-  was not looked at: no run was watched with a network. What is known is
-  what the wheels hold and that the warning goes with the variable.
-- That the variable turns the telemetry off is read from its name and from
-  the warning, on macOS. In the container image the check is that no
-  telemetry message is printed, with no network in any case.
+- What ONNX Runtime 1.31.0 sends was not looked at: no run was watched with
+  a network. What is known is what the wheels hold, what `Privacy.md` says,
+  and that the warning goes with the variable.
+- That the variable turns the telemetry off is what ONNX Runtime's
+  `Privacy.md` says, and the warning goes with it on macOS. In the container
+  image the check is that no telemetry message is printed, with no network
+  in any case.
+- The published tables were made with telemetry on. The development machine
+  holds a device identifier that ONNX Runtime wrote on 2026-09-24 and a local
+  store of its events, under
+  `~/Library/Application Support/Microsoft/DeveloperTools/.onnxruntime`, and
+  the machine had a network. Whether events left it was not looked at. The
+  figures do not depend on it.
 - Outside the container image nothing is changed: `pip install ".[onnx]"`
   takes 1.31.0 as it comes, and the package sets nothing. Whether the package
   should turn it off itself is not decided.
@@ -5924,7 +5939,8 @@ fails if the style sheet reads a file from anywhere else.
 
 ## 2026-10-15: The README is a front door, and the usage moves to `docs/running.md`
 
-**Decision.** The README is about 130 lines: what the project is, one figure
+**Decision.** The README is about 130 lines (157 once the next entry adds the
+weights' terms to its licence): what the project is, one figure
 linked to the demo page, the status, the container command, two
 `satreg register` examples, the results in short with links to
 `docs/evaluation.md`, the limits, where the reasoning is, how it was built and
@@ -6327,8 +6343,8 @@ entry "The demo is linked from the GitHub profile and the repository's page,
 not from a portfolio site", which said they still described it as it was in
 September. The card shows one demo pair (Beauce, clean translation: 43 % of
 pixels flagged before correction, 1 of 57,600 after fine-tuned RAFT), the N3
-figures (0.069 px against 0.095 px on the 1,800 held-out pairs; 0 of 384 real
-triplets failed against 89) and what ships (a command, a container image
+figures (0.069 px against 0.095 px over the 1,797 of the 1,800 held-out
+pairs neither model fails; 0 of 384 real triplets failed against 89) and what ships (a command, a container image
 without PyTorch, the demo page).
 
 **Why.** That entry rejected putting the portfolio site online with this card

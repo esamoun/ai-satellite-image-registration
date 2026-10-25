@@ -368,6 +368,13 @@ def _plain(value: object) -> object:
 
 
 def _write_json(path: Path, payload: Mapping, indent: int | None = None) -> None:
+    """Write ``payload`` as JSON with sorted keys, as ``_plain`` turns it.
+
+    Args:
+        path: File to write.
+        payload: What to write.
+        indent: Indent of each level, or ``None`` for the most compact form.
+    """
     separators = None if indent else (",", ":")
     text = json.dumps(
         _plain(payload),
@@ -535,7 +542,22 @@ def write_arrows(
     return payload
 
 
-def _tif(path: Path, layers: np.ndarray, pair: SimulatedPair, names, tags) -> None:
+def _tif(
+    path: Path,
+    layers: np.ndarray,
+    pair: SimulatedPair,
+    names: list[str],
+    tags: Mapping[str, str | None],
+) -> None:
+    """Write a pair's layers as a GeoTIFF on the pair's map grid.
+
+    Args:
+        path: File to write.
+        layers: The bands, ``(bands, rows, cols)``.
+        pair: The pair whose map grid the file takes.
+        names: Description of each band.
+        tags: Tags of the file; a ``None`` value leaves that tag out.
+    """
     kept = {key: value for key, value in tags.items() if value is not None}
     supplied.write_tif(path, layers, pair.georef, names, kept)
 

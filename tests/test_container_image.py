@@ -105,6 +105,7 @@ def test_the_small_benchmark_runs_every_released_onnx_file_and_no_other():
 def test_the_small_benchmark_runs_on_the_committed_chip_with_no_network(
     tmp_path, capsys
 ):
+    # No network: the `no_network` fixture of conftest.py cuts it for every test.
     main(
         ["benchmark", "--config", str(CONFIG)]
         + ["--methods", "phase_correlation", "--pairs", "2", "--repeats", "1"]

@@ -5484,9 +5484,10 @@ The run takes about 40 s on the M1.
 **Limits.**
 
 - One pair per site shows and measures nothing. What a method does on it is
-  not what it does on average: `sift_ransac` fails on the Beauce and Vosges
-  pairs under `hard` (5, 9 and 8 matches kept where 10 are needed) and holds
-  on the other two, and phase correlation is 0.006 px over the failure
+  not what it does on average: under `hard`, `sift_ransac` fails on Beauce
+  and Vosges, on the slider's pair and on the arrows' (5 and 5 matches kept on
+  Beauce, 9 and 8 on Vosges, where 10 are needed), and holds on the other
+  two, and phase correlation is 0.006 px over the failure
   threshold on one of the sixteen. The tables are where rates are read.
 - The changed pixels are counted on this one pair. The false-change
   experiment draws its own pairs, and its figures are not these.
@@ -5583,10 +5584,11 @@ use. The full tables stay reproducible outside the container image, with
   read-only to other users, which is all a run needs.
 - It is light next to one with PyTorch, not small: 942 MB on amd64 and 908 MB
   on arm64, as `docker image inspect` gave it on the CI machines on 2026-10-13
-  (commit `d65211b`). CI prints the figure on every run. The ten packages with
-  compiled code are about 580 MB of it on amd64 and 530 MB on arm64, measured
-  on their unpacked wheels (OpenCV, rasterio and SciPy are over 100 MB each on
-  amd64), and the nine ONNX files 97 MB.
+  (commit `d65211b`), and 941 MB and 905 MB on 2026-10-25 (commit `c2079cd`).
+  CI prints the figure on every run, and it moves between builds. The ten
+  packages with compiled code are about 580 MB of it on amd64 and 530 MB on
+  arm64, measured on their unpacked wheels (OpenCV, rasterio and SciPy are
+  over 100 MB each on amd64), and the nine ONNX files 97 MB.
 
 ## 2026-10-13: The nine ONNX files are put in the container image when it is built
 

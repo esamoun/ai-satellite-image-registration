@@ -178,6 +178,6 @@ benchmark, which the ONNX exports do without it. A full container image would
 also need a system GDAL for AROSICS, and the deep-learning tables were
 computed on a Kaggle GPU that a laptop's container does not have anyway; they
 can still be reproduced outside it, with `make`. Light is relative, though:
-the container image is 942 MB on amd64.
+the container image is about 940 MB on amd64.
 
 [Full entry, 2026-10-13](decisions.md#2026-10-13-the-container-image-is-light-no-pytorch-the-classic-methods-and-fine-tuned-raft-under-onnx-runtime)

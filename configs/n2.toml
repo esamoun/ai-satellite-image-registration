@@ -75,7 +75,8 @@ repeats = 1
 out = "outputs/n2-cycle"
 
 # False change: 20 simulated pairs per site, scenario and preset, and the real
-# pairs of every site whose stable ground covers at least 5 % of the chip.
+# pairs of every site. The table by pair pools only the sites whose stable
+# ground covers at least 5 % of the chip.
 [false_change]
 sites = ["beauce", "toulouse", "vosges", "marseille"]
 methods = ["phase_correlation", "sift_ransac", "arosics", "raft", "lightglue", "roma"]

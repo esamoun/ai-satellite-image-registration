@@ -1989,7 +1989,7 @@ method can have while being wrong, and doubles the cost.
 
 ## 2026-09-28: Real triplets are scored on 256 px windows clear on all three dates
 
-*My call*: 256 px windows, rather than the whole 512 px chip, kept only if at
+*My call*: 256 px windows, rather than the whole 1,024 px chip, kept only if at
 most 1 % of the window is hidden on the union of the three dates.
 
 **Decision.** Each real triplet is registered on the 256 px windows
@@ -2005,7 +2005,7 @@ read next to that pair's appearance measurements. A window clear on all three
 dates means the closure measures registration, not what a cloud did to one
 leg.
 
-**Rejected.** The whole chip: the benchmark never ran methods at 512 px, and
+**Rejected.** The whole chip: the benchmark never ran methods at 1,024 px, and
 RoMa's grid, SIFT's feature budget and AROSICS' window would not be those of the
 simulated table. Masking clouds per leg only: a leg with a cloud the other two
 do not have would count in the closure as a registration error.
@@ -2692,8 +2692,8 @@ B04/B03 on Beauce and Toulouse, translation, the three presets, 50 pairs a cell,
 the ten methods of the table. 600 pairs. The four classic methods run on the
 M1's CPU; [`configs/n2-bands-gpu.toml`](../configs/n2-bands-gpu.toml) runs the
 six deep-learning ones on a Kaggle T4, on the same pairs, and `satreg merge`
-joins the two runs. The B04/B04 rows are not run again: they are the first 50
-pairs of each translation cell of the single-band table.
+joins the two runs. The B04/B04 rows are not run again: they are the
+translation cells of the single-band table, all 100 pairs per site.
 
 **Why.** Beauce and Toulouse are the two scenes whose B04/B08 co-registration was
 measured to hold the truth at 0.1 px; another site would first need that check.

@@ -73,7 +73,8 @@ ran on one side only simply has one row.
 
 ## The N2 runs
 
-N2 runs the notebook twice, from the same commit.
+N2 runs the notebook twice: the simulated table from commit `7505bcd`, the
+inter-band table from `a0999e2`. No file under `src/` differs between the two.
 
 The GPU half of the simulated table is the same procedure on
 [`configs/n2-gpu.toml`](../configs/n2-gpu.toml): set `CONFIG =

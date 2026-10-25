@@ -1,5 +1,6 @@
 import dataclasses
 import datetime as dt
+import logging
 import math
 
 import numpy as np
@@ -15,6 +16,7 @@ from satreg.cycle import (
     draw_triplet,
     motion_markdown,
     motion_summary,
+    register,
     run_real,
     run_simulated,
     summarize,
@@ -117,6 +119,14 @@ def test_a_failed_leg_fails_the_triplet_and_says_which():
     assert row.error == "B-C: RegistrationFailure: too few"
     assert math.isnan(row.mean_closure)
     assert (row.time_ms, row.peak_mib) == (1.0, 2.0)
+
+
+def test_a_method_that_declines_a_leg_says_so_at_debug_level(caplog):
+    with caplog.at_level(logging.DEBUG, logger="satreg.cycle"):
+        result = register(declines, IMAGE[:64, :64], IMAGE[:64, :64], None, 1)
+
+    assert result.error == "RegistrationFailure: too few inliers"
+    assert "gave up: too few inliers" in caplog.text
 
 
 def test_a_triplet_that_does_not_close_within_the_threshold_fails():

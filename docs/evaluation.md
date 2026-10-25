@@ -609,9 +609,11 @@ On CUDA, RoMa computes in half precision; on the M1's CPU, in float32.
 
 ### Results: simulated pairs
 
-Mean end-point error in pixels over the pairs a method did not fail, averaged
-over the four sites; the failure rate is in brackets when it is not zero. 400
-pairs per cell (100 per site). In bold, the lowest error among the methods that
+Mean end-point error in pixels over the pairs a method did not fail, as the
+mean of the four sites' means; a site where a method fails every pair drops out
+of it (RoMa dense on `hard` translations is a mean over three sites). The
+failure rate is in brackets when it is not zero. 400 pairs per cell (100 per
+site). In bold, the lowest error among the methods that
 fail at most 5 % of the pairs.
 
 | scenario | preset | phase corr. | + Hann | SIFT | AROSICS | RAFT | RAFT small | LightGlue | LG DISK | RoMa | RoMa dense |
@@ -654,6 +656,15 @@ A failure is either a pair the method declined or one it got wrong by more than
 | LG DISK | 2 % | 20 % |
 | RoMa | 64 % | 5 % |
 | RoMa dense | 64 % | 32 % |
+
+**AROSICS is at its worst on whole-pixel shifts.** On `mild` Beauce pairs it is
+0.20 px off at a true shift of 0 px and 0.18 px at 1 px, against 0.07 px at
+0.25 px; phase correlation is within 0.07 px on all of them
+([`decisions.md`](decisions.md), 2026-09-28). The table draws shifts uniformly
+over ±4 px, so AROSICS' rows average that artefact with the fractional shifts
+where it does well. Real pairs of one tile are within a fraction of a pixel of
+each other, its worst case: it closes real triplets at 0.23 px, against 0.08 px
+for phase correlation (cycle table below).
 
 ### Results: cost
 
@@ -802,7 +813,10 @@ spectral bands, red against near infrared, RoMa is the only method that holds:
 0.27 px and SIFT and RAFT fail four pairs in five. Under the `hard` preset, RAFT
 is the one pretrained method as robust as phase correlation, 2 % of failures, and
 it is more accurate on affine and dense motion (0.22 and 0.26 px against 0.32 and
-0.37 px).
+0.37 px). That holds for clouds on the moving image only, which is how the
+benchmark draws its pairs. With clouds on both images, as on the B-to-C leg of
+the simulated triplets, RAFT fails 23 % of `mild` and 27 % of `hard` triplets
+([`decisions.md`](decisions.md), 2026-09-28).
 
 **Where it does not: global motion on clean pairs, and real pairs whose ground
 changes.** On clean translations the Hann-windowed phase correlation is at
@@ -868,6 +882,14 @@ What remains:
   false-change run on the M1's CPU to a few pairs in twenty
   ([`failures.md`](failures.md), 2026-10-01), but the two devices were not
   compared pair by pair on this table.
+- **RANSAC's draw moves the `hard` failure rates.** On `hard` pairs a fifth to
+  a third of the matches are inliers, and which ones RANSAC samples depends on
+  their order: the same matches in five orders moved LightGlue on DISK's failure
+  rate between 30 and 45 %. The `hard` rows of the methods fitted by RANSAC
+  (LightGlue, LightGlue on DISK, RoMa's affine fit, and likely SIFT) carry
+  roughly 5 to 15 points of spread from this alone. The table reports one run;
+  SIFT and RoMa were not rerun with shuffled matches
+  ([`failures.md`](failures.md), 2026-09-25).
 - **Four sites, all in France.** The held-out sites (a mountain and a desert)
   are not in these tables, by design: N3, above, reads them.
 - **Uncertainty and cost on one laptop**, as in N1 below.

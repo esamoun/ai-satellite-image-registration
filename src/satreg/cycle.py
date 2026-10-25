@@ -120,6 +120,7 @@ def register(
         diagnostics = {}
         if isinstance(exc, RegistrationFailure):
             diagnostics = exc.diagnostics
+            logger.debug("%s gave up: %s", method, exc)
         else:
             logger.warning("%s failed: %s: %s", method, type(exc).__name__, exc)
         return Leg(None, f"{type(exc).__name__}: {exc}", _as_json(diagnostics), **cost)

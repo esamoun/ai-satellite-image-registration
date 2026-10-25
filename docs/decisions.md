@@ -6421,10 +6421,11 @@ is in the `onnx` extra only. Every figure added comes from a file:
 **Rejected.**
 
 - Shortening the licence section to one line: the README must carry the
-  weights' terms word for word (`WEIGHTS_TERMS`), and the note on the datasets
-  was a call of 2026-10-15.
-- Replacing the cost curve with the GIF at the top: the curve is the result, the
-  GIF only shows what registering does.
+  weights' terms word for word (`WEIGHTS_TERMS`), and publishing the weights
+  with that note was a call of 2026-10-15.
+- Replacing the cost curve with the GIF at the top: the cost curve as the
+  README's figure was a call of 2026-10-15, and the GIF only shows what
+  registering does.
 - An `og:image`, an `og:url` or a LinkedIn link on the demo page: the page may
   hold no address but links to the repository.
 

@@ -100,8 +100,10 @@ log caught that before anything was committed.
 The laptop is an M1 without a fan. On a rested machine, RAFT large with 12
 refinements under ONNX Runtime takes 630 to 640 ms a call; after two and a half
 minutes of calls it is up to 860 to 880 ms. The curve shows the sustained
-figure (916 ms), not the rested one (640 ms), because a benchmark is a long run
-and the rested speed lasts a few calls. A first run came out slow because the
+figure, not the rested one, because a benchmark is a long run and the rested
+speed lasts a few calls: fine-tuned RAFT large is at 916 ms on the held-out
+sites ([final evaluation, 2026-10-12](decisions.md#2026-10-12-the-final-evaluation-fine-tuned-raft-beats-the-pretrained-model-on-the-held-out-sites-and-its-closure-is-better)).
+A first run came out slow because the
 whole machine was slower for most of it, so I ran it again at night with
 nothing else running and did not publish the first one. I also kept ONNX
 Runtime's default settings, even though one trial made another setting look

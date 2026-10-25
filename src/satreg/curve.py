@@ -821,7 +821,7 @@ def to_markdown(curve: Curve, full: str = "the full validation set") -> str:
         f"Against {TRAINED_REFINEMENTS} is the mean error minus that of the same "
         f"model with {TRAINED_REFINEMENTS} refinements, the count it was trained "
         "with, over the pairs neither fails: positive is worse. No model was "
-        "retrained.",
+        "trained again.",
     ]
     return "\n".join(lines) + "\n"
 

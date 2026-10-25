@@ -4,10 +4,10 @@ Closure on real triplets, every triplet and window of a role's chips together:
 |---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
 | validation chips | all | raft | mps | 241 | 0.0 % | 0.2093 | 57.7 % | 93.4 % | 32.4 % | 142.4 | n/a |
 | validation chips | all | raft_small | mps | 241 | 0.0 % | 0.2869 | 36.4 % | 87.5 % | 42.3 % | 56.3 | n/a |
-| training chips | all | raft | mps | 507 | 0.0 % | 0.1354 | 75.0 % | 97.1 % | 28.2 % | 143.0 | n/a |
-| training chips | all | raft_small | mps | 507 | 0.0 % | 0.2037 | 43.9 % | 94.9 % | 37.1 % | 57.0 | n/a |
+| train chips | all | raft | mps | 507 | 0.0 % | 0.1354 | 75.0 % | 97.1 % | 28.2 % | 143.0 | n/a |
+| train chips | all | raft_small | mps | 507 | 0.0 % | 0.2037 | 43.9 % | 94.9 % | 37.1 % | 57.0 | n/a |
 
-Validation chips: santerre, lyon, morvan, sete. Training chips: champagne, boerde, bordeaux, milan, landes, foret_noire, giens, costa_brava. Choices are made on the validation chips; the training chips are the ones a fine-tuned model has seen, and are reported, not chosen on. Each triplet of dates A < B < C is registered A to B, B to C and A to C on each 256 px window hidden at most 1 % on its three dates; the closure is the distance between A to B then B to C, and A to C, over pixels clear on all three. A triplet fails if a leg does, or if its mean closure exceeds 1.0 px; closure columns average the others. Time is the median of 1 call(s) per pair, after 1 warm-up call(s) per method; memory is not measured, as no counter is available on the device. Measured on Apple M1, 8 GiB, 8 CPUs, macOS-26.6.2-arm64-arm-64bit-Mach-O.
+Validation chips: santerre, lyon, morvan, sete. Train chips: champagne, boerde, bordeaux, milan, landes, foret_noire, giens, costa_brava. Choices are made on the validation chips; the training chips are the ones a fine-tuned model has seen, and are reported, not chosen on. Each triplet of dates A < B < C is registered A to B, B to C and A to C on each 256 px window hidden at most 1 % on its three dates; the closure is the distance between A to B then B to C, and A to C, over pixels clear on all three. A triplet fails if a leg does, or if its mean closure exceeds 1.0 px; closure columns average the others. Time is the median of 1 call(s) per pair, after 1 warm-up call(s) per method; memory is not measured, as no counter is available on the device. Measured on Apple M1, 8 GiB, 8 CPUs, macOS-26.6.2-arm64-arm-64bit-Mach-O.
 
 By chip and triplet:
 

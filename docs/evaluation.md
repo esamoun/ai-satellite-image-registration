@@ -295,6 +295,12 @@ run on the M1's CPU, and the two pretrained columns give N2's figures within
 | B04/B08 | mild | 0.642 (85 %) | 0.335 (6 %) | 0.866 (97 %) | 0.480 (27 %) | 0.159 (20 %) |
 | B04/B08 | hard | 0.785 (86 %) | 0.381 (26 %) | 0.875 (98 %) | 0.542 (56 %) | n/a (100 %) |
 
+A site where a model fails every pair drops out of the mean: pretrained RAFT
+small on B04/B08 fails all of Beauce's `clean` pairs and all of Toulouse's
+`hard` ones, so its 0.953 px is Toulouse's alone and its 0.875 px Beauce's
+alone. The failure rate is still over both sites. Per site, in
+[`results/n3/final/bands.md`](results/n3/final/bands.md).
+
 ### Results: false change
 
 The detector of N2, on simulated pairs: share of unchanged pixels flagged

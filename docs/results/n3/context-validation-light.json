@@ -78,7 +78,7 @@
       "raft_small"
     ],
     "methods_config": "configs/methods.toml",
-    "out": "outputs/validation-light",
+    "out": "outputs/validation",
     "pairs": 100,
     "repeats": 1,
     "scenarios": [

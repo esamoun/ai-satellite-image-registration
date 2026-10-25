@@ -3869,7 +3869,8 @@ report.
   estimating too little.
 - **The same-date run kept its last step.** Its light validation score was
   still falling at step 10,000 (0.0737 px at 8,000, 0.0731 px at 10,000); the
-  cross-date run kept step 8,500 and is flat after it. More steps might have
+  cross-date run kept step 8,500, and its score rose after it (0.0854 px,
+  then 0.0884, 0.0877 and 0.0868 px at 10,000). More steps might have
   moved the same-date variant further. The budget was fixed on 2026-10-04 and
   both got the same.
 - **The scoring run was interrupted by a sleep.** `make ablation` ran on the

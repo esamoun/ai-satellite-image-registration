@@ -61,6 +61,7 @@
     "methods_config": "configs/methods.toml",
     "out": "outputs/validation-cycle",
     "repeats": 1,
+    "seed": 0,
     "series_config": "configs/real.toml",
     "sites_config": "configs/sites.toml",
     "train_config": "configs/train-sites.toml",

@@ -6341,3 +6341,35 @@ checked against this repository (`docs/evaluation.md`, the demo's `pair.json`,
   a folder that is not a repository. The demo is still linked from the profile
   and the repository's page only.
 - Drafted with Claude Code; the why is to be reread by Eithan.
+
+---
+
+## 2026-10-24: The test suite also refuses GDAL's HTTP reads
+
+**Decision.** On top of refusing Python socket connections, `tests/conftest.py`
+points GDAL's HTTP client at a closed loopback proxy (`GDAL_HTTP_PROXY` and
+`GDAL_HTTPS_PROXY` set to `http://127.0.0.1:9`) and drops `NO_PROXY` from the
+environment for every test. `tests/test_offline.py` serves the Beauce fixture
+over HTTP on the loopback and checks that rasterio cannot read it. This
+completes "The test suite refuses the network", whose check did not hold for
+COG reads.
+
+**Why.** rasterio reads a remote COG through GDAL, which fetches with its own
+HTTP client (libcurl) and never goes through Python's sockets. With only the
+socket guard, a test that read a chip from a URL would have downloaded it, which
+is exactly what that entry said the guard would catch. The review of N1 found
+the gap; a read of the fixture served on the loopback went through before this
+change and fails after it.
+
+**Rejected.** Replacing `rasterio.open` in the tests with a function that
+refuses URLs: it covers one call, not AROSICS or any other code that opens a
+dataset through GDAL directly. The proxy is a GDAL setting, so it covers every
+read GDAL makes.
+
+**Limits.**
+
+- A test that sets its own `GDAL_HTTP_PROXY` or `NO_PROXY`, or opens a socket
+  from C code that does not use GDAL, still gets through.
+- A refused read fails with GDAL's connection error, not with the guard's
+  message.
+- Drafted with Claude Code; the why is to be reread by Eithan.

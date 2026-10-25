@@ -1,0 +1,71 @@
+{
+  "recorded_at": "2026-09-23T20:55:45+00:00",
+  "machine": {
+    "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "cpu": "Apple M1",
+    "memory_gib": 8.0
+  },
+  "threads": {
+    "cpu_count": 8,
+    "usable_cpus": 8,
+    "opencv": 8,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+  },
+  "python": "3.13.7",
+  "libraries": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "scikit-image": "0.26.0",
+    "opencv-python-headless": "5.0.0.93",
+    "rasterio": "1.5.1",
+    "arosics": "1.13.2",
+    "GDAL": "3.13.3"
+  },
+  "cost": {
+    "warmup": 1,
+    "repeats": 3,
+    "process_peak_rss_mib": 317.453125
+  },
+  "run": {
+    "config": "configs/n1.toml",
+    "data_dir": "data",
+    "degradations": [
+      "clean",
+      "mild",
+      "hard"
+    ],
+    "degradations_config": "configs/degradations.toml",
+    "failure_threshold": 1.0,
+    "max_rotation": 0.2,
+    "max_scale_change": 0.002,
+    "max_shear": 0.002,
+    "max_shift": 4.0,
+    "methods": [
+      "phase_correlation",
+      "phase_correlation_hann",
+      "sift_ransac",
+      "arosics",
+      "arosics_floor60"
+    ],
+    "methods_config": "configs/methods.toml",
+    "out": "outputs/n1",
+    "pairs": 100,
+    "repeats": 3,
+    "scenarios": [
+      "translation",
+      "affine"
+    ],
+    "seed": 0,
+    "sites": [
+      "beauce",
+      "toulouse"
+    ],
+    "sites_config": "configs/sites.toml",
+    "size": 256,
+    "warmup": 1
+  }
+}

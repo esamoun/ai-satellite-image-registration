@@ -925,6 +925,11 @@ and `context.json` (the machine, the library versions and every option of the
 run). Pair geometry depends only on the seed, the site and the pair index, so a
 rerun gives the same accuracy figures; times move by about 1 %.
 
+The run's `context.json` is copied in
+[`results/n1/context-n1.json`](results/n1/context-n1.json). It names no commit:
+runs only started recording theirs on 2026-09-25. By its time, the run came
+after commit `e3edd1f` and before `03911fd`, which published its table.
+
 The config, [`configs/n1.toml`](../configs/n1.toml):
 
 ```toml

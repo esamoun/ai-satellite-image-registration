@@ -1,0 +1,24 @@
+# Satellite image registration: classic methods vs deep learning
+
+> Measures how well classic and deep-learning methods recover the displacement between two Sentinel-2 images, to a fraction of a pixel, on accuracy and on compute cost. Displacements are simulated on real imagery, so the ground truth is exact. The code is the Python package `satreg`, under the MIT licence. The fine-tuned RAFT weights are published for research and for reproducing the results, and no commercial right is granted.
+
+Methods compared: phase correlation (with and without a Hann window), SIFT, AROSICS, RAFT large and small (pretrained and fine-tuned on this data), LightGlue and RoMa.
+
+Main result, the final evaluation on the 1,800 pairs of two held-out sites (a mountain and a desert): fine-tuned RAFT large is at 0.069 px of mean error and fails no pair, where pretrained RAFT large is at 0.095 px. Phase correlation with a Hann window stays more accurate on clean translations, 0.005 px against 0.030 px. The figures hold for 256 px windows of Sentinel-2 with simulated motion; none was measured on a pair someone supplies.
+
+Run: `docker run --rm --network none ghcr.io/esamoun/ai-satellite-image-registration:1.0.0 register` lists the methods the container image runs. `satreg register REF MOVING --method NAME --out DIR` registers a pair of at most 512 px a side; there is no default method.
+
+## Docs
+
+- [README](https://github.com/esamoun/ai-satellite-image-registration#readme): what the project is, how to run it, the results in short
+- [Evaluation](https://github.com/esamoun/ai-satellite-image-registration/blob/main/docs/evaluation.md): the N1, N2 and N3 results, how to reproduce them, and their limits
+- [Key decisions](https://github.com/esamoun/ai-satellite-image-registration/blob/main/docs/key-decisions.md): the twelve decisions that shaped the project
+- [Running](https://github.com/esamoun/ai-satellite-image-registration/blob/main/docs/running.md): every command, level by level
+- [Glossary](https://github.com/esamoun/ai-satellite-image-registration/blob/main/CONTEXT.md): what each word means in the code and the docs
+
+## Optional
+
+- [Decision log](https://github.com/esamoun/ai-satellite-image-registration/blob/main/docs/decisions.md): each choice and why it was made
+- [Failures](https://github.com/esamoun/ai-satellite-image-registration/blob/main/docs/failures.md): what did not work, and what it taught
+- [Demo page](https://esamoun.github.io/ai-satellite-image-registration/): one pair per site, before and after each method's correction
+- [Released weights](https://github.com/esamoun/ai-satellite-image-registration/releases/tag/weights-n3): the fine-tuned RAFT checkpoints and ONNX files

@@ -6392,3 +6392,47 @@ read GDAL makes.
 - A refused read fails with GDAL's connection error, not with the guard's
   message.
 - Drafted with Claude Code; the why is to be reread by Eithan.
+
+## 2026-10-25: The README shows a result before it explains one
+
+**Decision.** The README gets a descriptive title, a licence and a Python
+badge, a GIF of one demo pair before and after registration
+(`docs/readme/flicker-beauce.gif`, written by `scripts/readme_flicker.py` from
+the files `satreg demo` wrote for Beauce, `clean`), a command that registers a
+demo pair inside the container image, a short glossary of the words the
+results use, and a table of the N3 cost-curve points. The from-source block
+installs with `make install-onnx`. `llms.txt`, at the root and in `docs/`, sums
+up the project for answer engines with figures already in the README. The demo
+page gets `og:` tags with no address and the author's name in plain text. The
+GitHub description names the methods compared; the topics add `optical-flow`,
+`deep-learning`, `satellite-imagery` and `raft`, and drop `python` and
+`geospatial`.
+
+**Why.** An audit of the README with the `github-roast-tpc` skills found the
+first screen told the reader what the project measures but showed no pair, and
+the results named methods and words (fails a pair, held-out site, closure,
+refinements) defined only in `docs/`. Checking the from-source commands found a
+bug: after `make install`, `--method raft_ft_onnx` fails, because ONNX Runtime
+is in the `onnx` extra only. Every figure added comes from a file:
+`docs/demo/beauce/clean/pair.json` for the GIF's 4.07 px, 0.0045 px and 43 %,
+`examples/manifest.json` for the true shift, and `curve-references.csv` and
+`curve-points.csv` for the table.
+
+**Rejected.**
+
+- Shortening the licence section to one line: the README must carry the
+  weights' terms word for word (`WEIGHTS_TERMS`), and the note on the datasets
+  was a call of 2026-10-15.
+- Replacing the cost curve with the GIF at the top: the curve is the result, the
+  GIF only shows what registering does.
+- An `og:image`, an `og:url` or a LinkedIn link on the demo page: the page may
+  hold no address but links to the repository.
+
+**Limits.**
+
+- The container image command was not run on the M1 for this entry: Docker was
+  not running. CI runs the same pair in the container image on every push.
+- The `og:` tags give no image, so a shared link shows text only.
+- `llms.txt` is copied by hand into `docs/`, where GitHub Pages serves it;
+  `tests/test_demo_page.py` fails if the two differ.
+- Drafted with Claude Code; the why is to be reread by Eithan.

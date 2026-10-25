@@ -89,3 +89,7 @@ def test_the_page_s_metres_are_the_pixel_size_of_the_demo_windows():
         for pair in same:
             with rasterio.open(ROOT / "examples" / pair["reference"]) as image:
                 assert image.res == (float(said[1]), float(said[1]))
+
+
+def test_the_llms_txt_github_pages_serves_is_the_one_at_the_root():
+    assert (PAGE / "llms.txt").read_text() == (ROOT / "llms.txt").read_text()

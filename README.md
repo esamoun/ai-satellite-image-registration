@@ -1,8 +1,10 @@
-# ai-satellite-image-registration
+# Satellite image registration: classic methods vs deep learning
 
 **Aligning satellite images to a tenth of a pixel: classic methods vs AI.**
 
 [![CI](https://github.com/esamoun/ai-satellite-image-registration/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/esamoun/ai-satellite-image-registration/actions/workflows/ci.yml)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
 
 Two images of the same place never line up exactly, and a change detector run
 on them flags the misalignment as change. This project measures how well
@@ -21,6 +23,15 @@ one pair per site, before and after each method's correction, and the cost
 curve above, point by point. It computes nothing: it shows files `satreg demo`
 wrote.
 
+![One demo pair of Beauce switching between its two images: on the left the pair jumps by 4.07 px, on the right, after phase correlation with a Hann window, it holds still](docs/readme/flicker-beauce.gif)
+
+*One demo pair of Beauce, switching between the reference and the second image.
+Left, the moving image as it is: the demo's change detector flags 43 % of the
+pixels it counts as changed. Right, the moving image after phase correlation with a Hann
+window: it flags none. The black edge holds no data. Made from the demo page's
+files by
+[`scripts/readme_flicker.py`](scripts/readme_flicker.py).*
+
 **Status: the four levels are done.** N1, the classic baseline; N2, classic
 against pretrained deep-learning methods; N3, RAFT fine-tuned on this data and
 evaluated once on two landscapes it never saw; N4, the command that registers
@@ -38,16 +49,32 @@ methods and the nine fine-tuned RAFT files, with the demo pairs, and runs with
 no network. It does not hold PyTorch, the pretrained networks or AROSICS: the
 full tables are reproduced outside it, with `make`.
 
+To see a result, register one of the demo pairs the container image holds. It
+writes to `out/` in the current directory:
+
+```bash
+docker run --rm --network none --user "$(id -u):$(id -g)" --volume "$PWD:/work" ghcr.io/esamoun/ai-satellite-image-registration:1.0.0 register examples/beauce/clean/reference.tif examples/beauce/clean/moving_translation.tif --method phase_correlation --out /work/out
+```
+
+It prints the displacement it found: outside a container on the M1,
+dx = -1.950 px and dy = -3.560 px. The true shift, in
+[`examples/manifest.json`](examples/manifest.json), is -1.944 and -3.571 px.
+On every push, CI builds the container image and registers this pair in it,
+with `phase_correlation` and with `raft_ft_onnx`.
+
 From source, Python 3.11 or later:
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-make install
-satreg register reference.tif moving.tif --method phase_correlation --out out/
-satreg register reference.tif moving.tif --method raft_ft_onnx --out out/
+make install-onnx
+satreg register examples/beauce/clean/reference.tif examples/beauce/clean/moving_translation.tif --method phase_correlation --out out/
+satreg register examples/beauce/clean/reference.tif examples/beauce/clean/moving_translation.tif --method raft_ft_onnx --out out/
 ```
 
-Two examples, a classic method and the fine-tuned model, not a
+`make install-onnx` is `make install` plus ONNX Runtime, which `raft_ft_onnx`
+needs; on first use it downloads its ONNX file from the release. For
+a pair of your own, give its two files in place of the demo pair's. Two
+examples, a classic method and the fine-tuned model, not a
 recommendation: the method is always named, and there is no default. The
 command writes the displacement, the corrected image and, for RAFT, the
 displacement of every pixel. A pair is at most 512 px a side. The published
@@ -58,12 +85,41 @@ Everything else, from the container image and what it gave on a laptop to
 each `make` target that reproduces a table, is in
 [`docs/running.md`](docs/running.md).
 
+## Words used below
+
+- **Fails a pair.** A method declines the pair, crashes, or is off by more than
+  1 px on average. A mean error is over the pairs a method did not fail.
+- **Held-out site.** A site whose landscape type is in no training or
+  validation chip. The two are a mountain and a desert.
+- **Real triplet, closure.** Three dates of one window, with no displacement
+  applied and so no ground truth. Registering A to B, then B to C, should give
+  what registering A to C gives: the closure measures whether the three
+  estimates agree, which is not an accuracy.
+- **Refinements.** The number of times RAFT corrects its estimate in one call.
+  The models are trained with 12.
+
+The full glossary is [`CONTEXT.md`](CONTEXT.md).
+
 ## Results
 
 **N3, the fine-tuned model:**
 [the final evaluation](docs/evaluation.md#n3-fine-tuned-raft-the-final-evaluation).
 The question and the criterion were written before any training, and the two
 held-out sites, a mountain and a desert, were read once.
+
+| method | mean error (px) | failed pairs | time of a call, laptop CPU |
+|---|---:|---:|---:|
+| phase correlation | 0.203 | 0 % | 5 ms |
+| SIFT | 0.128 | 3.9 % | 28 ms |
+| AROSICS | 0.229 | 12.1 % | 22 ms |
+| RAFT large, pretrained, 12 refinements | 0.095 | 0.2 % | 912 ms |
+| RAFT large, fine-tuned, 4 refinements | 0.081 | 0 % | 458 ms |
+| RAFT large, fine-tuned, 12 refinements | **0.069** | 0 % | 916 ms |
+
+*The 1,800 pairs of the two held-out sites, the points of the cost curve above.
+RAFT runs under ONNX Runtime on the M1's CPU. From
+[`curve-references.csv`](docs/results/n3/final/curve-references.csv) and
+[`curve-points.csv`](docs/results/n3/final/curve-points.csv).*
 
 - **Fine-tuning pays on landscapes the training never saw.** On the 1,800
   held-out pairs, fine-tuned RAFT is at 0.069 px where the pretrained model is
